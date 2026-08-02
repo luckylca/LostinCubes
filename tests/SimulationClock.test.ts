@@ -3,7 +3,7 @@ import { SimulationClock } from '../src/game/simulation/SimulationClock';
 
 describe('SimulationClock', () => {
   it('advances gameplay using deterministic fixed steps', () => {
-    const clock = new SimulationClock(0.1);
+    const clock = new SimulationClock(0.1, 0.5);
     const ticks: number[] = [];
 
     const result = clock.advance(0.35, (_step, tick) => ticks.push(tick));
