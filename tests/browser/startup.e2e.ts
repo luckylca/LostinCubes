@@ -63,10 +63,7 @@ test('boots the forest, crafts in inventory, and preserves camera controls', asy
   );
   await expect(page.locator('[data-crafting-recipes] .recipe-card')).toHaveCount(3);
 
-  await page
-    .locator('[data-crafting-recipes] .recipe-card')
-    .filter({ hasText: '橡木木板 ×4' })
-    .click();
+  await page.locator('[data-recipe-id="oak-planks"]').click();
   await expect(page.locator('[data-inventory-cursor]')).toBeVisible();
   await page.locator('[data-inventory-index="4"]').click();
   await expect(page.locator('[data-inventory-index="4"]')).toHaveAttribute(
