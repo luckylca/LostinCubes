@@ -106,10 +106,22 @@ export class DroppedItemManager {
     this.#world = world;
     this.#callbacks = callbacks;
     this.#materials = new Map<BlockTypeValue, StandardMaterial>([
-      [BlockType.Grass, createMaterial('drop-grass', new Color3(0.37, 0.58, 0.28), scene)],
-      [BlockType.Dirt, createMaterial('drop-dirt', new Color3(0.44, 0.3, 0.2), scene)],
-      [BlockType.Stone, createMaterial('drop-stone', new Color3(0.46, 0.48, 0.47), scene)],
-      [BlockType.RuneStone, createMaterial('drop-rune', new Color3(0.2, 0.43, 0.31), scene)],
+      [
+        BlockType.Grass,
+        createMaterial('drop-grass', new Color3(0.37, 0.58, 0.28), scene),
+      ],
+      [
+        BlockType.Dirt,
+        createMaterial('drop-dirt', new Color3(0.44, 0.3, 0.2), scene),
+      ],
+      [
+        BlockType.Stone,
+        createMaterial('drop-stone', new Color3(0.46, 0.48, 0.47), scene),
+      ],
+      [
+        BlockType.RuneStone,
+        createMaterial('drop-rune', new Color3(0.2, 0.43, 0.31), scene),
+      ],
     ]);
   }
 
@@ -194,18 +206,19 @@ export class DroppedItemManager {
         continue;
       }
 
-      if (drop.ageSeconds >= PICKUP_DELAY_SECONDS) {
-        this.#attractAndPickup(drop, player, seconds);
-        if (!drop.active) {
-          continue;
-        }
+      if (
+        drop.ageSeconds >= PICKUP_DELAY_SECONDS &&
+        this.#attractAndPickup(drop, player, seconds)
+      ) {
+        continue;
       }
 
       if (!drop.grounded) {
         this.#advanceVertical(drop, seconds);
       }
       drop.mesh.rotation.y += seconds * 1.8;
-      drop.mesh.rotation.x = Math.sin(drop.ageSeconds * 1.4 + drop.phase) * 0.12;
+      drop.mesh.rotation.x =
+        Math.sin(drop.ageSeconds * 1.4 + drop.phase) * 0.12;
       const bob = drop.grounded
         ? Math.sin(drop.ageSeconds * 3.2 + drop.phase) * 0.045
         : 0;
@@ -313,33 +326,46 @@ export class DroppedItemManager {
     drop: DropEntity,
     player: PlayerState,
     seconds: number,
-  ): void {
+  ): boolean {
     const targetY = player.position.y - 0.15;
     const deltaX = player.position.x - drop.x;
     const deltaY = targetY - drop.y;
     const deltaZ = player.position.z - drop.z;
     const distance = Math.hypot(deltaX, deltaY, deltaZ);
-    if (distance > ATTRACTION_RADIUS || distance <= Number.EPSILON) {
-      return;
+    if (distance > ATTRACTION_RADIUS) {
+      return false;
+    }
+    if (distance <= PICKUP_RADIUS) {
+      return this.#attemptPickup(drop);
+    }
+    if (distance <= Number.EPSILON) {
+      return false;
     }
 
-    const moveDistance = Math.min(distance, (3.5 + (ATTRACTION_RADIUS - distance) * 3) * seconds);
+    const moveDistance = Math.min(
+      distance,
+      (3.5 + (ATTRACTION_RADIUS - distance) * 3) * seconds,
+    );
     drop.x += (deltaX / distance) * moveDistance;
     drop.y += (deltaY / distance) * moveDistance;
     drop.z += (deltaZ / distance) * moveDistance;
     drop.velocityY = 0;
     drop.grounded = false;
 
-    if (distance > PICKUP_RADIUS) {
-      return;
-    }
+    return distance - moveDistance <= PICKUP_RADIUS
+      ? this.#attemptPickup(drop)
+      : false;
+  }
+
+  #attemptPickup(drop: DropEntity): boolean {
     const remaining = this.#callbacks.onPickup(drop.block, drop.count);
     if (remaining <= 0) {
       this.#deactivate(drop);
-    } else {
-      drop.count = remaining;
-      drop.ageSeconds = PICKUP_DELAY_SECONDS;
+      return true;
     }
+    drop.count = remaining;
+    drop.ageSeconds = PICKUP_DELAY_SECONDS;
+    return false;
   }
 
   #syncMesh(drop: DropEntity, verticalOffset: number): void {
