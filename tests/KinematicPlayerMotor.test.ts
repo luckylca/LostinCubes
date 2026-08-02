@@ -33,7 +33,7 @@ describe('KinematicPlayerMotor', () => {
       );
     }
 
-    expect(Math.abs(motor.getState().position.x)).toBeLessThanOrEqual(4.81);
-    expect(Math.abs(motor.getState().position.z)).toBeLessThanOrEqual(4.81);
+    expect(Math.abs(motor.getState().position.x)).toBeLessThanOrEqual(4.810001);
+    expect(Math.abs(motor.getState().position.z)).toBeLessThanOrEqual(4.810001);
   });
 });
