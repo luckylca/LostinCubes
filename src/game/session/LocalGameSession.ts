@@ -121,6 +121,8 @@ export class LocalGameSession implements GameSession {
       jump: false,
       toggleCamera: false,
       togglePause: false,
+      breakBlock: false,
+      placeBlock: false,
     };
     return command;
   }
