@@ -6,6 +6,11 @@ import type { PlayerState } from '../game/session/GameSession';
 import { InputManager } from '../input/InputManager';
 import { PlayerCameraController } from '../player/PlayerCameraController';
 import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
+import { TerrainGenerator } from '../world/TerrainGenerator';
+import { VoxelWorldRenderer } from '../world/VoxelWorldRenderer';
+import type { VoxelWorldStats } from '../world/VoxelWorldRenderer';
+
+const WORLD_SEED = 'world-fragment-01';
 
 export interface GameUiElements {
   readonly touchControls: HTMLElement | null;
@@ -22,6 +27,7 @@ export class GameApp {
   #input: InputManager | null = null;
   #session: LocalGameSession | null = null;
   #playerModel: VoxelPlayerModel | null = null;
+  #worldRenderer: VoxelWorldRenderer | null = null;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
     this.#engineHost = new BabylonEngine(canvas);
@@ -30,8 +36,13 @@ export class GameApp {
   }
 
   public start(): void {
-    const { scene } = this.#engineHost.createPrototypeScene();
-    const session = new LocalGameSession('world-fragment-01');
+    const { scene } = this.#engineHost.createWorldScene();
+    const terrain = new TerrainGenerator(WORLD_SEED);
+    const worldRenderer = new VoxelWorldRenderer(scene, terrain, 1);
+    const session = new LocalGameSession(
+      WORLD_SEED,
+      (worldX, worldZ) => terrain.sampleStandingY(worldX, worldZ),
+    );
     const input = new InputManager(this.#canvas, this.#ui.touchControls);
     const cameraController = new PlayerCameraController(scene);
     const playerModel = new VoxelPlayerModel(scene);
@@ -39,12 +50,17 @@ export class GameApp {
     this.#session = session;
     this.#input = input;
     this.#playerModel = playerModel;
+    this.#worldRenderer = worldRenderer;
     void session.start();
 
     const applyPlayerState = (player: PlayerState, frameSeconds: number): void => {
+      const worldStats = worldRenderer.update(
+        player.position.x,
+        player.position.z,
+      );
       playerModel.update(player, frameSeconds);
       cameraController.update(player, frameSeconds);
-      this.#updateHud(player);
+      this.#updateHud(player, worldStats);
     };
 
     applyPlayerState(session.getWorldState().player, 1 / 60);
@@ -75,6 +91,9 @@ export class GameApp {
     this.#playerModel?.dispose();
     this.#playerModel = null;
 
+    this.#worldRenderer?.dispose();
+    this.#worldRenderer = null;
+
     this.#renderLoop?.stop();
     this.#renderLoop = null;
     this.#engineHost.dispose();
@@ -84,8 +103,10 @@ export class GameApp {
     return this.#engineHost.engine;
   }
 
-  #updateHud(player: PlayerState): void {
-    this.#ui.status.textContent = player.paused ? '已暂停' : '探索中';
+  #updateHud(player: PlayerState, world: VoxelWorldStats): void {
+    this.#ui.status.textContent = player.paused
+      ? '已暂停'
+      : `探索中 · ${String(world.loadedChunks)} 区块`;
     this.#ui.viewMode.textContent =
       player.cameraMode === 'first-person' ? '第一人称' : '第三人称';
     this.#ui.position.textContent = [
