@@ -147,8 +147,7 @@ export class PlayerInventory {
   public canConsumeSelected(block: BlockTypeValue, count = 1): boolean {
     const slot = this.#slots[this.#selectedSlot];
     return (
-      slot !== undefined &&
-      slot.block === block &&
+      slot?.block === block &&
       Number.isInteger(count) &&
       count > 0 &&
       slot.count >= count
@@ -158,7 +157,7 @@ export class PlayerInventory {
   public consumeSelected(count = 1): boolean {
     const slot = this.#slots[this.#selectedSlot];
     if (
-      slot === undefined ||
+      slot?.block === undefined ||
       slot.block === null ||
       !Number.isInteger(count) ||
       count <= 0 ||
