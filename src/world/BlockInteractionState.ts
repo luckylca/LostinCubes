@@ -10,6 +10,7 @@ export interface BlockInteractionTimingInput {
   readonly canBreakTarget: boolean;
   readonly breakHeld: boolean;
   readonly placeHeld: boolean;
+  readonly breakSpeedMultiplier: number;
   readonly frameSeconds: number;
 }
 
@@ -22,13 +23,13 @@ export interface BlockInteractionTimingResult {
 export function getBlockBreakDuration(block: BlockTypeValue): number {
   switch (block) {
     case BlockType.Grass:
-      return 0.3;
+      return 0.45;
     case BlockType.Dirt:
-      return 0.4;
+      return 0.5;
     case BlockType.Stone:
-      return 0.85;
+      return 1.35;
     case BlockType.RuneStone:
-      return 1.25;
+      return 2.1;
     case BlockType.Air:
       return Number.POSITIVE_INFINITY;
   }
@@ -50,6 +51,12 @@ export class BlockInteractionState {
     if (!Number.isFinite(input.frameSeconds) || input.frameSeconds < 0) {
       throw new RangeError('frameSeconds must be a finite non-negative value.');
     }
+    if (
+      !Number.isFinite(input.breakSpeedMultiplier) ||
+      input.breakSpeedMultiplier <= 0
+    ) {
+      throw new RangeError('breakSpeedMultiplier must be positive and finite.');
+    }
 
     const frameSeconds = Math.min(input.frameSeconds, 0.1);
     let breakNow = false;
@@ -67,7 +74,8 @@ export class BlockInteractionState {
       }
 
       const duration = getBlockBreakDuration(input.targetBlock);
-      this.#breakProgress += frameSeconds / duration;
+      this.#breakProgress +=
+        (frameSeconds * input.breakSpeedMultiplier) / duration;
       if (this.#breakProgress >= 1) {
         breakNow = true;
         this.#breakTargetKey = null;
@@ -77,7 +85,6 @@ export class BlockInteractionState {
       this.#resetBreaking();
     }
 
-    // Attack takes priority when both buttons are held.
     if (input.breakHeld) {
       this.#resetPlacement();
     } else if (input.placeHeld) {
