@@ -199,7 +199,7 @@ export class VoxelPlayerModel {
     this.#bodyRoot.rotation.x = ease(this.#bodyRoot.rotation.x, bodyTilt, frameSeconds);
     this.#headRoot.rotation.x = ease(
       this.#headRoot.rotation.x,
-      -player.pitch * 0.18,
+      -player.pitch * 0.65,
       frameSeconds,
     );
     this.#currentBob = ease(this.#currentBob, bob, frameSeconds);
