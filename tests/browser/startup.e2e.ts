@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('boots the playable world and exposes the hotbar', async ({ page }) => {
+test('boots the playable world and exposes blocks and tools', async ({ page }) => {
   const runtimeErrors: string[] = [];
   page.on('pageerror', (error) => runtimeErrors.push(error.message));
   page.on('console', (message) => {
@@ -17,6 +17,14 @@ test('boots the playable world and exposes the hotbar', async ({ page }) => {
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
   await expect(page.locator('#hotbar .hotbar-slot.is-selected')).toHaveCount(1);
+  await expect(page.locator('#hotbar .hotbar-slot').nth(4)).toHaveAttribute(
+    'aria-label',
+    /木铲.*耐久 48\/48/,
+  );
+  await expect(page.locator('#hotbar .hotbar-slot').nth(5)).toHaveAttribute(
+    'aria-label',
+    /木镐.*耐久 64\/64/,
+  );
   await expect(page.locator('#target-reticle')).toHaveCount(1);
   await expect(page.locator('#game-canvas')).toHaveAttribute(
     'data-camera-mode',
@@ -25,10 +33,11 @@ test('boots the playable world and exposes the hotbar', async ({ page }) => {
   await expect(page.locator('body')).toHaveClass(/camera-third-person/);
   await expect(page.locator('#crosshair')).toHaveCSS('opacity', '0');
 
-  await page.keyboard.press('3');
-  await expect(page.locator('#hotbar .hotbar-slot').nth(2)).toHaveClass(
+  await page.keyboard.press('5');
+  await expect(page.locator('#hotbar .hotbar-slot').nth(4)).toHaveClass(
     /is-selected/,
   );
+  await expect(page.locator('#hud-view')).toContainText('木铲');
 
   await page.keyboard.press('v');
   await expect(page.locator('#hud-view')).toContainText('第一人称');
