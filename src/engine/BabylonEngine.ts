@@ -1,5 +1,4 @@
 import {
-  ArcRotateCamera,
   Color3,
   Color4,
   Engine,
@@ -11,6 +10,17 @@ import {
   Vector3,
 } from '@babylonjs/core';
 
+export interface PrototypeSceneBundle {
+  readonly scene: Scene;
+  readonly playerMesh: Mesh;
+}
+
+function markCameraBlocker(mesh: Mesh): void {
+  mesh.metadata = { cameraBlocker: true };
+  mesh.checkCollisions = true;
+  mesh.isPickable = true;
+}
+
 function createMergedBlocks(
   name: string,
   positions: readonly Vector3[],
@@ -18,7 +28,11 @@ function createMergedBlocks(
   scene: Scene,
 ): Mesh {
   const sourceMeshes = positions.map((position, index) => {
-    const block = MeshBuilder.CreateBox(`${name}-source-${String(index)}`, { size: 1 }, scene);
+    const block = MeshBuilder.CreateBox(
+      `${name}-source-${String(index)}`,
+      { size: 1 },
+      scene,
+    );
     block.position.copyFrom(position);
     block.computeWorldMatrix(true);
     return block;
@@ -31,17 +45,15 @@ function createMergedBlocks(
 
   merged.name = name;
   merged.material = material;
-  merged.isPickable = true;
+  markCameraBlocker(merged);
   return merged;
 }
 
 export class BabylonEngine {
   public readonly engine: Engine;
-  readonly #canvas: HTMLCanvasElement;
   readonly #resizeHandler: () => void;
 
   public constructor(canvas: HTMLCanvasElement) {
-    this.#canvas = canvas;
     this.engine = new Engine(canvas, true, {
       antialias: true,
       adaptToDeviceRatio: true,
@@ -53,26 +65,17 @@ export class BabylonEngine {
     this.engine.resize();
   }
 
-  public createPrototypeScene(): Scene {
+  public createPrototypeScene(): PrototypeSceneBundle {
     const scene = new Scene(this.engine);
     scene.clearColor = new Color4(0.025, 0.07, 0.045, 1);
     scene.ambientColor = new Color3(0.08, 0.14, 0.1);
+    scene.collisionsEnabled = true;
 
-    const camera = new ArcRotateCamera(
-      'prototype-camera',
-      -Math.PI / 3,
-      Math.PI / 3.1,
-      20,
-      new Vector3(0, 1.5, 0),
+    const light = new HemisphericLight(
+      'world-light',
+      new Vector3(-0.4, 1, 0.2),
       scene,
     );
-    camera.lowerRadiusLimit = 7;
-    camera.upperRadiusLimit = 30;
-    camera.wheelPrecision = 35;
-    camera.panningSensibility = 0;
-    camera.attachControl(this.#canvas, true);
-
-    const light = new HemisphericLight('world-light', new Vector3(-0.4, 1, 0.2), scene);
     light.intensity = 1.15;
     light.groundColor = new Color3(0.09, 0.12, 0.1);
 
@@ -84,20 +87,18 @@ export class BabylonEngine {
     stone.diffuseColor = new Color3(0.33, 0.39, 0.35);
     stone.specularColor = Color3.Black();
 
+    const rune = new StandardMaterial('rune-material', scene);
+    rune.diffuseColor = new Color3(0.18, 0.24, 0.21);
+    rune.emissiveColor = new Color3(0.15, 0.48, 0.3);
+    rune.specularColor = Color3.Black();
+
     const grassPositions: Vector3[] = [];
     const stonePositions: Vector3[] = [];
 
     for (let x = -5; x <= 5; x += 1) {
       for (let z = -5; z <= 5; z += 1) {
-        const height = Math.max(1, 3 - Math.floor(Math.hypot(x, z) / 3));
-        for (let y = 0; y < height; y += 1) {
-          const position = new Vector3(x, y - 0.5, z);
-          if (y === height - 1) {
-            grassPositions.push(position);
-          } else {
-            stonePositions.push(position);
-          }
-        }
+        grassPositions.push(new Vector3(x, 1.5, z));
+        stonePositions.push(new Vector3(x, 0.5, z));
       }
     }
 
@@ -109,11 +110,26 @@ export class BabylonEngine {
       { width: 1.4, height: 5, depth: 1.4 },
       scene,
     );
-    monolith.position.set(0, 2, 0);
+    monolith.position.set(0, 4.5, 0);
     monolith.rotation.y = Math.PI / 4;
-    monolith.material = stone;
+    monolith.material = rune;
+    markCameraBlocker(monolith);
 
-    return scene;
+    const playerMaterial = new StandardMaterial('player-material', scene);
+    playerMaterial.diffuseColor = new Color3(0.62, 0.76, 0.68);
+    playerMaterial.emissiveColor = new Color3(0.03, 0.09, 0.06);
+    playerMaterial.specularColor = Color3.Black();
+
+    const playerMesh = MeshBuilder.CreateCapsule(
+      'player-avatar',
+      { height: 1.8, radius: 0.34, tessellation: 8 },
+      scene,
+    );
+    playerMesh.position.set(0, 2.9, 3.5);
+    playerMesh.material = playerMaterial;
+    playerMesh.isPickable = false;
+
+    return { scene, playerMesh };
   }
 
   public dispose(): void {
