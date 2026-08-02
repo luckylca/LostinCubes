@@ -1,10 +1,12 @@
 import { FreeCamera, Ray, Vector3 } from '@babylonjs/core';
 import type { AbstractMesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
+import {
+  getPlayerEyePosition,
+  getPlayerViewDirection,
+} from './PlayerView';
 
-const THIRD_PERSON_DISTANCE = 5;
-const THIRD_PERSON_HEIGHT = 1.25;
-const HEAD_HEIGHT = 0.62;
+const THIRD_PERSON_DISTANCE = 4;
 
 function isCameraBlocker(mesh: AbstractMesh): boolean {
   const metadata = mesh.metadata as { cameraBlocker?: unknown } | null;
@@ -17,7 +19,9 @@ export class PlayerCameraController {
   readonly #currentPosition = new Vector3(0, 4.5, 8);
   readonly #desiredPosition = new Vector3();
   readonly #target = new Vector3();
+  readonly #lookTarget = new Vector3();
   readonly #lookDirection = new Vector3();
+  readonly #cameraOffset = new Vector3();
 
   public constructor(scene: Scene) {
     this.#scene = scene;
@@ -28,28 +32,18 @@ export class PlayerCameraController {
   }
 
   public update(player: PlayerState, frameSeconds: number): void {
-    const horizontalCosine = Math.cos(player.pitch);
-    this.#lookDirection.set(
-      Math.sin(player.yaw) * horizontalCosine,
-      Math.sin(player.pitch),
-      Math.cos(player.yaw) * horizontalCosine,
-    );
-
-    this.#target.set(
-      player.position.x,
-      player.position.y + HEAD_HEIGHT,
-      player.position.z,
-    );
+    const eye = getPlayerEyePosition(player);
+    const direction = getPlayerViewDirection(player);
+    this.#target.set(eye.x, eye.y, eye.z);
+    this.#lookDirection.set(direction.x, direction.y, direction.z);
 
     if (player.cameraMode === 'first-person') {
       this.#desiredPosition.copyFrom(this.#target);
     } else {
-      const backward = new Vector3(
-        -Math.sin(player.yaw) * THIRD_PERSON_DISTANCE,
-        THIRD_PERSON_HEIGHT,
-        -Math.cos(player.yaw) * THIRD_PERSON_DISTANCE,
-      );
-      this.#desiredPosition.copyFrom(this.#target).addInPlace(backward);
+      this.#lookDirection.scaleToRef(-THIRD_PERSON_DISTANCE, this.#cameraOffset);
+      this.#desiredPosition
+        .copyFrom(this.#target)
+        .addInPlace(this.#cameraOffset);
       this.#resolveCameraWallCollision();
     }
 
@@ -62,28 +56,21 @@ export class PlayerCameraController {
     );
     this.#camera.position.copyFrom(this.#currentPosition);
 
-    const lookTarget = this.#target.add(this.#lookDirection.scale(10));
-    this.#camera.setTarget(lookTarget);
-  }
-
-  public createInteractionRay(length = 6): Ray {
-    return new Ray(
-      this.#camera.position.clone(),
-      this.#lookDirection.clone(),
-      length,
-    );
+    this.#lookDirection.scaleToRef(10, this.#lookTarget);
+    this.#lookTarget.addInPlace(this.#target);
+    this.#camera.setTarget(this.#lookTarget);
   }
 
   #resolveCameraWallCollision(): void {
-    const offset = this.#desiredPosition.subtract(this.#target);
-    const distance = offset.length();
+    this.#desiredPosition.subtractToRef(this.#target, this.#cameraOffset);
+    const distance = this.#cameraOffset.length();
     if (distance <= 0.001) {
       return;
     }
 
-    const direction = offset.scale(1 / distance);
+    this.#cameraOffset.scaleInPlace(1 / distance);
     const hit = this.#scene.pickWithRay(
-      new Ray(this.#target, direction, distance),
+      new Ray(this.#target, this.#cameraOffset, distance),
       isCameraBlocker,
     );
 
@@ -92,8 +79,7 @@ export class PlayerCameraController {
     }
 
     const safeDistance = Math.max(0.55, hit.distance - 0.25);
-    this.#desiredPosition
-      .copyFrom(this.#target)
-      .addInPlace(direction.scale(safeDistance));
+    this.#cameraOffset.scaleToRef(safeDistance, this.#desiredPosition);
+    this.#desiredPosition.addInPlace(this.#target);
   }
 }

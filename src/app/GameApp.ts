@@ -1,7 +1,6 @@
 import type { Engine } from '@babylonjs/core';
 import { BabylonEngine } from '../engine/BabylonEngine';
 import { RenderLoop } from '../engine/RenderLoop';
-import type { PlayerInputCommand } from '../game/commands/PlayerInputCommand';
 import { LocalGameSession } from '../game/session/LocalGameSession';
 import type { PlayerState } from '../game/session/GameSession';
 import { InputManager } from '../input/InputManager';
@@ -81,6 +80,8 @@ export class GameApp {
       (worldX, worldY, worldZ) =>
         worldRenderer.invalidateBlock(worldX, worldY, worldZ),
     );
+    let breakHeld = false;
+    let placeHeld = false;
 
     this.#session = session;
     this.#input = input;
@@ -107,11 +108,18 @@ export class GameApp {
       );
       playerModel.update(player, frameSeconds);
       cameraController.update(player, frameSeconds);
-      interaction.update(cameraController.createInteractionRay());
+      interaction.update(
+        player,
+        frameSeconds,
+        !player.paused && breakHeld,
+        !player.paused && placeHeld,
+      );
       this.#updateHud(
         player,
         worldStats,
         interaction.selectedBlock,
+        interaction.breakProgress,
+        input.usesPointerLock && !input.pointerLocked,
         frameSeconds,
       );
     };
@@ -123,7 +131,9 @@ export class GameApp {
       beforeFrame: () => {
         const worldState = session.getWorldState();
         const command = input.poll(worldState.tick);
-        this.#handleWorldInteraction(command, worldState.player, interaction);
+        interaction.setSelectedBlock(command.selectedBlock);
+        breakHeld = command.breakBlock;
+        placeHeld = command.placeBlock;
         session.submitCommand(command);
       },
       fixedUpdate: (stepSeconds) => session.step(stepSeconds),
@@ -164,27 +174,12 @@ export class GameApp {
     return this.#engineHost.engine;
   }
 
-  #handleWorldInteraction(
-    command: PlayerInputCommand,
-    player: PlayerState,
-    interaction: VoxelInteractionController,
-  ): void {
-    interaction.setSelectedBlock(command.selectedBlock);
-    if (player.paused) {
-      return;
-    }
-    if (command.breakBlock) {
-      interaction.breakTarget();
-    }
-    if (command.placeBlock) {
-      interaction.placeTarget(player);
-    }
-  }
-
   #updateHud(
     player: PlayerState,
     world: VoxelWorldStats,
     selectedBlock: BlockTypeValue,
+    breakProgress: number,
+    awaitingPointerLock: boolean,
     frameSeconds: number,
   ): void {
     if (frameSeconds > 0) {
@@ -195,14 +190,26 @@ export class GameApp {
     const worldProgress = `${String(world.loadedChunks)}/${String(world.desiredChunks)}`;
     const queueLabel =
       world.pendingChunks > 0 ? ` · 队列 ${String(world.pendingChunks)}` : '';
-    this.#ui.status.textContent = player.paused
-      ? '已暂停'
-      : [
-          '探索中',
-          `${worldProgress} 区块${queueLabel}`,
-          `${formatCount(world.visibleQuads)} 四边形`,
-          `${Math.round(this.#smoothedFps).toString()} FPS`,
-        ].join(' · ');
+    const breakLabel =
+      breakProgress > 0
+        ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%`
+        : '';
+
+    if (awaitingPointerLock) {
+      this.#ui.status.textContent = player.paused
+        ? '已暂停 · 点击画面继续'
+        : '点击画面锁定鼠标';
+    } else {
+      this.#ui.status.textContent = player.paused
+        ? '已暂停'
+        : [
+            '探索中',
+            `${worldProgress} 区块${queueLabel}`,
+            `${formatCount(world.visibleQuads)} 四边形`,
+            `${Math.round(this.#smoothedFps).toString()} FPS${breakLabel}`,
+          ].join(' · ');
+    }
+
     this.#ui.viewMode.textContent = `${
       player.cameraMode === 'first-person' ? '第一人称' : '第三人称'
     } · ${getBlockLabel(selectedBlock)}`;
