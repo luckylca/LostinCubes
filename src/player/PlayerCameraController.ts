@@ -66,6 +66,14 @@ export class PlayerCameraController {
     this.#camera.setTarget(lookTarget);
   }
 
+  public createInteractionRay(length = 6): Ray {
+    return new Ray(
+      this.#camera.position.clone(),
+      this.#lookDirection.clone(),
+      length,
+    );
+  }
+
   #resolveCameraWallCollision(): void {
     const offset = this.#desiredPosition.subtract(this.#target);
     const distance = offset.length();

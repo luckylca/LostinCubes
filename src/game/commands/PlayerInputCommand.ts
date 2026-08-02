@@ -1,3 +1,5 @@
+import type { BlockType } from '../../world/BlockType';
+import { BlockType as Blocks } from '../../world/BlockType';
 import type { GameCommand } from '../session/GameSession';
 
 export interface PlayerInputCommand extends GameCommand {
@@ -10,9 +12,14 @@ export interface PlayerInputCommand extends GameCommand {
   readonly sprint: boolean;
   readonly toggleCamera: boolean;
   readonly togglePause: boolean;
+  readonly breakBlock: boolean;
+  readonly placeBlock: boolean;
+  readonly selectedBlock: BlockType;
 }
 
-export function createNeutralPlayerInput(issuedAtTick: number): PlayerInputCommand {
+export function createNeutralPlayerInput(
+  issuedAtTick: number,
+): PlayerInputCommand {
   return {
     type: 'player-input',
     issuedAtTick,
@@ -24,5 +31,8 @@ export function createNeutralPlayerInput(issuedAtTick: number): PlayerInputComma
     sprint: false,
     toggleCamera: false,
     togglePause: false,
+    breakBlock: false,
+    placeBlock: false,
+    selectedBlock: Blocks.Dirt,
   };
 }

@@ -1,4 +1,6 @@
 import type { PlayerInputCommand } from '../game/commands/PlayerInputCommand';
+import { BlockType } from '../world/BlockType';
+import type { BlockType as BlockTypeValue } from '../world/BlockType';
 
 type HeldAction =
   | 'move-forward'
@@ -7,18 +9,29 @@ type HeldAction =
   | 'move-right'
   | 'sprint';
 
-type EdgeAction = 'jump' | 'toggle-camera' | 'toggle-pause';
+type EdgeAction =
+  | 'jump'
+  | 'toggle-camera'
+  | 'toggle-pause'
+  | 'break-block'
+  | 'place-block';
 
 const GAMEPLAY_KEYS = new Set([
   'KeyW',
   'KeyA',
   'KeyS',
   'KeyD',
+  'KeyQ',
+  'KeyE',
   'ShiftLeft',
   'ShiftRight',
   'Space',
   'KeyV',
   'Escape',
+  'Digit1',
+  'Digit2',
+  'Digit3',
+  'Digit4',
 ]);
 
 function isHeldAction(value: string): value is HeldAction {
@@ -32,7 +45,13 @@ function isHeldAction(value: string): value is HeldAction {
 }
 
 function isEdgeAction(value: string): value is EdgeAction {
-  return ['jump', 'toggle-camera', 'toggle-pause'].includes(value);
+  return [
+    'jump',
+    'toggle-camera',
+    'toggle-pause',
+    'break-block',
+    'place-block',
+  ].includes(value);
 }
 
 export class InputManager {
@@ -48,6 +67,9 @@ export class InputManager {
   #jumpRequested = false;
   #cameraToggleRequested = false;
   #pauseToggleRequested = false;
+  #breakBlockRequested = false;
+  #placeBlockRequested = false;
+  #selectedBlock: BlockTypeValue = BlockType.Dirt;
 
   public constructor(canvas: HTMLCanvasElement, touchRoot: HTMLElement | null) {
     this.#canvas = canvas;
@@ -61,13 +83,18 @@ export class InputManager {
     canvas.addEventListener('pointermove', this.#onLookPointerMove, { signal });
     canvas.addEventListener('pointerup', this.#onLookPointerUp, { signal });
     canvas.addEventListener('pointercancel', this.#onLookPointerUp, { signal });
+    canvas.addEventListener('contextmenu', this.#onContextMenu, { signal });
 
     if (touchRoot !== null) {
       const buttons = touchRoot.querySelectorAll<HTMLElement>('[data-action]');
       for (const button of buttons) {
-        button.addEventListener('pointerdown', this.#onTouchButtonDown, { signal });
+        button.addEventListener('pointerdown', this.#onTouchButtonDown, {
+          signal,
+        });
         button.addEventListener('pointerup', this.#onTouchButtonUp, { signal });
-        button.addEventListener('pointercancel', this.#onTouchButtonUp, { signal });
+        button.addEventListener('pointercancel', this.#onTouchButtonUp, {
+          signal,
+        });
         button.addEventListener('contextmenu', (event) => event.preventDefault(), {
           signal,
         });
@@ -106,6 +133,9 @@ export class InputManager {
         this.#touchActions.has('sprint'),
       toggleCamera: this.#cameraToggleRequested,
       togglePause: this.#pauseToggleRequested,
+      breakBlock: this.#breakBlockRequested,
+      placeBlock: this.#placeBlockRequested,
+      selectedBlock: this.#selectedBlock,
     };
 
     this.#lookDeltaX = 0;
@@ -113,6 +143,8 @@ export class InputManager {
     this.#jumpRequested = false;
     this.#cameraToggleRequested = false;
     this.#pauseToggleRequested = false;
+    this.#breakBlockRequested = false;
+    this.#placeBlockRequested = false;
     return command;
   }
 
@@ -134,6 +166,18 @@ export class InputManager {
         this.#cameraToggleRequested = true;
       } else if (event.code === 'Escape') {
         this.#pauseToggleRequested = true;
+      } else if (event.code === 'KeyQ') {
+        this.#breakBlockRequested = true;
+      } else if (event.code === 'KeyE') {
+        this.#placeBlockRequested = true;
+      } else if (event.code === 'Digit1') {
+        this.#selectedBlock = BlockType.Grass;
+      } else if (event.code === 'Digit2') {
+        this.#selectedBlock = BlockType.Dirt;
+      } else if (event.code === 'Digit3') {
+        this.#selectedBlock = BlockType.Stone;
+      } else if (event.code === 'Digit4') {
+        this.#selectedBlock = BlockType.RuneStone;
       }
     }
 
@@ -150,7 +194,19 @@ export class InputManager {
     this.#lookPointerId = null;
   };
 
+  readonly #onContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+  };
+
   readonly #onLookPointerDown = (event: PointerEvent): void => {
+    if (event.button === 2) {
+      event.preventDefault();
+      this.#placeBlockRequested = true;
+      return;
+    }
+    if (event.pointerType === 'mouse' && event.button === 0) {
+      this.#breakBlockRequested = true;
+    }
     if (this.#lookPointerId !== null) {
       return;
     }
@@ -201,8 +257,12 @@ export class InputManager {
         this.#jumpRequested = true;
       } else if (action === 'toggle-camera') {
         this.#cameraToggleRequested = true;
-      } else {
+      } else if (action === 'toggle-pause') {
         this.#pauseToggleRequested = true;
+      } else if (action === 'break-block') {
+        this.#breakBlockRequested = true;
+      } else {
+        this.#placeBlockRequested = true;
       }
     }
   };

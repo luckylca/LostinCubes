@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { LocalGameSession } from '../src/game/session/LocalGameSession';
 import type { PlayerInputCommand } from '../src/game/commands/PlayerInputCommand';
+import { LocalGameSession } from '../src/game/session/LocalGameSession';
+import { BlockType } from '../src/world/BlockType';
 
 function command(
   overrides: Partial<PlayerInputCommand> = {},
@@ -16,6 +17,9 @@ function command(
     sprint: false,
     toggleCamera: false,
     togglePause: false,
+    breakBlock: false,
+    placeBlock: false,
+    selectedBlock: BlockType.Dirt,
     ...overrides,
   };
 }

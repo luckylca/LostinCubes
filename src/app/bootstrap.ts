@@ -15,7 +15,7 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-export function bootstrap(): void {
+export async function bootstrap(): Promise<void> {
   const loadingMessage = requireElement('#loading-message');
   let app: GameApp | null = null;
 
@@ -35,7 +35,8 @@ export function bootstrap(): void {
     };
 
     app = new GameApp(canvasElement, ui);
-    app.start();
+    loadingMessage.textContent = '正在生成附近区块……';
+    await app.start();
 
     loadingMessage.textContent = '世界碎片已稳定';
     gameHud.hidden = false;
