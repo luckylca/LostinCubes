@@ -119,6 +119,7 @@ export class GameApp {
         worldStats,
         interaction.selectedBlock,
         interaction.breakProgress,
+        input.usesPointerLock && !input.pointerLocked,
         frameSeconds,
       );
     };
@@ -178,6 +179,7 @@ export class GameApp {
     world: VoxelWorldStats,
     selectedBlock: BlockTypeValue,
     breakProgress: number,
+    awaitingPointerLock: boolean,
     frameSeconds: number,
   ): void {
     if (frameSeconds > 0) {
@@ -192,14 +194,22 @@ export class GameApp {
       breakProgress > 0
         ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%`
         : '';
-    this.#ui.status.textContent = player.paused
-      ? '已暂停 · 点击画面继续'
-      : [
-          '探索中',
-          `${worldProgress} 区块${queueLabel}`,
-          `${formatCount(world.visibleQuads)} 四边形`,
-          `${Math.round(this.#smoothedFps).toString()} FPS${breakLabel}`,
-        ].join(' · ');
+
+    if (awaitingPointerLock) {
+      this.#ui.status.textContent = player.paused
+        ? '已暂停 · 点击画面继续'
+        : '点击画面锁定鼠标';
+    } else {
+      this.#ui.status.textContent = player.paused
+        ? '已暂停'
+        : [
+            '探索中',
+            `${worldProgress} 区块${queueLabel}`,
+            `${formatCount(world.visibleQuads)} 四边形`,
+            `${Math.round(this.#smoothedFps).toString()} FPS${breakLabel}`,
+          ].join(' · ');
+    }
+
     this.#ui.viewMode.textContent = `${
       player.cameraMode === 'first-person' ? '第一人称' : '第三人称'
     } · ${getBlockLabel(selectedBlock)}`;
