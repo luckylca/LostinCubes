@@ -1,4 +1,5 @@
 import { BlockType } from './BlockType';
+import type { BlockType as BlockTypeValue } from './BlockType';
 import {
   CHUNK_HEIGHT,
   CHUNK_SIZE,
@@ -6,6 +7,7 @@ import {
 } from './VoxelChunk';
 
 const UINT32_MAX = 4_294_967_295;
+const PLAYER_FOOT_OFFSET = 0.9;
 
 export function hashWorldSeed(seed: string): number {
   let hash = 2_166_136_261;
@@ -83,6 +85,44 @@ export class TerrainGenerator {
     return Math.min(Math.max(height, 2), CHUNK_HEIGHT - 2);
   }
 
+  public sampleBlock(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): BlockTypeValue {
+    if (worldY < 0 || worldY >= CHUNK_HEIGHT) {
+      return BlockType.Air;
+    }
+
+    const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
+    if (worldY > surfaceHeight) {
+      return BlockType.Air;
+    }
+    if (worldY === surfaceHeight) {
+      return BlockType.Grass;
+    }
+    if (worldY >= surfaceHeight - 2) {
+      return BlockType.Dirt;
+    }
+
+    const runeChance = hashCoordinate(
+      worldX,
+      worldZ,
+      this.#seed ^ Math.imul(worldY + 1, 2_246_822_519),
+    );
+    return runeChance > 0.997 ? BlockType.RuneStone : BlockType.Stone;
+  }
+
+  public sampleStandingY(worldX: number, worldZ: number): number {
+    const blockX = Math.floor(worldX);
+    const blockZ = Math.floor(worldZ);
+    return (
+      this.sampleSurfaceHeight(blockX, blockZ) +
+      0.5 +
+      PLAYER_FOOT_OFFSET
+    );
+  }
+
   public generateChunk(chunkX: number, chunkZ: number): VoxelChunk {
     const chunk = new VoxelChunk(chunkX, chunkZ);
 
@@ -93,13 +133,12 @@ export class TerrainGenerator {
         const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
 
         for (let localY = 0; localY <= surfaceHeight; localY += 1) {
-          let block: BlockType = BlockType.Stone;
-          if (localY === surfaceHeight) {
-            block = BlockType.Grass;
-          } else if (localY >= surfaceHeight - 2) {
-            block = BlockType.Dirt;
-          }
-          chunk.setBlock(localX, localY, localZ, block);
+          chunk.setBlock(
+            localX,
+            localY,
+            localZ,
+            this.sampleBlock(worldX, localY, worldZ),
+          );
         }
       }
     }
