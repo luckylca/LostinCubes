@@ -48,6 +48,23 @@ function getFaceBaseColor(
       return axis === 1 && positive
         ? [0.2, 0.5, 0.34]
         : [0.14, 0.32, 0.25];
+    case BlockType.OakLog:
+      return axis === 1
+        ? [0.61, 0.42, 0.22]
+        : [0.39, 0.24, 0.11];
+    case BlockType.OakLeaves:
+      return axis === 1 && positive
+        ? [0.25, 0.52, 0.2]
+        : [0.19, 0.42, 0.16];
+    case BlockType.OakPlanks:
+      return axis === 1 && positive
+        ? [0.7, 0.52, 0.29]
+        : [0.62, 0.43, 0.22];
+    case BlockType.CraftingTable:
+      if (axis === 1 && positive) {
+        return [0.55, 0.37, 0.19];
+      }
+      return [0.45, 0.28, 0.14];
     case BlockType.Air:
       return [0, 0, 0];
   }
@@ -98,6 +115,14 @@ export function getBlockItemColor(block: BlockTypeValue): BlockRgb {
       return [0.53, 0.55, 0.54];
     case BlockType.RuneStone:
       return [0.16, 0.43, 0.3];
+    case BlockType.OakLog:
+      return [0.43, 0.28, 0.13];
+    case BlockType.OakLeaves:
+      return [0.23, 0.49, 0.19];
+    case BlockType.OakPlanks:
+      return [0.67, 0.48, 0.26];
+    case BlockType.CraftingTable:
+      return [0.5, 0.32, 0.16];
     case BlockType.Air:
       return [0, 0, 0];
   }

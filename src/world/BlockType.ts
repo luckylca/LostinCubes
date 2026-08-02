@@ -4,6 +4,10 @@ export const BlockType = {
   Dirt: 2,
   Stone: 3,
   RuneStone: 4,
+  OakLog: 5,
+  OakLeaves: 6,
+  OakPlanks: 7,
+  CraftingTable: 8,
 } as const;
 
 export type BlockType = (typeof BlockType)[keyof typeof BlockType];

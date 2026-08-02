@@ -45,7 +45,7 @@ describe('HeldItemModel', () => {
     model.update(
       createPlayer('third-person'),
       1 / 60,
-      ItemType.WoodenPickaxe,
+      ItemType.StonePickaxe,
       IDLE_ACTION,
     );
 
@@ -66,7 +66,7 @@ describe('HeldItemModel', () => {
     model.update(
       createPlayer('first-person'),
       1 / 60,
-      ItemType.WoodenPickaxe,
+      ItemType.StonePickaxe,
       IDLE_ACTION,
     );
 
@@ -108,16 +108,45 @@ describe('HeldItemModel', () => {
     model.update(
       createPlayer('third-person'),
       1 / 60,
-      ItemType.WoodenShovel,
+      ItemType.StoneAxe,
       IDLE_ACTION,
     );
 
     expect(
       scene.meshes.filter((mesh) => mesh.name === 'held-pickaxe-handle'),
     ).toHaveLength(0);
-    expect(
-      scene.meshes.filter((mesh) => mesh.name === 'held-shovel-handle'),
-    ).toHaveLength(2);
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-axe-handle')).toHaveLength(
+      2,
+    );
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-axe-edge')).toHaveLength(
+      2,
+    );
+
+    model.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('renders sticks as held crafting materials', () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    scene.activeCamera = new FreeCamera(
+      'test-camera',
+      Vector3.Zero(),
+      scene,
+    );
+    const model = new HeldItemModel(
+      scene,
+      new TransformNode('test-hand', scene),
+    );
+
+    model.update(
+      createPlayer('third-person'),
+      1 / 60,
+      ItemType.Stick,
+      IDLE_ACTION,
+    );
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-stick')).toHaveLength(2);
 
     model.dispose();
     scene.dispose();

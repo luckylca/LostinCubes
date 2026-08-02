@@ -26,6 +26,14 @@ export function getBlockBreakDuration(block: BlockTypeValue): number {
       return 0.45;
     case BlockType.Dirt:
       return 0.5;
+    case BlockType.OakLeaves:
+      return 0.22;
+    case BlockType.OakLog:
+      return 1.15;
+    case BlockType.OakPlanks:
+      return 0.85;
+    case BlockType.CraftingTable:
+      return 1;
     case BlockType.Stone:
       return 1.35;
     case BlockType.RuneStone:

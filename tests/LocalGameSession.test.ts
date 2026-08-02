@@ -19,9 +19,10 @@ function command(
     sprint: false,
     toggleCamera: false,
     togglePause: false,
+    toggleInventory: false,
     breakBlock: false,
     placeBlock: false,
-    selectedHotbarSlot: 1,
+    selectedHotbarSlot: 0,
     ...overrides,
   };
 }
@@ -54,6 +55,23 @@ describe('LocalGameSession', () => {
 
     expect(session.getWorldState().player.paused).toBe(true);
     expect(session.getWorldState().player.position).toEqual(pausedPosition);
+  });
+
+  it('freezes movement and look while an inventory menu is open', () => {
+    const session = new LocalGameSession('test-seed');
+    const initial = session.getWorldState().player;
+    session.setMenuOpen(true);
+    session.submitCommand(command({ moveZ: 1, lookX: 200, lookY: 200 }));
+    session.step(1 / 30);
+
+    const menuState = session.getWorldState().player;
+    expect(menuState.paused).toBe(true);
+    expect(menuState.position).toEqual(initial.position);
+    expect(menuState.yaw).toBe(initial.yaw);
+    expect(menuState.pitch).toBe(initial.pitch);
+
+    session.setMenuOpen(false);
+    expect(session.getWorldState().player.paused).toBe(false);
   });
 
   it('allows looking effectively straight down and straight up', () => {

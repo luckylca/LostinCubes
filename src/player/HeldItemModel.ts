@@ -6,6 +6,7 @@ import {
 } from '@babylonjs/core';
 import type { Mesh, Scene } from '@babylonjs/core';
 import {
+  getItemDefinition,
   itemToBlock,
   ItemType,
 } from '../inventory/ItemDefinitions';
@@ -66,10 +67,7 @@ function colorFromTuple(color: readonly [number, number, number]): Color3 {
   return new Color3(color[0], color[1], color[2]);
 }
 
-/**
- * Shared held-item presentation for the third-person right hand and a compact
- * first-person view model. Item geometry is rebuilt only when selection changes.
- */
+/** Shared held-item presentation for third-person and first-person views. */
 export class HeldItemModel {
   readonly #scene: Scene;
   readonly #thirdPersonRoot: TransformNode;
@@ -182,20 +180,38 @@ export class HeldItemModel {
   ): void {
     const block = itemToBlock(item);
     if (block !== null) {
-      this.#buildBlock(
-        block,
-        parent,
-        scale,
-        renderingGroupId,
-        output,
+      this.#buildBlock(block, parent, scale, renderingGroupId, output);
+      return;
+    }
+    if (item === ItemType.Stick) {
+      output.push(
+        createBox(
+          'held-stick',
+          parent,
+          [0.09 * scale, 0.72 * scale, 0.09 * scale],
+          [0, -0.08 * scale, 0],
+          this.#woodMaterial(),
+          this.#scene,
+          renderingGroupId,
+        ),
       );
       return;
     }
 
-    if (item === ItemType.WoodenPickaxe) {
-      this.#buildPickaxe(parent, scale, renderingGroupId, output);
-    } else if (item === ItemType.WoodenShovel) {
-      this.#buildShovel(parent, scale, renderingGroupId, output);
+    const definition = getItemDefinition(item);
+    if (definition.kind !== 'tool' || definition.toolKind === null) {
+      return;
+    }
+    const head =
+      definition.toolTier === 'stone'
+        ? this.#getMaterial('held-tool-stone-head', new Color3(0.44, 0.47, 0.46))
+        : this.#getMaterial('held-tool-wood-head', new Color3(0.64, 0.4, 0.19));
+    if (definition.toolKind === 'pickaxe') {
+      this.#buildPickaxe(parent, scale, renderingGroupId, output, head);
+    } else if (definition.toolKind === 'shovel') {
+      this.#buildShovel(parent, scale, renderingGroupId, output, head);
+    } else {
+      this.#buildAxe(parent, scale, renderingGroupId, output, head);
     }
   }
 
@@ -208,20 +224,19 @@ export class HeldItemModel {
   ): void {
     const size = 0.34 * scale;
     const baseColor = colorFromTuple(getBlockItemColor(block));
-    const baseMaterial = this.#getMaterial(
-      `held-block-${String(block)}`,
-      baseColor,
-      block === BlockType.RuneStone
-        ? new Color3(0.025, 0.11, 0.07)
-        : Color3.Black(),
-    );
     output.push(
       createBox(
         'held-block-body',
         parent,
         [size, size, size],
         [0, -0.05 * scale, 0],
-        baseMaterial,
+        this.#getMaterial(
+          `held-block-${String(block)}`,
+          baseColor,
+          block === BlockType.RuneStone
+            ? new Color3(0.025, 0.11, 0.07)
+            : Color3.Black(),
+        ),
         this.#scene,
         renderingGroupId,
       ),
@@ -242,6 +257,18 @@ export class HeldItemModel {
           renderingGroupId,
         ),
       );
+    } else if (block === BlockType.OakLog) {
+      output.push(
+        createBox(
+          'held-log-cap',
+          parent,
+          [size * 1.02, size * 0.08, size * 1.02],
+          [0, size * 0.48, 0],
+          this.#getMaterial('held-log-ring', new Color3(0.66, 0.46, 0.24)),
+          this.#scene,
+          renderingGroupId,
+        ),
+      );
     } else if (block === BlockType.RuneStone) {
       const runeMaterial = this.#getMaterial(
         'held-rune-accent',
@@ -258,15 +285,6 @@ export class HeldItemModel {
           this.#scene,
           renderingGroupId,
         ),
-        createBox(
-          'held-rune-horizontal',
-          parent,
-          [size * 0.7, size * 0.12, size * 1.035],
-          [0, -0.05 * scale, 0],
-          runeMaterial,
-          this.#scene,
-          renderingGroupId,
-        ),
       );
     }
   }
@@ -276,22 +294,15 @@ export class HeldItemModel {
     scale: number,
     renderingGroupId: number,
     output: Mesh[],
+    head: StandardMaterial,
   ): void {
-    const wood = this.#getMaterial(
-      'held-tool-wood',
-      new Color3(0.48, 0.29, 0.13),
-    );
-    const head = this.#getMaterial(
-      'held-tool-stone',
-      new Color3(0.42, 0.45, 0.44),
-    );
     output.push(
       createBox(
         'held-pickaxe-handle',
         parent,
         [0.1 * scale, 0.72 * scale, 0.1 * scale],
         [0, -0.12 * scale, 0],
-        wood,
+        this.#woodMaterial(),
         this.#scene,
         renderingGroupId,
       ),
@@ -330,22 +341,15 @@ export class HeldItemModel {
     scale: number,
     renderingGroupId: number,
     output: Mesh[],
+    head: StandardMaterial,
   ): void {
-    const wood = this.#getMaterial(
-      'held-tool-wood',
-      new Color3(0.48, 0.29, 0.13),
-    );
-    const head = this.#getMaterial(
-      'held-tool-stone',
-      new Color3(0.42, 0.45, 0.44),
-    );
     output.push(
       createBox(
         'held-shovel-handle',
         parent,
         [0.1 * scale, 0.72 * scale, 0.1 * scale],
         [0, -0.13 * scale, 0],
-        wood,
+        this.#woodMaterial(),
         this.#scene,
         renderingGroupId,
       ),
@@ -359,6 +363,48 @@ export class HeldItemModel {
         renderingGroupId,
       ),
     );
+  }
+
+  #buildAxe(
+    parent: TransformNode,
+    scale: number,
+    renderingGroupId: number,
+    output: Mesh[],
+    head: StandardMaterial,
+  ): void {
+    output.push(
+      createBox(
+        'held-axe-handle',
+        parent,
+        [0.1 * scale, 0.72 * scale, 0.1 * scale],
+        [0, -0.13 * scale, 0],
+        this.#woodMaterial(),
+        this.#scene,
+        renderingGroupId,
+      ),
+      createBox(
+        'held-axe-head',
+        parent,
+        [0.38 * scale, 0.33 * scale, 0.14 * scale],
+        [0.13 * scale, 0.22 * scale, 0],
+        head,
+        this.#scene,
+        renderingGroupId,
+      ),
+      createBox(
+        'held-axe-edge',
+        parent,
+        [0.13 * scale, 0.46 * scale, 0.15 * scale],
+        [0.29 * scale, 0.18 * scale, 0],
+        head,
+        this.#scene,
+        renderingGroupId,
+      ),
+    );
+  }
+
+  #woodMaterial(): StandardMaterial {
+    return this.#getMaterial('held-tool-handle', new Color3(0.48, 0.29, 0.13));
   }
 
   #getMaterial(

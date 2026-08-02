@@ -1,0 +1,417 @@
+body.inventory-open #game-canvas,
+body.inventory-open #game-hud,
+body.inventory-open #hotbar,
+body.inventory-open #touch-controls {
+  filter: brightness(0.48) saturate(0.72);
+}
+
+.inventory-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  background: rgb(4 9 7 / 64%);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.inventory-screen[hidden] {
+  display: none;
+}
+
+.inventory-panel {
+  width: min(72rem, 96vw);
+  max-height: min(52rem, 92vh);
+  overflow: auto;
+  border: 1px solid rgb(226 255 221 / 24%);
+  border-radius: 1rem;
+  background:
+    linear-gradient(145deg, rgb(31 47 35 / 98%), rgb(12 22 16 / 98%)),
+    #132018;
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 52%);
+}
+
+.inventory-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.2rem 0.8rem;
+  border-bottom: 1px solid rgb(226 255 221 / 12%);
+  background: rgb(15 27 19 / 94%);
+  backdrop-filter: blur(12px);
+}
+
+.inventory-header h2,
+.inventory-content h3,
+.crafting-book h3 {
+  margin: 0;
+}
+
+.inventory-eyebrow {
+  margin: 0 0 0.18rem;
+  color: #98bda1;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.inventory-close {
+  width: 2.45rem;
+  height: 2.45rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 0.65rem;
+  color: #f1fff3;
+  background: rgb(80 45 37 / 72%);
+  cursor: pointer;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.inventory-message {
+  margin: 0;
+  padding: 0.65rem 1.2rem;
+  color: #c3dbc8;
+  background: rgb(6 13 9 / 36%);
+  font-size: 0.78rem;
+}
+
+.inventory-layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.82fr) minmax(30rem, 1.5fr);
+  gap: 1rem;
+  padding: 1rem 1.2rem 1.3rem;
+}
+
+.crafting-book,
+.inventory-content {
+  min-width: 0;
+}
+
+.crafting-book h3,
+.inventory-content h3 {
+  margin-bottom: 0.55rem;
+  color: #dcecdf;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recipe-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.recipe-card {
+  display: grid;
+  gap: 0.22rem;
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgb(218 255 225 / 14%);
+  border-radius: 0.65rem;
+  color: #ecfff0;
+  text-align: left;
+  background: rgb(29 51 35 / 78%);
+  cursor: pointer;
+}
+
+.recipe-card:hover:not(:disabled) {
+  border-color: rgb(196 255 166 / 55%);
+  background: rgb(50 80 50 / 90%);
+}
+
+.recipe-card:disabled {
+  color: #829187;
+  background: rgb(15 25 18 / 64%);
+  cursor: not-allowed;
+}
+
+.recipe-card span {
+  color: #bdd0c1;
+  font-size: 0.76rem;
+}
+
+.recipe-card small {
+  color: #91ab98;
+  font-size: 0.66rem;
+}
+
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(2.6rem, 1fr));
+  gap: 0.32rem;
+  margin-bottom: 1rem;
+}
+
+.inventory-slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid rgb(225 255 231 / 16%);
+  border-radius: 0.42rem;
+  color: #f3fff5;
+  background: rgb(7 16 10 / 78%);
+  cursor: pointer;
+}
+
+.inventory-slot:hover {
+  border-color: rgb(228 255 192 / 62%);
+  background: rgb(39 61 39 / 92%);
+}
+
+.inventory-slot.is-selected {
+  border-color: rgb(228 255 178 / 92%);
+  box-shadow: 0 0 0 2px rgb(211 255 167 / 20%);
+}
+
+.inventory-item {
+  position: relative;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 0.18rem;
+  box-shadow:
+    inset -0.28rem -0.28rem 0 rgb(0 0 0 / 16%),
+    inset 0.22rem 0.22rem 0 rgb(255 255 255 / 10%);
+}
+
+.inventory-count {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.14rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-shadow: 0 1px 2px #000;
+}
+
+.inventory-durability {
+  position: absolute;
+  right: 0.24rem;
+  bottom: 0.18rem;
+  left: 0.24rem;
+  height: 0.18rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 62%);
+}
+
+.inventory-durability[hidden] {
+  display: none;
+}
+
+.inventory-durability > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #d66d50, #e9d45f 42%, #78d675);
+  transform-origin: left center;
+}
+
+.inventory-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border: 1px solid rgb(239 255 218 / 56%);
+  border-radius: 0.55rem;
+  background: rgb(9 18 12 / 88%);
+  pointer-events: none;
+  box-shadow: 0 0.6rem 1.2rem rgb(0 0 0 / 48%);
+}
+
+.inventory-cursor[hidden] {
+  display: none;
+}
+
+.inventory-cursor strong {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.08rem;
+  font-size: 0.72rem;
+  text-shadow: 0 1px 2px #000;
+}
+
+.item-oak-log {
+  background:
+    linear-gradient(90deg, transparent 36%, rgb(39 22 10 / 32%) 38% 44%, transparent 46%),
+    #70451f;
+}
+
+.item-oak-leaves {
+  background:
+    radial-gradient(circle at 28% 34%, #57934a 0 12%, transparent 14%),
+    radial-gradient(circle at 68% 62%, #315f31 0 14%, transparent 16%),
+    #3d7738;
+}
+
+.item-oak-planks {
+  background:
+    linear-gradient(0deg, transparent 47%, rgb(75 43 19 / 42%) 49% 54%, transparent 56%),
+    #a9793d;
+}
+
+.item-crafting-table {
+  background:
+    linear-gradient(90deg, transparent 45%, #56331b 47% 53%, transparent 55%),
+    linear-gradient(0deg, transparent 45%, #56331b 47% 53%, transparent 55%),
+    #8f5c2d;
+}
+
+.item-stick {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  rotate: -38deg;
+}
+
+.item-stick::before {
+  position: absolute;
+  top: 0.05rem;
+  left: 0.72rem;
+  width: 0.2rem;
+  height: 1.6rem;
+  border-radius: 0.1rem;
+  content: "";
+  background: #8b5a32;
+  box-shadow: inset -0.06rem 0 0 rgb(0 0 0 / 22%);
+}
+
+.item-wooden-shovel,
+.item-wooden-pickaxe,
+.item-wooden-axe,
+.item-stone-shovel,
+.item-stone-pickaxe,
+.item-stone-axe {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  rotate: -38deg;
+}
+
+.item-wooden-shovel::before,
+.item-wooden-pickaxe::before,
+.item-wooden-axe::before,
+.item-stone-shovel::before,
+.item-stone-pickaxe::before,
+.item-stone-axe::before {
+  position: absolute;
+  top: 0.14rem;
+  left: 0.76rem;
+  width: 0.22rem;
+  height: 1.48rem;
+  border-radius: 0.1rem;
+  content: "";
+  background: #8b5a32;
+  box-shadow: inset -0.06rem 0 0 rgb(0 0 0 / 22%);
+}
+
+.item-wooden-pickaxe::after,
+.item-stone-pickaxe::after {
+  position: absolute;
+  top: 0.05rem;
+  left: 0.12rem;
+  width: 1.5rem;
+  height: 0.34rem;
+  border-radius: 50% 50% 0.1rem 0.1rem;
+  content: "";
+  background: #b77a43;
+}
+
+.item-stone-pickaxe::after {
+  background: #858a87;
+}
+
+.item-wooden-shovel::after,
+.item-stone-shovel::after {
+  position: absolute;
+  right: 0.06rem;
+  bottom: 0.02rem;
+  width: 0.78rem;
+  height: 0.66rem;
+  border-radius: 0.16rem 0.16rem 0.34rem 0.34rem;
+  content: "";
+  background: #b77a43;
+}
+
+.item-stone-shovel::after {
+  background: #858a87;
+}
+
+.item-wooden-axe::after,
+.item-stone-axe::after {
+  position: absolute;
+  top: 0.08rem;
+  left: 0.7rem;
+  width: 0.82rem;
+  height: 0.62rem;
+  border-radius: 0.12rem 0.35rem 0.12rem 0.12rem;
+  content: "";
+  background: #b77a43;
+}
+
+.item-stone-axe::after {
+  background: #858a87;
+}
+
+@media (max-width: 850px) {
+  .inventory-screen {
+    padding: 0.5rem;
+  }
+
+  .inventory-panel {
+    width: 100%;
+    max-height: 96vh;
+  }
+
+  .inventory-layout {
+    grid-template-columns: 1fr;
+    padding: 0.8rem;
+  }
+
+  .recipe-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-grid {
+    grid-template-columns: repeat(9, minmax(2.2rem, 1fr));
+    gap: 0.22rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .inventory-header {
+    padding: 0.7rem 0.8rem 0.6rem;
+  }
+
+  .inventory-message {
+    padding: 0.55rem 0.8rem;
+  }
+
+  .recipe-list {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-grid {
+    grid-template-columns: repeat(9, 2.18rem);
+    overflow-x: auto;
+  }
+
+  .inventory-item {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+}

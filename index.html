@@ -30,16 +30,42 @@
         </div>
         <div class="hud-pill">
           <span class="hud-label">视角 / 手持</span>
-          <strong id="hud-view">第三人称 · 泥土</strong>
+          <strong id="hud-view">第三人称 · 空手</strong>
         </div>
         <div class="hud-pill hud-position">
           <span class="hud-label">坐标</span>
           <strong id="hud-position">0.0, 2.9, 3.5</strong>
         </div>
-        <p class="desktop-help">点击锁定鼠标（失败时按住拖动）· WASD 移动 · 左键挖掘 · 右键放置 · 滚轮/1–9 快捷栏 · Shift 冲刺 · Space 跳跃 · F5/V 视角 · Esc 暂停</p>
+        <p class="desktop-help">点击锁定鼠标 · WASD 移动 · 左键挖掘 · 右键使用/放置 · E 背包 · 滚轮/1–9 快捷栏 · Shift 冲刺 · Space 跳跃 · F5/V 视角 · Esc 暂停</p>
       </aside>
 
-      <div id="hotbar" class="hotbar" role="toolbar" aria-label="方块快捷栏"></div>
+      <div id="hotbar" class="hotbar" role="toolbar" aria-label="物品快捷栏"></div>
+
+      <section id="inventory-screen" class="inventory-screen" hidden aria-label="背包与合成">
+        <div class="inventory-panel">
+          <header class="inventory-header">
+            <div>
+              <p class="inventory-eyebrow">SURVIVAL INVENTORY</p>
+              <h2 data-inventory-title>背包与合成</h2>
+            </div>
+            <button type="button" class="inventory-close" data-inventory-close aria-label="关闭背包">×</button>
+          </header>
+          <p class="inventory-message" data-inventory-message>左键整组，右键半组或单个。</p>
+          <div class="inventory-layout">
+            <section class="crafting-book" aria-label="可用配方">
+              <h3>配方</h3>
+              <div class="recipe-list" data-crafting-recipes></div>
+            </section>
+            <section class="inventory-content" aria-label="玩家物品">
+              <h3>储物栏</h3>
+              <div class="inventory-grid inventory-storage" data-inventory-storage></div>
+              <h3>快捷栏</h3>
+              <div class="inventory-grid inventory-hotbar" data-inventory-hotbar></div>
+            </section>
+          </div>
+        </div>
+        <div class="inventory-cursor" data-inventory-cursor hidden aria-hidden="true"></div>
+      </section>
 
       <section id="touch-controls" aria-label="触屏游戏控制">
         <div class="touch-move">
@@ -50,7 +76,8 @@
         </div>
         <div class="touch-actions">
           <button type="button" data-action="break-block">破坏</button>
-          <button type="button" data-action="place-block">放置</button>
+          <button type="button" data-action="place-block">使用</button>
+          <button type="button" data-action="toggle-inventory">背包</button>
           <button type="button" data-action="sprint">冲刺</button>
           <button type="button" data-action="jump">跳跃</button>
           <button type="button" data-action="toggle-camera">视角</button>

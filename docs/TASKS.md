@@ -2,81 +2,58 @@
 
 ## Milestone 0
 
-- [x] Inspect repository state, default branch, issues, pull requests, and actions baseline
-- [x] Create initial `main` commit and `feat/mvp-vertical-slice` branch
-- [x] Initialize TypeScript, Vite, and Babylon.js project files
-- [x] Enable strict TypeScript settings
-- [x] Configure ESLint and Prettier
-- [x] Add Vitest foundation tests
-- [x] Configure `base: '/LostinCubes/'`
-- [x] Add CI workflow
-- [x] Add GitHub Pages workflow
-- [x] Add minimal Babylon.js voxel-fragment scene
-- [x] Add architecture, design, lore, story, save, controls, and performance documents
-- [x] Confirm CI passes on GitHub-hosted runner
-- [x] Merge milestone 0 pull request into `main`
-- [x] Confirm deployed Pages URL after merge
+- [x] Initialize strict TypeScript, Vite, Babylon.js, Vitest, ESLint, CI, and Pages
+- [x] Configure the Pages base path and validate deployment
+- [x] Add architecture, design, lore, save, control, and performance documents
 
 ## Milestone 1
 
-- [x] Implement fixed-step simulation clock
-- [x] Implement command-based input manager
-- [x] Add kinematic player movement and collision
-- [x] Add gravity, ground detection, jump, and sprint
-- [x] Add first-person camera
-- [x] Add third-person camera and wall collision
-- [x] Add smooth camera switching without replacing player state
-- [x] Add desktop bindings and basic touch controls
-- [x] Add pause/settings input context
-- [x] Add movement and camera tests
-- [x] Replace prototype capsule with an original multi-part voxel character
-- [x] Add idle, walk, sprint, jump, and fall presentation poses
-- [x] Hide the third-person body cleanly in first-person view
-- [x] Confirm TypeScript, ESLint, Vitest, and production build pass in CI
+- [x] Implement fixed-step simulation and command-based input
+- [x] Add kinematic movement, sprinting, jumping, gravity, and pause contexts
+- [x] Add first- and third-person cameras with wall collision
+- [x] Add desktop and touch controls
+- [x] Build and animate an original voxel player model
+- [x] Add visible held blocks and tools in both camera modes
+- [x] Support effectively vertical look and downward mining
 
 ## Milestone 2
 
-- [x] Introduce seeded chunk data structures
-- [x] Generate terrain data from a deterministic world seed
-- [x] Render generated chunks in the playable scene
-- [x] Stream a 5×5 chunk window around the player
-- [x] Implement cross-chunk hidden-face culling
-- [x] Implement greedy meshing with typed output buffers
-- [x] Move generation and meshing work into a bounded Web Worker pool
-- [x] Limit main-thread mesh uploads per frame
-- [x] Reject stale worker results after edits or chunk movement
-- [x] Connect player grounding and step limits to voxel terrain
-- [x] Add full body collision against voxel walls and ceilings
-- [x] Add axis-separated wall sliding, exact step-up candidates, and movement substeps
-- [x] Add safe upward spawn depenetration and head collision
-- [x] Add deterministic voxel targeting
-- [x] Make first- and third-person interaction originate from the player eye
-- [x] Add shoulder-camera third person with projected real-hit reticle
-- [x] Add pointer-lock mouse look with Escape pause/resume behavior
-- [x] Add held mining progress with target-change reset
-- [x] Add bounded held-placement repetition
-- [x] Add block breaking and placement on desktop and touch controls
-- [x] Prevent placement inside the player body
-- [x] Persist sparse block modifications with IndexedDB
-- [x] Restore persisted edits before the first chunk is shown
-- [x] Add chunk queue, greedy quad, mining progress, and FPS diagnostics to the HUD
-- [x] Add meshing, worker task, persistence, raycast, view, interaction, collision, and inventory tests
+- [x] Add deterministic seeded terrain and chunk structures
+- [x] Stream a 5×5 chunk window
+- [x] Implement cross-chunk culling and six-axis greedy meshing
+- [x] Move generation and meshing into a bounded Worker pool
+- [x] Add nearest-first jobs, stable keys, revision rejection, and active cancellation
+- [x] Add full voxel body collision, wall sliding, ceilings, step candidates, and depenetration
+- [x] Add deterministic eye-origin voxel targeting
+- [x] Add held mining, bounded placement, projected third-person targeting, and placement safety
+- [x] Persist sparse world edits with IndexedDB
+- [x] Add Chromium production runtime tests
 
 ## Milestone 3
 
-- [x] Add complete voxel body collision and safe depenetration
-- [x] Add a nine-slot inventory hotbar with keyboard, wheel, click, and touch selection
-- [x] Add finite stacks, placement consumption, and world-scoped persistence
-- [x] Add automated Chromium runtime smoke tests
-- [x] Add pooled visible block drops with gravity, merging, attraction, and pickup overflow
-- [x] Add block and tool items in one hotbar model
-- [x] Add wooden shovel and pickaxe mining multipliers and durability
-- [x] Migrate legacy block-only inventory snapshots without resetting saves
-- [x] Add keyed nearest-first chunk worker scheduling
-- [x] Cancel queued and active worker jobs after edits or chunk movement
-- [ ] Add world save metadata and multiple save slots
-- [ ] Add biome and structure generation
-- [ ] Add crafting and tool creation instead of starter tools
-- [ ] Add LOD or distance-tiered chunk rendering
-- [ ] Add representative desktop and mobile performance profiles
-- [ ] Add hostile entities, combat, health, and recovery
+- [x] Add a nine-slot finite hotbar
+- [x] Add pooled visible drops with gravity, merging, attraction, and overflow safety
+- [x] Add wooden shovel and pickaxe speed, durability, and save migration
+- [x] Add block-face palettes, improved player proportions, sky lighting, and fog
+- [x] Add pooled break particles and synthesized interaction audio
+- [x] Persist bounded ground-drop snapshots
+
+## Milestone 4 — survival progression
+
+- [x] Expand inventory to 27 storage slots plus nine hotbar slots
+- [x] Add whole-stack, half-stack, single-item, merge, and swap interactions
+- [x] Migrate legacy nine-slot saves into the expanded hotbar
+- [x] Generate deterministic oak trees with real log and leaf voxels
+- [x] Add oak logs, leaves, planks, sticks, and crafting tables
+- [x] Add personal recipe-book crafting for planks, sticks, and crafting tables
+- [x] Add placed crafting-table interaction and tool recipes
+- [x] Add wooden axes and full stone tool tier
+- [x] Add tier- and material-aware mining speeds and durability
+- [ ] Add save metadata and multiple world slots
+- [ ] Add additional biomes and structures
+- [ ] Add leaf decay, saplings, and tree regrowth
+- [ ] Add furnaces, ore progression, and smelting
+- [ ] Add full drag distribution and shift-click inventory shortcuts
+- [ ] Add distance-tiered chunk rendering or LOD
+- [ ] Capture representative desktop and Android performance profiles
+- [ ] Add hostile entities, combat, health, hunger, and recovery

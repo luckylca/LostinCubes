@@ -10,7 +10,11 @@ type HeldAction =
   | 'break-block'
   | 'place-block';
 
-type EdgeAction = 'jump' | 'toggle-camera' | 'toggle-pause';
+type EdgeAction =
+  | 'jump'
+  | 'toggle-camera'
+  | 'toggle-pause'
+  | 'toggle-inventory';
 
 const FALLBACK_DRAG_THRESHOLD_PX = 4;
 const HOTBAR_KEYS = new Map<string, number>(
@@ -48,7 +52,12 @@ function isHeldAction(value: string): value is HeldAction {
 }
 
 function isEdgeAction(value: string): value is EdgeAction {
-  return ['jump', 'toggle-camera', 'toggle-pause'].includes(value);
+  return [
+    'jump',
+    'toggle-camera',
+    'toggle-pause',
+    'toggle-inventory',
+  ].includes(value);
 }
 
 export class InputManager {
@@ -73,13 +82,15 @@ export class InputManager {
   #jumpRequested = false;
   #cameraToggleRequested = false;
   #pauseToggleRequested = false;
+  #inventoryToggleRequested = false;
   #breakPulse = false;
   #placePulse = false;
   #pointerLocked = false;
   #pointerLockPending = false;
   #resumeAfterPointerLock = false;
   #suppressUnlockPause = false;
-  #selectedHotbarSlot = 1;
+  #selectedHotbarSlot = 0;
+  #uiOpen = false;
 
   public constructor(canvas: HTMLCanvasElement, touchRoot: HTMLElement | null) {
     this.#canvas = canvas;
@@ -129,17 +140,19 @@ export class InputManager {
     let moveX = 0;
     let moveZ = 0;
 
-    if (this.#keys.has('KeyA') || this.#touchActions.has('move-left')) {
-      moveX -= 1;
-    }
-    if (this.#keys.has('KeyD') || this.#touchActions.has('move-right')) {
-      moveX += 1;
-    }
-    if (this.#keys.has('KeyW') || this.#touchActions.has('move-forward')) {
-      moveZ += 1;
-    }
-    if (this.#keys.has('KeyS') || this.#touchActions.has('move-backward')) {
-      moveZ -= 1;
+    if (!this.#uiOpen) {
+      if (this.#keys.has('KeyA') || this.#touchActions.has('move-left')) {
+        moveX -= 1;
+      }
+      if (this.#keys.has('KeyD') || this.#touchActions.has('move-right')) {
+        moveX += 1;
+      }
+      if (this.#keys.has('KeyW') || this.#touchActions.has('move-forward')) {
+        moveZ += 1;
+      }
+      if (this.#keys.has('KeyS') || this.#touchActions.has('move-backward')) {
+        moveZ -= 1;
+      }
     }
 
     const command: PlayerInputCommand = {
@@ -147,25 +160,28 @@ export class InputManager {
       issuedAtTick,
       moveX,
       moveZ,
-      lookX: this.#lookDeltaX,
-      lookY: this.#lookDeltaY,
-      jump: this.#jumpRequested,
+      lookX: this.#uiOpen ? 0 : this.#lookDeltaX,
+      lookY: this.#uiOpen ? 0 : this.#lookDeltaY,
+      jump: !this.#uiOpen && this.#jumpRequested,
       sprint:
-        this.#keys.has('ShiftLeft') ||
-        this.#keys.has('ShiftRight') ||
-        this.#touchActions.has('sprint'),
-      toggleCamera: this.#cameraToggleRequested,
-      togglePause: this.#pauseToggleRequested,
+        !this.#uiOpen &&
+        (this.#keys.has('ShiftLeft') ||
+          this.#keys.has('ShiftRight') ||
+          this.#touchActions.has('sprint')),
+      toggleCamera: !this.#uiOpen && this.#cameraToggleRequested,
+      togglePause: !this.#uiOpen && this.#pauseToggleRequested,
+      toggleInventory: this.#inventoryToggleRequested,
       breakBlock:
-        this.#breakPulse ||
-        this.#mouseButtons.has(0) ||
-        this.#keys.has('KeyQ') ||
-        this.#touchActions.has('break-block'),
+        !this.#uiOpen &&
+        (this.#breakPulse ||
+          this.#mouseButtons.has(0) ||
+          this.#keys.has('KeyQ') ||
+          this.#touchActions.has('break-block')),
       placeBlock:
-        this.#placePulse ||
-        this.#mouseButtons.has(2) ||
-        this.#keys.has('KeyE') ||
-        this.#touchActions.has('place-block'),
+        !this.#uiOpen &&
+        (this.#placePulse ||
+          this.#mouseButtons.has(2) ||
+          this.#touchActions.has('place-block')),
       selectedHotbarSlot: this.#selectedHotbarSlot,
     };
 
@@ -174,6 +190,7 @@ export class InputManager {
     this.#jumpRequested = false;
     this.#cameraToggleRequested = false;
     this.#pauseToggleRequested = false;
+    this.#inventoryToggleRequested = false;
     this.#breakPulse = false;
     this.#placePulse = false;
     return command;
@@ -187,6 +204,18 @@ export class InputManager {
       Math.max(index, 0),
       HOTBAR_SLOT_COUNT - 1,
     );
+  }
+
+  public setUiOpen(open: boolean): void {
+    if (open === this.#uiOpen) {
+      return;
+    }
+    this.#uiOpen = open;
+    this.#clearHeldState();
+    if (open && document.pointerLockElement === this.#canvas) {
+      this.#suppressUnlockPause = true;
+      document.exitPointerLock();
+    }
   }
 
   public get usesPointerLock(): boolean {
@@ -204,10 +233,7 @@ export class InputManager {
     }
     document.body.classList.remove('is-pointer-locked');
     this.#abortController.abort();
-    this.#keys.clear();
-    this.#mouseButtons.clear();
-    this.#touchActions.clear();
-    this.#clearFallbackPointer();
+    this.#clearHeldState();
   }
 
   readonly #onKeyDown = (event: KeyboardEvent): void => {
@@ -216,12 +242,24 @@ export class InputManager {
     }
 
     if (!event.repeat) {
+      if (event.code === 'KeyE') {
+        this.#inventoryToggleRequested = true;
+        return;
+      }
+      if (event.code === 'Escape' && this.#uiOpen) {
+        this.#inventoryToggleRequested = true;
+        return;
+      }
+
       const hotbarSlot = HOTBAR_KEYS.get(event.code);
-      if (hotbarSlot !== undefined) {
+      if (hotbarSlot !== undefined && !this.#uiOpen) {
         this.#selectedHotbarSlot = hotbarSlot;
-      } else if (event.code === 'Space') {
+      } else if (event.code === 'Space' && !this.#uiOpen) {
         this.#jumpRequested = true;
-      } else if (event.code === 'KeyV' || event.code === 'F5') {
+      } else if (
+        (event.code === 'KeyV' || event.code === 'F5') &&
+        !this.#uiOpen
+      ) {
         this.#cameraToggleRequested = true;
       } else if (
         event.code === 'Escape' &&
@@ -232,7 +270,9 @@ export class InputManager {
       }
     }
 
-    this.#keys.add(event.code);
+    if (!this.#uiOpen) {
+      this.#keys.add(event.code);
+    }
   };
 
   readonly #onKeyUp = (event: KeyboardEvent): void => {
@@ -240,6 +280,9 @@ export class InputManager {
   };
 
   readonly #onWheel = (event: WheelEvent): void => {
+    if (this.#uiOpen) {
+      return;
+    }
     if (
       !this.#pointerLocked &&
       event.target !== this.#canvas &&
@@ -257,19 +300,16 @@ export class InputManager {
       HOTBAR_SLOT_COUNT;
   };
 
-  readonly #onBlur = (): void => {
-    this.#keys.clear();
-    this.#mouseButtons.clear();
-    this.#touchActions.clear();
-    this.#touchLookPointerId = null;
-    this.#clearFallbackPointer();
-  };
+  readonly #onBlur = (): void => this.#clearHeldState();
 
   readonly #onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
   };
 
   readonly #onCanvasPointerDown = (event: PointerEvent): void => {
+    if (this.#uiOpen) {
+      return;
+    }
     if (event.pointerType !== 'mouse') {
       this.#beginTouchLook(event);
       return;
@@ -298,6 +338,9 @@ export class InputManager {
   };
 
   readonly #onPointerMove = (event: PointerEvent): void => {
+    if (this.#uiOpen) {
+      return;
+    }
     if (event.pointerType === 'mouse') {
       if (this.#pointerLocked) {
         this.#lookDeltaX += event.movementX;
@@ -379,7 +422,11 @@ export class InputManager {
     }
 
     this.#mouseButtons.clear();
-    if (wasLocked && !this.#suppressUnlockPause) {
+    if (this.#suppressUnlockPause) {
+      this.#suppressUnlockPause = false;
+      return;
+    }
+    if (wasLocked) {
       this.#resumeAfterPointerLock = true;
       this.#pauseToggleRequested = true;
     }
@@ -412,6 +459,8 @@ export class InputManager {
         this.#jumpRequested = true;
       } else if (action === 'toggle-camera') {
         this.#cameraToggleRequested = true;
+      } else if (action === 'toggle-inventory') {
+        this.#inventoryToggleRequested = true;
       } else {
         this.#pauseToggleRequested = true;
       }
@@ -463,5 +512,15 @@ export class InputManager {
     this.#touchLookX = event.clientX;
     this.#touchLookY = event.clientY;
     this.#canvas.setPointerCapture(event.pointerId);
+  }
+
+  #clearHeldState(): void {
+    this.#keys.clear();
+    this.#mouseButtons.clear();
+    this.#touchActions.clear();
+    this.#touchLookPointerId = null;
+    this.#lookDeltaX = 0;
+    this.#lookDeltaY = 0;
+    this.#clearFallbackPointer();
   }
 }

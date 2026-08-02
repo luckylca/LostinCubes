@@ -39,6 +39,10 @@ export interface VoxelInteractionCallbacks {
   readonly canPlaceBlock: (block: BlockTypeValue) => boolean;
   readonly onBlockPlaced: (block: BlockTypeValue) => void;
   readonly onToolUsed: (block: BlockTypeValue) => void;
+  readonly onUseBlock?: (
+    block: BlockTypeValue,
+    position: VoxelCoordinate,
+  ) => boolean;
 }
 
 export interface InteractionTargetPoint {
@@ -78,6 +82,7 @@ export class VoxelInteractionController {
   #heldItem: ItemType | null = null;
   #selectedBlock: BlockTypeValue = BlockType.Air;
   #breakProgress = 0;
+  #useWasHeld = false;
 
   public constructor(
     scene: Scene,
@@ -116,14 +121,20 @@ export class VoxelInteractionController {
   ): void {
     this.#updateTarget(player);
 
-    const targetBlock =
-      this.#target === null
-        ? BlockType.Air
-        : this.#world.sampleBlock(
-            this.#target.block.x,
-            this.#target.block.y,
-            this.#target.block.z,
-          );
+    const targetBlock = this.targetBlock;
+    const useNow = placeHeld && !this.#useWasHeld;
+    this.#useWasHeld = placeHeld;
+    if (
+      useNow &&
+      this.#target !== null &&
+      this.#callbacks.onUseBlock?.(targetBlock, this.#target.block) === true
+    ) {
+      this.#timing.reset();
+      this.#breakProgress = 0;
+      this.#updateHighlightPresentation();
+      return;
+    }
+
     const timing = this.#timing.update({
       targetKey: this.#target === null ? null : createTargetKey(this.#target),
       targetBlock,
@@ -161,6 +172,16 @@ export class VoxelInteractionController {
 
   public get targetPoint(): InteractionTargetPoint | null {
     return this.#targetPoint;
+  }
+
+  public get targetBlock(): BlockTypeValue {
+    return this.#target === null
+      ? BlockType.Air
+      : this.#world.sampleBlock(
+          this.#target.block.x,
+          this.#target.block.y,
+          this.#target.block.z,
+        );
   }
 
   public get hasTarget(): boolean {

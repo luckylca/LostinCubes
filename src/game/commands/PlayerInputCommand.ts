@@ -10,6 +10,7 @@ export interface PlayerInputCommand extends GameCommand {
   readonly sprint: boolean;
   readonly toggleCamera: boolean;
   readonly togglePause: boolean;
+  readonly toggleInventory: boolean;
   readonly breakBlock: boolean;
   readonly placeBlock: boolean;
   readonly selectedHotbarSlot: number;
@@ -29,8 +30,9 @@ export function createNeutralPlayerInput(
     sprint: false,
     toggleCamera: false,
     togglePause: false,
+    toggleInventory: false,
     breakBlock: false,
     placeBlock: false,
-    selectedHotbarSlot: 1,
+    selectedHotbarSlot: 0,
   };
 }

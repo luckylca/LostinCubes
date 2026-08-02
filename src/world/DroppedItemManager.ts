@@ -7,6 +7,7 @@ import type { Mesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
+import { getBlockItemColor } from './BlockVisuals';
 import type { VoxelWorldData } from './VoxelWorldData';
 
 const MAXIMUM_DROPS = 96;
@@ -19,6 +20,16 @@ const ATTRACTION_RADIUS = 2.5;
 const PICKUP_RADIUS = 0.58;
 const MERGE_RADIUS = 1.25;
 const MAXIMUM_LIFETIME_SECONDS = 300;
+const DROP_BLOCKS: readonly BlockTypeValue[] = [
+  BlockType.Grass,
+  BlockType.Dirt,
+  BlockType.Stone,
+  BlockType.RuneStone,
+  BlockType.OakLog,
+  BlockType.OakLeaves,
+  BlockType.OakPlanks,
+  BlockType.CraftingTable,
+];
 
 interface DropEntity {
   readonly mesh: Mesh;
@@ -45,6 +56,7 @@ export interface DroppedItemSnapshot {
 
 export interface DroppedItemCallbacks {
   readonly onPickup: (block: BlockTypeValue, count: number) => number;
+  readonly onPickupSucceeded?: (block: BlockTypeValue, count: number) => void;
 }
 
 function createMaterial(
@@ -58,6 +70,10 @@ function createMaterial(
   material.specularColor = Color3.Black();
   material.freeze();
   return material;
+}
+
+function colorFromTuple(color: readonly [number, number, number]): Color3 {
+  return new Color3(color[0], color[1], color[2]);
 }
 
 function getMaterialForBlock(
@@ -105,24 +121,16 @@ export class DroppedItemManager {
     this.#scene = scene;
     this.#world = world;
     this.#callbacks = callbacks;
-    this.#materials = new Map<BlockTypeValue, StandardMaterial>([
-      [
-        BlockType.Grass,
-        createMaterial('drop-grass', new Color3(0.37, 0.58, 0.28), scene),
-      ],
-      [
-        BlockType.Dirt,
-        createMaterial('drop-dirt', new Color3(0.44, 0.3, 0.2), scene),
-      ],
-      [
-        BlockType.Stone,
-        createMaterial('drop-stone', new Color3(0.46, 0.48, 0.47), scene),
-      ],
-      [
-        BlockType.RuneStone,
-        createMaterial('drop-rune', new Color3(0.2, 0.43, 0.31), scene),
-      ],
-    ]);
+    this.#materials = new Map<BlockTypeValue, StandardMaterial>(
+      DROP_BLOCKS.map((block) => [
+        block,
+        createMaterial(
+          `drop-${String(block)}`,
+          colorFromTuple(getBlockItemColor(block)),
+          scene,
+        ),
+      ]),
+    );
   }
 
   public spawn(
@@ -172,22 +180,45 @@ export class DroppedItemManager {
       remaining -= stackCount;
       const phase = this.#nextPhase;
       this.#nextPhase += 1;
-      drop.active = true;
-      drop.block = block;
-      drop.count = stackCount;
-      drop.x = worldX + Math.sin(phase * 2.31) * 0.12;
-      drop.y = worldY + 0.18;
-      drop.z = worldZ + Math.cos(phase * 1.73) * 0.12;
+      this.#activateDrop(drop, {
+        block,
+        count: stackCount,
+        x: worldX + Math.sin(phase * 2.31) * 0.12,
+        y: worldY + 0.18,
+        z: worldZ + Math.cos(phase * 1.73) * 0.12,
+        grounded: false,
+      });
       drop.velocityY = 2.2 + (phase % 3) * 0.16;
       drop.ageSeconds = 0;
       drop.phase = phase * 0.73;
-      drop.grounded = false;
-      drop.mesh.material = getMaterialForBlock(block, this.#materials);
-      drop.mesh.scaling.setAll(1);
-      drop.mesh.setEnabled(true);
-      this.#syncMesh(drop, 0);
     }
     return 0;
+  }
+
+  public restore(snapshots: readonly DroppedItemSnapshot[]): void {
+    for (const snapshot of snapshots.slice(0, MAXIMUM_DROPS)) {
+      if (
+        snapshot.block === BlockType.Air ||
+        snapshot.count <= 0 ||
+        !Number.isFinite(snapshot.x) ||
+        !Number.isFinite(snapshot.y) ||
+        !Number.isFinite(snapshot.z)
+      ) {
+        continue;
+      }
+      const drop = this.#acquireDrop(snapshot.block);
+      if (drop === null) {
+        return;
+      }
+      this.#activateDrop(drop, {
+        ...snapshot,
+        count: Math.min(snapshot.count, MAXIMUM_DROP_STACK),
+      });
+      drop.velocityY = 0;
+      drop.ageSeconds = PICKUP_DELAY_SECONDS;
+      drop.phase = this.#nextPhase * 0.73;
+      this.#nextPhase += 1;
+    }
   }
 
   public update(player: PlayerState, frameSeconds: number): void {
@@ -255,6 +286,20 @@ export class DroppedItemManager {
     for (const material of this.#materials.values()) {
       material.dispose();
     }
+  }
+
+  #activateDrop(drop: DropEntity, snapshot: DroppedItemSnapshot): void {
+    drop.active = true;
+    drop.block = snapshot.block;
+    drop.count = snapshot.count;
+    drop.x = snapshot.x;
+    drop.y = snapshot.y;
+    drop.z = snapshot.z;
+    drop.grounded = snapshot.grounded;
+    drop.mesh.material = getMaterialForBlock(snapshot.block, this.#materials);
+    drop.mesh.scaling.setAll(1);
+    drop.mesh.setEnabled(true);
+    this.#syncMesh(drop, 0);
   }
 
   #acquireDrop(block: BlockTypeValue): DropEntity | null {
@@ -358,7 +403,12 @@ export class DroppedItemManager {
   }
 
   #attemptPickup(drop: DropEntity): boolean {
+    const originalCount = drop.count;
     const remaining = this.#callbacks.onPickup(drop.block, drop.count);
+    const pickedUp = originalCount - Math.max(remaining, 0);
+    if (pickedUp > 0) {
+      this.#callbacks.onPickupSucceeded?.(drop.block, pickedUp);
+    }
     if (remaining <= 0) {
       this.#deactivate(drop);
       return true;
