@@ -185,6 +185,8 @@ export function itemFromBlock(block: BlockTypeValue): ItemType | null {
       return ItemType.CraftingTableBlock;
     case BlockType.Air:
       return null;
+    default:
+      return null;
   }
 }
 
@@ -206,6 +208,8 @@ function efficientToolForBlock(block: BlockTypeValue): ToolKind | null {
       return 'axe';
     case BlockType.OakLeaves:
     case BlockType.Air:
+      return null;
+    default:
       return null;
   }
 }
