@@ -47,7 +47,7 @@ describe('voxel body collision', () => {
     expect(motor.getState().grounded).toBe(true);
   });
 
-  it('steps onto a single full voxel but not a two-voxel wall', () => {
+  it('uses a jump arc for a full voxel instead of snapping up one block', () => {
     const oneBlockStep = (worldX: number, worldY: number): boolean =>
       worldY === FLOOR_Y || (worldX === 1 && worldY === 1);
     const motor = new KinematicPlayerMotor({
@@ -55,12 +55,40 @@ describe('voxel body collision', () => {
       spawnPosition: { x: 0, y: STANDING_Y, z: 0 },
     });
 
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
+      motor.update({ ...STILL_INPUT, moveX: 1 }, 1 / 60);
+    }
+
+    const rising = motor.getState();
+    expect(rising.grounded).toBe(false);
+    expect(rising.verticalVelocity).toBeGreaterThan(0);
+    expect(rising.position.y).toBeGreaterThan(STANDING_Y);
+    expect(rising.position.y).toBeLessThan(2.4);
+
+    for (let index = 0; index < 120; index += 1) {
       motor.update({ ...STILL_INPUT, moveX: 1 }, 1 / 60);
     }
 
     expect(motor.getState().position.x).toBeGreaterThan(0.5);
-    expect(motor.getState().position.y).toBeCloseTo(2.4, 5);
+    expect(motor.getState().position.y).toBeCloseTo(2.4, 4);
+    expect(motor.getState().grounded).toBe(true);
+  });
+
+  it('requires a manual jump for a full voxel when auto-jump is disabled', () => {
+    const oneBlockStep = (worldX: number, worldY: number): boolean =>
+      worldY === FLOOR_Y || (worldX === 1 && worldY === 1);
+    const motor = new KinematicPlayerMotor({
+      isSolidAt: oneBlockStep,
+      autoJump: false,
+      spawnPosition: { x: 0, y: STANDING_Y, z: 0 },
+    });
+
+    for (let index = 0; index < 30; index += 1) {
+      motor.update({ ...STILL_INPUT, moveX: 1 }, 1 / 60);
+    }
+
+    expect(motor.getState().position.x).toBeLessThan(0.2);
+    expect(motor.getState().position.y).toBeCloseTo(STANDING_Y, 6);
     expect(motor.getState().grounded).toBe(true);
   });
 
