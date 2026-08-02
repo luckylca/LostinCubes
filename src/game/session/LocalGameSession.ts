@@ -11,8 +11,10 @@ import type {
 } from './GameSession';
 
 const LOOK_SENSITIVITY = 0.0024;
-const MINIMUM_PITCH = -1.15;
-const MAXIMUM_PITCH = 1.05;
+/** Avoids the exact vertical camera singularity while remaining effectively ±90°. */
+export const PLAYER_LOOK_PITCH_LIMIT = Math.PI / 2 - 0.003;
+const MINIMUM_PITCH = -PLAYER_LOOK_PITCH_LIMIT;
+const MAXIMUM_PITCH = PLAYER_LOOK_PITCH_LIMIT;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
