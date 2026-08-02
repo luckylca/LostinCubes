@@ -119,11 +119,15 @@ export class VoxelWorldData {
     return modified ?? this.generator.sampleBlock(worldX, worldY, worldZ);
   }
 
+  public isSolidAt(worldX: number, worldY: number, worldZ: number): boolean {
+    return isSolidBlock(this.sampleBlock(worldX, worldY, worldZ));
+  }
+
   public sampleStandingY(worldX: number, worldZ: number): number {
     const blockX = Math.floor(worldX);
     const blockZ = Math.floor(worldZ);
     for (let worldY = CHUNK_HEIGHT - 1; worldY >= 0; worldY -= 1) {
-      if (isSolidBlock(this.sampleBlock(blockX, worldY, blockZ))) {
+      if (this.isSolidAt(blockX, worldY, blockZ)) {
         return worldY + 0.5 + PLAYER_FOOT_OFFSET;
       }
     }
