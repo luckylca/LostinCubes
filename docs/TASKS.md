@@ -29,14 +29,19 @@
 - [x] Add desktop bindings and basic touch controls
 - [x] Add pause/settings input context
 - [x] Add movement and camera tests
+- [x] Replace prototype capsule with an original multi-part voxel character
+- [x] Add idle, walk, sprint, jump, and fall presentation poses
+- [x] Hide the third-person body cleanly in first-person view
 - [x] Confirm TypeScript, ESLint, Vitest, and production build pass in CI
 
 ## Milestone 2
 
-- [ ] Introduce seeded chunk data structures
-- [ ] Generate terrain from a deterministic world seed
+- [x] Introduce seeded chunk data structures
+- [x] Generate terrain data from a deterministic world seed
+- [ ] Render generated chunks in the playable scene
 - [ ] Stream chunks around the player
 - [ ] Implement hidden-face culling and greedy meshing
 - [ ] Move generation and meshing work into Web Workers
+- [ ] Connect player grounding and collision to voxel terrain
 - [ ] Add block targeting, breaking, and placement
 - [ ] Persist block modifications

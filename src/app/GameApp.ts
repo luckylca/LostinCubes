@@ -5,6 +5,7 @@ import { LocalGameSession } from '../game/session/LocalGameSession';
 import type { PlayerState } from '../game/session/GameSession';
 import { InputManager } from '../input/InputManager';
 import { PlayerCameraController } from '../player/PlayerCameraController';
+import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
 
 export interface GameUiElements {
   readonly touchControls: HTMLElement | null;
@@ -20,6 +21,7 @@ export class GameApp {
   #renderLoop: RenderLoop | null = null;
   #input: InputManager | null = null;
   #session: LocalGameSession | null = null;
+  #playerModel: VoxelPlayerModel | null = null;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
     this.#engineHost = new BabylonEngine(canvas);
@@ -28,23 +30,19 @@ export class GameApp {
   }
 
   public start(): void {
-    const { scene, playerMesh } = this.#engineHost.createPrototypeScene();
+    const { scene } = this.#engineHost.createPrototypeScene();
     const session = new LocalGameSession('world-fragment-01');
     const input = new InputManager(this.#canvas, this.#ui.touchControls);
     const cameraController = new PlayerCameraController(scene);
+    const playerModel = new VoxelPlayerModel(scene);
 
     this.#session = session;
     this.#input = input;
+    this.#playerModel = playerModel;
     void session.start();
 
     const applyPlayerState = (player: PlayerState, frameSeconds: number): void => {
-      playerMesh.position.set(
-        player.position.x,
-        player.position.y,
-        player.position.z,
-      );
-      playerMesh.rotation.y = player.yaw;
-      playerMesh.visibility = player.cameraMode === 'first-person' ? 0 : 1;
+      playerModel.update(player, frameSeconds);
       cameraController.update(player, frameSeconds);
       this.#updateHud(player);
     };
@@ -73,6 +71,9 @@ export class GameApp {
       void this.#session.stop();
       this.#session = null;
     }
+
+    this.#playerModel?.dispose();
+    this.#playerModel = null;
 
     this.#renderLoop?.stop();
     this.#renderLoop = null;

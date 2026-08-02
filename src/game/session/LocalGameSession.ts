@@ -123,6 +123,8 @@ export class LocalGameSession implements GameSession {
     const player: PlayerState = {
       position: motorState.position,
       verticalVelocity: motorState.verticalVelocity,
+      horizontalSpeed: motorState.horizontalSpeed,
+      sprinting: motorState.sprinting,
       grounded: motorState.grounded,
       yaw: this.#yaw,
       pitch: this.#pitch,

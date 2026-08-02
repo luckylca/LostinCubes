@@ -12,7 +12,6 @@ import {
 
 export interface PrototypeSceneBundle {
   readonly scene: Scene;
-  readonly playerMesh: Mesh;
 }
 
 function markCameraBlocker(mesh: Mesh): void {
@@ -115,21 +114,7 @@ export class BabylonEngine {
     monolith.material = rune;
     markCameraBlocker(monolith);
 
-    const playerMaterial = new StandardMaterial('player-material', scene);
-    playerMaterial.diffuseColor = new Color3(0.62, 0.76, 0.68);
-    playerMaterial.emissiveColor = new Color3(0.03, 0.09, 0.06);
-    playerMaterial.specularColor = Color3.Black();
-
-    const playerMesh = MeshBuilder.CreateCapsule(
-      'player-avatar',
-      { height: 1.8, radius: 0.34, tessellation: 8 },
-      scene,
-    );
-    playerMesh.position.set(0, 2.9, 3.5);
-    playerMesh.material = playerMaterial;
-    playerMesh.isPickable = false;
-
-    return { scene, playerMesh };
+    return { scene };
   }
 
   public dispose(): void {

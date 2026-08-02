@@ -7,6 +7,8 @@ export interface PlayerVector {
 export interface PlayerMotorState {
   readonly position: PlayerVector;
   readonly verticalVelocity: number;
+  readonly horizontalSpeed: number;
+  readonly sprinting: boolean;
   readonly grounded: boolean;
 }
 
@@ -89,6 +91,8 @@ export class KinematicPlayerMotor {
   readonly #config: PlayerMotorConfig;
   #position: MutablePosition = { x: 0, y: DEFAULT_CONFIG.standingY, z: 3.5 };
   #verticalVelocity = 0;
+  #horizontalSpeed = 0;
+  #sprinting = false;
   #grounded = true;
 
   public constructor(config: Partial<PlayerMotorConfig> = {}) {
@@ -101,6 +105,10 @@ export class KinematicPlayerMotor {
     const normalizedX = inputLength > 1 ? input.moveX / inputLength : input.moveX;
     const normalizedZ = inputLength > 1 ? input.moveZ / inputLength : input.moveZ;
     const speed = input.sprint ? this.#config.sprintSpeed : this.#config.walkSpeed;
+    const movementStrength = Math.min(inputLength, 1);
+
+    this.#horizontalSpeed = speed * movementStrength;
+    this.#sprinting = input.sprint && movementStrength > 0;
 
     const forwardX = Math.sin(input.yaw);
     const forwardZ = Math.cos(input.yaw);
@@ -141,6 +149,8 @@ export class KinematicPlayerMotor {
     return {
       position: { ...this.#position },
       verticalVelocity: this.#verticalVelocity,
+      horizontalSpeed: this.#horizontalSpeed,
+      sprinting: this.#sprinting,
       grounded: this.#grounded,
     };
   }
@@ -150,6 +160,8 @@ export class KinematicPlayerMotor {
   ): void {
     this.#position = { ...position };
     this.#verticalVelocity = 0;
+    this.#horizontalSpeed = 0;
+    this.#sprinting = false;
     this.#grounded = position.y <= this.#config.standingY;
   }
 }
