@@ -256,6 +256,7 @@ export class InventoryView {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'recipe-card';
+      button.dataset.recipeId = recipe.id;
       const craftable =
         this.#inventory.hasItems(recipe.ingredients) &&
         this.#cursorCanAccept(recipe);
