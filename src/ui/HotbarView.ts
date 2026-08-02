@@ -3,7 +3,10 @@ import {
   getItemLabel,
 } from '../inventory/ItemDefinitions';
 import type { PlayerInventorySnapshot } from '../inventory/PlayerInventory';
-import { HOTBAR_SLOT_COUNT } from '../inventory/PlayerInventory';
+import {
+  HOTBAR_SLOT_COUNT,
+  HOTBAR_START_INDEX,
+} from '../inventory/PlayerInventory';
 
 export class HotbarView {
   readonly #root: HTMLElement;
@@ -39,7 +42,7 @@ export class HotbarView {
   public render(snapshot: PlayerInventorySnapshot): void {
     for (let slotIndex = 0; slotIndex < HOTBAR_SLOT_COUNT; slotIndex += 1) {
       const button = this.#buttons[slotIndex];
-      const slot = snapshot.slots[slotIndex];
+      const slot = snapshot.slots[HOTBAR_START_INDEX + slotIndex];
       if (button === undefined || slot === undefined) {
         continue;
       }
@@ -53,10 +56,14 @@ export class HotbarView {
       button.setAttribute(
         'aria-label',
         `${String(slotIndex + 1)}：${getItemLabel(slot.item)}${
-          definition?.kind === 'block' ? ` × ${String(slot.count)}` : ''
+          definition !== null && definition.kind !== 'tool'
+            ? ` × ${String(slot.count)}`
+            : ''
         }${
           definition?.kind === 'tool' && slot.durability !== null
-            ? `，耐久 ${String(slot.durability)}/${String(definition.maximumDurability ?? 1)}`
+            ? `，耐久 ${String(slot.durability)}/${String(
+                definition.maximumDurability ?? 1,
+              )}`
             : ''
         }`,
       );
@@ -73,7 +80,9 @@ export class HotbarView {
       }
       if (countElement !== null) {
         countElement.textContent =
-          definition?.kind === 'block' ? String(slot.count) : '';
+          definition !== null && definition.kind !== 'tool'
+            ? String(slot.count)
+            : '';
       }
       if (durabilityElement !== null) {
         durabilityElement.hidden = definition?.kind !== 'tool';
