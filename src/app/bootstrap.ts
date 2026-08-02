@@ -15,7 +15,7 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-export async function bootstrap(): Promise<void> {
+export function bootstrap(): void {
   const loadingMessage = requireElement('#loading-message');
   let app: GameApp | null = null;
 
