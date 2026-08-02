@@ -28,11 +28,11 @@ class MemoryStorage {
   }
 }
 
-function emptySlots(): Array<{
+function emptySlots(): {
   item: null;
   count: number;
   durability: null;
-}> {
+}[] {
   return Array.from({ length: INVENTORY_SLOT_COUNT }, () => ({
     item: null,
     count: 0,
