@@ -233,7 +233,7 @@ export class InputManager {
 
     event.preventDefault();
     if (!this.#pointerLocked) {
-      this.#canvas.requestPointerLock();
+      void this.#canvas.requestPointerLock();
       return;
     }
 
