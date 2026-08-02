@@ -16,6 +16,7 @@ type EdgeAction =
   | 'break-block'
   | 'place-block';
 
+const CLICK_DRAG_THRESHOLD_PX = 5;
 const GAMEPLAY_KEYS = new Set([
   'KeyW',
   'KeyA',
@@ -62,6 +63,9 @@ export class InputManager {
   #lookPointerId: number | null = null;
   #lookPointerX = 0;
   #lookPointerY = 0;
+  #lookPointerStartX = 0;
+  #lookPointerStartY = 0;
+  #lookPointerDragged = false;
   #lookDeltaX = 0;
   #lookDeltaY = 0;
   #jumpRequested = false;
@@ -192,6 +196,7 @@ export class InputManager {
     this.#keys.clear();
     this.#touchActions.clear();
     this.#lookPointerId = null;
+    this.#lookPointerDragged = false;
   };
 
   readonly #onContextMenu = (event: MouseEvent): void => {
@@ -204,9 +209,6 @@ export class InputManager {
       this.#placeBlockRequested = true;
       return;
     }
-    if (event.pointerType === 'mouse' && event.button === 0) {
-      this.#breakBlockRequested = true;
-    }
     if (this.#lookPointerId !== null) {
       return;
     }
@@ -214,6 +216,9 @@ export class InputManager {
     this.#lookPointerId = event.pointerId;
     this.#lookPointerX = event.clientX;
     this.#lookPointerY = event.clientY;
+    this.#lookPointerStartX = event.clientX;
+    this.#lookPointerStartY = event.clientY;
+    this.#lookPointerDragged = false;
     this.#canvas.setPointerCapture(event.pointerId);
   };
 
@@ -226,12 +231,32 @@ export class InputManager {
     this.#lookDeltaY += event.clientY - this.#lookPointerY;
     this.#lookPointerX = event.clientX;
     this.#lookPointerY = event.clientY;
+
+    if (
+      Math.hypot(
+        event.clientX - this.#lookPointerStartX,
+        event.clientY - this.#lookPointerStartY,
+      ) >= CLICK_DRAG_THRESHOLD_PX
+    ) {
+      this.#lookPointerDragged = true;
+    }
   };
 
   readonly #onLookPointerUp = (event: PointerEvent): void => {
-    if (event.pointerId === this.#lookPointerId) {
-      this.#lookPointerId = null;
+    if (event.pointerId !== this.#lookPointerId) {
+      return;
     }
+
+    if (
+      event.type === 'pointerup' &&
+      event.pointerType === 'mouse' &&
+      event.button === 0 &&
+      !this.#lookPointerDragged
+    ) {
+      this.#breakBlockRequested = true;
+    }
+    this.#lookPointerId = null;
+    this.#lookPointerDragged = false;
   };
 
   readonly #onTouchButtonDown = (event: PointerEvent): void => {
