@@ -6,6 +6,8 @@ import {
 } from '@babylonjs/core';
 import type { Mesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
+import type { ItemType } from '../inventory/ItemDefinitions';
+import { HeldItemModel } from './HeldItemModel';
 
 type VectorTuple = readonly [number, number, number];
 
@@ -13,12 +15,14 @@ export interface PlayerActionPresentation {
   readonly breaking: boolean;
   readonly placing: boolean;
   readonly breakProgress: number;
+  readonly heldItem: ItemType | null;
 }
 
 const IDLE_ACTION: PlayerActionPresentation = {
   breaking: false,
   placing: false,
   breakProgress: 0,
+  heldItem: null,
 };
 
 function createMaterial(
@@ -29,8 +33,10 @@ function createMaterial(
 ): StandardMaterial {
   const material = new StandardMaterial(name, scene);
   material.diffuseColor = diffuse;
+  material.ambientColor = diffuse.scale(0.42);
   material.emissiveColor = emissive;
   material.specularColor = Color3.Black();
+  material.freeze();
   return material;
 }
 
@@ -63,6 +69,9 @@ function createBox(
   mesh.parent = parent;
   mesh.material = material;
   mesh.isPickable = false;
+  mesh.renderOutline = true;
+  mesh.outlineColor = new Color3(0.028, 0.038, 0.034);
+  mesh.outlineWidth = 0.014;
   return mesh;
 }
 
@@ -71,6 +80,11 @@ function ease(current: number, target: number, frameSeconds: number): number {
   return current + (target - current) * blend;
 }
 
+/**
+ * Compact 1.8-block voxel character. The visible feet, head, and eyes are
+ * aligned with the collision body instead of using the earlier oversized
+ * prototype proportions.
+ */
 export class VoxelPlayerModel {
   readonly #root: TransformNode;
   readonly #bodyRoot: TransformNode;
@@ -79,6 +93,7 @@ export class VoxelPlayerModel {
   readonly #rightArm: TransformNode;
   readonly #leftLeg: TransformNode;
   readonly #rightLeg: TransformNode;
+  readonly #heldItem: HeldItemModel;
   #animationPhase = 0;
   #actionPhase = 0;
   #currentBob = 0;
@@ -86,88 +101,205 @@ export class VoxelPlayerModel {
   public constructor(scene: Scene) {
     this.#root = createNode('player-model-root', null, [0, 0, 0], scene);
     this.#bodyRoot = createNode('player-body-root', this.#root, [0, 0, 0], scene);
-    this.#headRoot = createNode('player-head-root', this.#root, [0, 0.78, 0], scene);
-    this.#leftArm = createNode('player-left-arm-root', this.#root, [-0.48, 0.53, 0], scene);
-    this.#rightArm = createNode('player-right-arm-root', this.#root, [0.48, 0.53, 0], scene);
-    this.#leftLeg = createNode('player-left-leg-root', this.#root, [-0.2, -0.18, 0], scene);
-    this.#rightLeg = createNode('player-right-leg-root', this.#root, [0.2, -0.18, 0], scene);
+    this.#headRoot = createNode('player-head-root', this.#root, [0, 0.48, 0], scene);
+    this.#leftArm = createNode('player-left-arm-root', this.#root, [-0.4, 0.35, 0], scene);
+    this.#rightArm = createNode('player-right-arm-root', this.#root, [0.4, 0.35, 0], scene);
+    this.#leftLeg = createNode('player-left-leg-root', this.#root, [-0.16, -0.23, 0], scene);
+    this.#rightLeg = createNode('player-right-leg-root', this.#root, [0.16, -0.23, 0], scene);
 
-    const skin = createMaterial('player-skin', new Color3(0.77, 0.59, 0.43), scene);
-    const hair = createMaterial('player-hair', new Color3(0.12, 0.08, 0.055), scene);
-    const tunic = createMaterial('player-tunic', new Color3(0.16, 0.34, 0.26), scene);
-    const tunicLight = createMaterial(
-      'player-tunic-light',
-      new Color3(0.28, 0.5, 0.36),
+    const skin = createMaterial(
+      'player-skin',
+      new Color3(0.78, 0.58, 0.41),
       scene,
     );
-    const leather = createMaterial('player-leather', new Color3(0.25, 0.14, 0.08), scene);
-    const boots = createMaterial('player-boots', new Color3(0.105, 0.075, 0.055), scene);
-    const eyes = createMaterial('player-eyes', new Color3(0.025, 0.04, 0.03), scene);
+    const skinLight = createMaterial(
+      'player-skin-light',
+      new Color3(0.9, 0.69, 0.5),
+      scene,
+    );
+    const hair = createMaterial(
+      'player-hair',
+      new Color3(0.105, 0.07, 0.045),
+      scene,
+    );
+    const coat = createMaterial(
+      'player-coat',
+      new Color3(0.12, 0.3, 0.24),
+      scene,
+    );
+    const coatLight = createMaterial(
+      'player-coat-light',
+      new Color3(0.22, 0.46, 0.33),
+      scene,
+    );
+    const trousers = createMaterial(
+      'player-trousers',
+      new Color3(0.15, 0.2, 0.18),
+      scene,
+    );
+    const leather = createMaterial(
+      'player-leather',
+      new Color3(0.29, 0.17, 0.09),
+      scene,
+    );
+    const boots = createMaterial(
+      'player-boots',
+      new Color3(0.07, 0.055, 0.045),
+      scene,
+    );
+    const eyeWhite = createMaterial(
+      'player-eye-white',
+      new Color3(0.88, 0.91, 0.84),
+      scene,
+    );
+    const pupils = createMaterial(
+      'player-pupils',
+      new Color3(0.025, 0.04, 0.035),
+      scene,
+    );
     const rune = createMaterial(
       'player-rune',
-      new Color3(0.12, 0.55, 0.31),
+      new Color3(0.12, 0.67, 0.36),
       scene,
-      new Color3(0.03, 0.18, 0.09),
+      new Color3(0.025, 0.19, 0.09),
     );
 
-    createBox('player-torso', this.#bodyRoot, [0.72, 0.72, 0.36], [0, 0.2, 0], tunic, scene);
     createBox(
-      'player-shoulder-cloth',
+      'player-torso',
       this.#bodyRoot,
-      [0.82, 0.18, 0.42],
-      [0, 0.52, 0],
-      tunicLight,
+      [0.58, 0.65, 0.3],
+      [0, 0.08, 0],
+      coat,
       scene,
     );
-    createBox('player-belt', this.#bodyRoot, [0.76, 0.14, 0.4], [0, -0.18, 0], leather, scene);
     createBox(
-      'player-chest-rune',
+      'player-shoulder-panel',
       this.#bodyRoot,
-      [0.16, 0.3, 0.035],
-      [0, 0.25, 0.198],
+      [0.66, 0.14, 0.34],
+      [0, 0.34, 0],
+      coatLight,
+      scene,
+    );
+    createBox(
+      'player-belt',
+      this.#bodyRoot,
+      [0.61, 0.12, 0.34],
+      [0, -0.22, 0],
+      leather,
+      scene,
+    );
+    createBox(
+      'player-chest-rune-vertical',
+      this.#bodyRoot,
+      [0.08, 0.3, 0.032],
+      [0, 0.1, 0.166],
       rune,
       scene,
     );
     createBox(
-      'player-back-cloak',
+      'player-chest-rune-horizontal',
       this.#bodyRoot,
-      [0.62, 0.78, 0.1],
-      [0, 0.17, -0.24],
-      tunicLight,
+      [0.25, 0.08, 0.034],
+      [0, 0.1, 0.168],
+      rune,
+      scene,
+    );
+    createBox(
+      'player-back-panel',
+      this.#bodyRoot,
+      [0.5, 0.52, 0.055],
+      [0, 0.05, -0.18],
+      coatLight,
       scene,
     );
 
-    createBox('player-head', this.#headRoot, [0.54, 0.54, 0.54], [0, 0.12, 0], skin, scene);
-    createBox('player-hair-top', this.#headRoot, [0.58, 0.16, 0.58], [0, 0.42, 0], hair, scene);
     createBox(
-      'player-hair-back',
+      'player-head',
       this.#headRoot,
-      [0.58, 0.44, 0.12],
-      [0, 0.16, -0.31],
+      [0.5, 0.5, 0.5],
+      [0, 0.17, 0],
+      skin,
+      scene,
+    );
+    createBox(
+      'player-hair-top',
+      this.#headRoot,
+      [0.53, 0.13, 0.53],
+      [0, 0.445, 0],
       hair,
       scene,
     );
     createBox(
-      'player-left-eye',
+      'player-hair-back',
       this.#headRoot,
-      [0.075, 0.075, 0.035],
-      [-0.13, 0.18, 0.29],
-      eyes,
+      [0.53, 0.39, 0.09],
+      [0, 0.2, -0.29],
+      hair,
       scene,
     );
     createBox(
-      'player-right-eye',
+      'player-hair-fringe-left',
       this.#headRoot,
-      [0.075, 0.075, 0.035],
-      [0.13, 0.18, 0.29],
-      eyes,
+      [0.18, 0.16, 0.045],
+      [-0.14, 0.36, 0.27],
+      hair,
+      scene,
+    );
+    createBox(
+      'player-hair-fringe-right',
+      this.#headRoot,
+      [0.12, 0.11, 0.045],
+      [0.16, 0.385, 0.27],
+      hair,
+      scene,
+    );
+    createBox(
+      'player-left-eye-white',
+      this.#headRoot,
+      [0.12, 0.075, 0.025],
+      [-0.13, 0.24, 0.263],
+      eyeWhite,
+      scene,
+    );
+    createBox(
+      'player-right-eye-white',
+      this.#headRoot,
+      [0.12, 0.075, 0.025],
+      [0.13, 0.24, 0.263],
+      eyeWhite,
+      scene,
+    );
+    createBox(
+      'player-left-pupil',
+      this.#headRoot,
+      [0.055, 0.07, 0.018],
+      [-0.12, 0.235, 0.279],
+      pupils,
+      scene,
+    );
+    createBox(
+      'player-right-pupil',
+      this.#headRoot,
+      [0.055, 0.07, 0.018],
+      [0.12, 0.235, 0.279],
+      pupils,
+      scene,
+    );
+    createBox(
+      'player-nose',
+      this.#headRoot,
+      [0.07, 0.08, 0.045],
+      [0, 0.135, 0.277],
+      skinLight,
       scene,
     );
 
-    this.#createArm('left', this.#leftArm, skin, tunicLight, leather, scene);
-    this.#createArm('right', this.#rightArm, skin, tunicLight, leather, scene);
-    this.#createLeg('left', this.#leftLeg, tunic, boots, scene);
-    this.#createLeg('right', this.#rightLeg, tunic, boots, scene);
+    this.#createArm('left', this.#leftArm, skin, coatLight, leather, scene);
+    this.#createArm('right', this.#rightArm, skin, coatLight, leather, scene);
+    this.#createLeg('left', this.#leftLeg, trousers, boots, scene);
+    this.#createLeg('right', this.#rightLeg, trousers, boots, scene);
+
+    this.#heldItem = new HeldItemModel(scene, this.#rightArm);
   }
 
   public update(
@@ -176,6 +308,7 @@ export class VoxelPlayerModel {
     action: PlayerActionPresentation = IDLE_ACTION,
   ): void {
     this.#root.setEnabled(player.cameraMode !== 'first-person');
+    this.#heldItem.update(player, frameSeconds, action.heldItem, action);
 
     const speedFactor = Math.min(player.horizontalSpeed / 6.2, 1);
     const moving = speedFactor > 0.02 && player.grounded && !player.paused;
@@ -199,28 +332,28 @@ export class VoxelPlayerModel {
 
     if (!player.grounded) {
       const rising = player.verticalVelocity > 0;
-      leftLeg = rising ? -0.42 : 0.2;
-      rightLeg = rising ? 0.28 : -0.28;
-      leftArm = rising ? -0.55 : -0.25;
-      rightArm = rising ? -0.35 : -0.15;
-      bodyTilt = 0.08;
+      leftLeg = rising ? -0.4 : 0.18;
+      rightLeg = rising ? 0.26 : -0.26;
+      leftArm = rising ? -0.5 : -0.22;
+      rightArm = rising ? -0.32 : -0.12;
+      bodyTilt = 0.07;
     } else if (moving) {
-      const amplitude = player.sprinting ? 0.82 : 0.56;
+      const amplitude = player.sprinting ? 0.78 : 0.52;
       const swing = Math.sin(this.#animationPhase) * amplitude * speedFactor;
       leftLeg = swing;
       rightLeg = -swing;
-      leftArm = -swing * 0.78;
-      rightArm = swing * 0.78;
-      bodyTilt = player.sprinting ? 0.13 : 0.045;
-      bob = Math.abs(Math.sin(this.#animationPhase * 2)) * 0.045 * speedFactor;
+      leftArm = -swing * 0.76;
+      rightArm = swing * 0.76;
+      bodyTilt = player.sprinting ? 0.12 : 0.04;
+      bob = Math.abs(Math.sin(this.#animationPhase * 2)) * 0.035 * speedFactor;
     }
 
     if (action.breaking) {
       const strike = Math.abs(Math.sin(this.#actionPhase));
-      rightArm = -0.82 - strike * (0.72 + action.breakProgress * 0.16);
+      rightArm = -0.78 - strike * (0.68 + action.breakProgress * 0.15);
       rightArmRoll = -0.16;
     } else if (action.placing) {
-      rightArm = -1.05 - Math.abs(Math.sin(this.#actionPhase)) * 0.22;
+      rightArm = -1.02 - Math.abs(Math.sin(this.#actionPhase)) * 0.2;
       rightArmRoll = -0.1;
     }
 
@@ -236,7 +369,7 @@ export class VoxelPlayerModel {
     this.#bodyRoot.rotation.x = ease(this.#bodyRoot.rotation.x, bodyTilt, frameSeconds);
     this.#headRoot.rotation.x = ease(
       this.#headRoot.rotation.x,
-      -player.pitch * 0.65,
+      -player.pitch * 0.7,
       frameSeconds,
     );
     this.#currentBob = ease(this.#currentBob, bob, frameSeconds);
@@ -250,6 +383,7 @@ export class VoxelPlayerModel {
   }
 
   public dispose(): void {
+    this.#heldItem.dispose();
     this.#root.dispose(false, true);
   }
 
@@ -261,14 +395,36 @@ export class VoxelPlayerModel {
     leather: StandardMaterial,
     scene: Scene,
   ): void {
-    createBox(`player-${side}-sleeve`, root, [0.25, 0.44, 0.27], [0, -0.2, 0], cloth, scene);
-    createBox(`player-${side}-forearm`, root, [0.21, 0.34, 0.22], [0, -0.56, 0], skin, scene);
+    createBox(
+      `player-${side}-sleeve`,
+      root,
+      [0.22, 0.38, 0.24],
+      [0, -0.16, 0],
+      cloth,
+      scene,
+    );
+    createBox(
+      `player-${side}-forearm`,
+      root,
+      [0.19, 0.3, 0.2],
+      [0, -0.49, 0],
+      skin,
+      scene,
+    );
     createBox(
       `player-${side}-wrist-wrap`,
       root,
-      [0.235, 0.12, 0.24],
-      [0, -0.46, 0],
+      [0.215, 0.1, 0.22],
+      [0, -0.39, 0],
       leather,
+      scene,
+    );
+    createBox(
+      `player-${side}-hand`,
+      root,
+      [0.2, 0.16, 0.21],
+      [0, -0.69, 0.015],
+      skin,
       scene,
     );
   }
@@ -280,7 +436,21 @@ export class VoxelPlayerModel {
     boots: StandardMaterial,
     scene: Scene,
   ): void {
-    createBox(`player-${side}-leg`, root, [0.29, 0.58, 0.3], [0, -0.3, 0], cloth, scene);
-    createBox(`player-${side}-boot`, root, [0.31, 0.28, 0.43], [0, -0.7, 0.075], boots, scene);
+    createBox(
+      `player-${side}-leg`,
+      root,
+      [0.25, 0.52, 0.27],
+      [0, -0.25, 0],
+      cloth,
+      scene,
+    );
+    createBox(
+      `player-${side}-boot`,
+      root,
+      [0.27, 0.3, 0.36],
+      [0, -0.52, 0.045],
+      boots,
+      scene,
+    );
   }
 }

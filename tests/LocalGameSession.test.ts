@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerInputCommand } from '../src/game/commands/PlayerInputCommand';
-import { LocalGameSession } from '../src/game/session/LocalGameSession';
+import {
+  LocalGameSession,
+  PLAYER_LOOK_PITCH_LIMIT,
+} from '../src/game/session/LocalGameSession';
 
 function command(
   overrides: Partial<PlayerInputCommand> = {},
@@ -51,5 +54,23 @@ describe('LocalGameSession', () => {
 
     expect(session.getWorldState().player.paused).toBe(true);
     expect(session.getWorldState().player.position).toEqual(pausedPosition);
+  });
+
+  it('allows looking effectively straight down and straight up', () => {
+    const session = new LocalGameSession('test-seed');
+
+    session.submitCommand(command({ lookY: 100_000 }));
+    session.step(1 / 60);
+    expect(session.getWorldState().player.pitch).toBeCloseTo(
+      -PLAYER_LOOK_PITCH_LIMIT,
+      12,
+    );
+
+    session.submitCommand(command({ lookY: -100_000 }));
+    session.step(1 / 60);
+    expect(session.getWorldState().player.pitch).toBeCloseTo(
+      PLAYER_LOOK_PITCH_LIMIT,
+      12,
+    );
   });
 });

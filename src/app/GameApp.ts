@@ -68,6 +68,7 @@ export class GameApp {
   #targetView: ThirdPersonTargetView | null = null;
   #inventoryStorage: Storage | null = null;
   #lastCameraMode: CameraMode | null = null;
+  #lastHeldItem: ItemType | null | undefined;
   #smoothedFps = 60;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
@@ -193,8 +194,14 @@ export class GameApp {
         breaking: !player.paused && breakHeld && interaction.hasTarget,
         placing: !player.paused && placeHeld && interaction.hasTarget,
         breakProgress: interaction.breakProgress,
+        heldItem: inventory.selectedItem,
       });
       this.#syncCameraMode(player.cameraMode);
+      this.#syncPresentationDiagnostics(
+        player,
+        inventory.selectedItem,
+        interaction.hasTarget,
+      );
       this.#updateHud(
         player,
         worldStats,
@@ -231,7 +238,11 @@ export class GameApp {
   public dispose(): void {
     document.body.classList.remove('camera-third-person');
     this.#canvas.removeAttribute('data-camera-mode');
+    this.#canvas.removeAttribute('data-held-item');
+    this.#canvas.removeAttribute('data-player-pitch');
+    this.#canvas.removeAttribute('data-has-target');
     this.#lastCameraMode = null;
+    this.#lastHeldItem = undefined;
 
     this.#targetView?.dispose();
     this.#targetView = null;
@@ -289,6 +300,19 @@ export class GameApp {
     const thirdPerson = cameraMode === 'third-person';
     document.body.classList.toggle('camera-third-person', thirdPerson);
     this.#canvas.dataset.cameraMode = cameraMode;
+  }
+
+  #syncPresentationDiagnostics(
+    player: PlayerState,
+    heldItem: ItemType | null,
+    hasTarget: boolean,
+  ): void {
+    this.#canvas.dataset.playerPitch = player.pitch.toFixed(4);
+    this.#canvas.dataset.hasTarget = String(hasTarget);
+    if (heldItem !== this.#lastHeldItem) {
+      this.#lastHeldItem = heldItem;
+      this.#canvas.dataset.heldItem = heldItem ?? 'empty';
+    }
   }
 
   #updateHud(
