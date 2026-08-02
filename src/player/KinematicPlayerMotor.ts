@@ -1,3 +1,13 @@
+import {
+  depenetrateVoxelBodyUpward,
+  voxelBodyCollides,
+  voxelBodyIsSupported,
+} from './VoxelCollision';
+import type {
+  VoxelBodyShape,
+  VoxelSolidProvider,
+} from './VoxelCollision';
+
 export interface PlayerVector {
   readonly x: number;
   readonly y: number;
@@ -28,17 +38,26 @@ export interface PlayerMotorConfig {
   readonly jumpSpeed: number;
   readonly gravity: number;
   readonly radius: number;
+  readonly halfHeight: number;
   readonly maximumStepHeight: number;
+  readonly maximumMovementSubstep: number;
   readonly groundHeightAt: GroundHeightProvider;
+  readonly isSolidAt?: VoxelSolidProvider;
+  readonly spawnPosition?: PlayerVector;
 }
+
+export const PLAYER_COLLISION_RADIUS = 0.34;
+export const PLAYER_COLLISION_HALF_HEIGHT = 0.9;
 
 const DEFAULT_CONFIG: PlayerMotorConfig = {
   walkSpeed: 3.8,
   sprintSpeed: 6.2,
   jumpSpeed: 6.4,
   gravity: -18,
-  radius: 0.34,
+  radius: PLAYER_COLLISION_RADIUS,
+  halfHeight: PLAYER_COLLISION_HALF_HEIGHT,
   maximumStepHeight: 1.05,
+  maximumMovementSubstep: 0.2,
   groundHeightAt: () => 2.9,
 };
 
@@ -48,8 +67,15 @@ interface MutablePosition {
   z: number;
 }
 
+type HorizontalAxis = 'x' | 'z';
+
+const SUPPORT_PROBE_DISTANCE = 0.06;
+const COLLISION_EPSILON = 1e-6;
+const BINARY_SEARCH_ITERATIONS = 12;
+
 export class KinematicPlayerMotor {
   readonly #config: PlayerMotorConfig;
+  readonly #bodyShape: VoxelBodyShape;
   #position: MutablePosition = { x: 0, y: 0, z: 3.5 };
   #verticalVelocity = 0;
   #horizontalSpeed = 0;
@@ -58,13 +84,311 @@ export class KinematicPlayerMotor {
 
   public constructor(config: Partial<PlayerMotorConfig> = {}) {
     this.#config = { ...DEFAULT_CONFIG, ...config };
-    this.#position.y = this.#getGroundHeight(
-      this.#position.x,
-      this.#position.z,
-    );
+    this.#bodyShape = {
+      radius: this.#config.radius,
+      halfHeight: this.#config.halfHeight,
+    };
+    this.reset(this.#config.spawnPosition);
   }
 
   public update(input: PlayerMotorInput, stepSeconds: number): PlayerMotorState {
+    if (!Number.isFinite(stepSeconds) || stepSeconds <= 0) {
+      return this.getState();
+    }
+
+    if (this.#config.isSolidAt === undefined) {
+      return this.#updateHeightfield(input, stepSeconds);
+    }
+    return this.#updateVoxels(input, stepSeconds, this.#config.isSolidAt);
+  }
+
+  public getState(): PlayerMotorState {
+    return {
+      position: { ...this.#position },
+      verticalVelocity: this.#verticalVelocity,
+      horizontalSpeed: this.#horizontalSpeed,
+      sprinting: this.#sprinting,
+      grounded: this.#grounded,
+    };
+  }
+
+  public reset(position?: PlayerVector): void {
+    const nextPosition = position ?? this.#config.spawnPosition ?? {
+      x: 0,
+      y: this.#getGroundHeight(0, 3.5),
+      z: 3.5,
+    };
+
+    if (this.#config.isSolidAt === undefined) {
+      const groundHeight = this.#getGroundHeight(nextPosition.x, nextPosition.z);
+      this.#position = { ...nextPosition };
+      this.#grounded = nextPosition.y <= groundHeight + 0.001;
+      if (this.#grounded) {
+        this.#position.y = groundHeight;
+      }
+    } else {
+      this.#position = depenetrateVoxelBodyUpward(
+        this.#config.isSolidAt,
+        nextPosition,
+        this.#bodyShape,
+      );
+      this.#grounded = voxelBodyIsSupported(
+        this.#config.isSolidAt,
+        this.#position,
+        this.#bodyShape,
+        SUPPORT_PROBE_DISTANCE,
+      );
+    }
+
+    this.#verticalVelocity = 0;
+    this.#horizontalSpeed = 0;
+    this.#sprinting = false;
+  }
+
+  #updateVoxels(
+    input: PlayerMotorInput,
+    stepSeconds: number,
+    isSolidAt: VoxelSolidProvider,
+  ): PlayerMotorState {
+    const movement = this.#calculateHorizontalMovement(input, stepSeconds);
+    const movedHorizontally = this.#moveHorizontal(
+      movement.deltaX,
+      movement.deltaZ,
+      isSolidAt,
+    );
+
+    this.#horizontalSpeed = movedHorizontally ? movement.speed : 0;
+    this.#sprinting = input.sprint && movedHorizontally && movement.speed > 0;
+
+    if (
+      this.#grounded &&
+      !voxelBodyIsSupported(
+        isSolidAt,
+        this.#position,
+        this.#bodyShape,
+        SUPPORT_PROBE_DISTANCE,
+      )
+    ) {
+      this.#grounded = false;
+    }
+
+    if (input.jump && this.#grounded) {
+      this.#grounded = false;
+      this.#verticalVelocity = this.#config.jumpSpeed;
+    }
+
+    if (!this.#grounded) {
+      this.#verticalVelocity += this.#config.gravity * stepSeconds;
+      this.#moveVertical(this.#verticalVelocity * stepSeconds, isSolidAt);
+    } else {
+      this.#verticalVelocity = 0;
+    }
+
+    if (
+      this.#verticalVelocity <= 0 &&
+      voxelBodyIsSupported(
+        isSolidAt,
+        this.#position,
+        this.#bodyShape,
+        SUPPORT_PROBE_DISTANCE,
+      )
+    ) {
+      this.#moveVertical(-SUPPORT_PROBE_DISTANCE, isSolidAt);
+      this.#grounded = true;
+      this.#verticalVelocity = 0;
+    }
+
+    return this.getState();
+  }
+
+  #calculateHorizontalMovement(
+    input: PlayerMotorInput,
+    stepSeconds: number,
+  ): { readonly deltaX: number; readonly deltaZ: number; readonly speed: number } {
+    const inputLength = Math.hypot(input.moveX, input.moveZ);
+    const normalizedX = inputLength > 1 ? input.moveX / inputLength : input.moveX;
+    const normalizedZ = inputLength > 1 ? input.moveZ / inputLength : input.moveZ;
+    const movementStrength = Math.min(inputLength, 1);
+    const speed =
+      (input.sprint ? this.#config.sprintSpeed : this.#config.walkSpeed) *
+      movementStrength;
+    const forwardX = Math.sin(input.yaw);
+    const forwardZ = Math.cos(input.yaw);
+    const rightX = Math.cos(input.yaw);
+    const rightZ = -Math.sin(input.yaw);
+
+    return {
+      deltaX:
+        (rightX * normalizedX + forwardX * normalizedZ) * speed * stepSeconds,
+      deltaZ:
+        (rightZ * normalizedX + forwardZ * normalizedZ) * speed * stepSeconds,
+      speed,
+    };
+  }
+
+  #moveHorizontal(
+    deltaX: number,
+    deltaZ: number,
+    isSolidAt: VoxelSolidProvider,
+  ): boolean {
+    const maximumDelta = Math.max(Math.abs(deltaX), Math.abs(deltaZ));
+    if (maximumDelta <= 0) {
+      return false;
+    }
+
+    const steps = Math.max(
+      1,
+      Math.ceil(maximumDelta / this.#config.maximumMovementSubstep),
+    );
+    const stepX = deltaX / steps;
+    const stepZ = deltaZ / steps;
+    let moved = false;
+
+    for (let step = 0; step < steps; step += 1) {
+      const movedX = this.#moveHorizontalAxis('x', stepX, isSolidAt);
+      const movedZ = this.#moveHorizontalAxis('z', stepZ, isSolidAt);
+      moved = moved || movedX || movedZ;
+    }
+    return moved;
+  }
+
+  #moveHorizontalAxis(
+    axis: HorizontalAxis,
+    amount: number,
+    isSolidAt: VoxelSolidProvider,
+  ): boolean {
+    if (Math.abs(amount) <= Number.EPSILON) {
+      return false;
+    }
+
+    const candidate = { ...this.#position, [axis]: this.#position[axis] + amount };
+    if (!voxelBodyCollides(isSolidAt, candidate, this.#bodyShape)) {
+      this.#position = candidate;
+      return true;
+    }
+
+    if (!this.#grounded) {
+      return false;
+    }
+
+    return this.#tryStepUp(axis, amount, isSolidAt);
+  }
+
+  #tryStepUp(
+    axis: HorizontalAxis,
+    amount: number,
+    isSolidAt: VoxelSolidProvider,
+  ): boolean {
+    const horizontalCandidate = {
+      ...this.#position,
+      [axis]: this.#position[axis] + amount,
+    };
+    for (const lift of this.#collectStepHeights(horizontalCandidate, isSolidAt)) {
+      const candidate = {
+        ...horizontalCandidate,
+        y: this.#position.y + lift,
+      };
+      if (
+        !voxelBodyCollides(isSolidAt, candidate, this.#bodyShape) &&
+        voxelBodyIsSupported(
+          isSolidAt,
+          candidate,
+          this.#bodyShape,
+          SUPPORT_PROBE_DISTANCE,
+        )
+      ) {
+        this.#position = candidate;
+        this.#grounded = true;
+        this.#verticalVelocity = 0;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  #collectStepHeights(
+    candidate: MutablePosition,
+    isSolidAt: VoxelSolidProvider,
+  ): number[] {
+    const firstX = Math.floor(
+      candidate.x - this.#bodyShape.radius + 0.5 + COLLISION_EPSILON,
+    );
+    const lastX = Math.floor(
+      candidate.x + this.#bodyShape.radius + 0.5 - COLLISION_EPSILON,
+    );
+    const firstZ = Math.floor(
+      candidate.z - this.#bodyShape.radius + 0.5 + COLLISION_EPSILON,
+    );
+    const lastZ = Math.floor(
+      candidate.z + this.#bodyShape.radius + 0.5 - COLLISION_EPSILON,
+    );
+    const feetY = this.#position.y - this.#bodyShape.halfHeight;
+    const firstY = Math.floor(feetY + 0.5 + COLLISION_EPSILON);
+    const lastY = Math.floor(
+      feetY + this.#config.maximumStepHeight + 0.5 - COLLISION_EPSILON,
+    );
+    const lifts = new Set<number>();
+
+    for (let worldY = firstY; worldY <= lastY; worldY += 1) {
+      for (let worldZ = firstZ; worldZ <= lastZ; worldZ += 1) {
+        for (let worldX = firstX; worldX <= lastX; worldX += 1) {
+          if (!isSolidAt(worldX, worldY, worldZ)) {
+            continue;
+          }
+          const lift =
+            worldY + 0.5 + this.#bodyShape.halfHeight - this.#position.y;
+          if (
+            lift > COLLISION_EPSILON &&
+            lift <= this.#config.maximumStepHeight + COLLISION_EPSILON
+          ) {
+            lifts.add(lift);
+          }
+        }
+      }
+    }
+    return [...lifts].sort((left, right) => left - right);
+  }
+
+  #moveVertical(amount: number, isSolidAt: VoxelSolidProvider): void {
+    const steps = Math.max(
+      1,
+      Math.ceil(Math.abs(amount) / this.#config.maximumMovementSubstep),
+    );
+    const stepAmount = amount / steps;
+
+    for (let step = 0; step < steps; step += 1) {
+      const startY = this.#position.y;
+      const target = { ...this.#position, y: startY + stepAmount };
+      if (!voxelBodyCollides(isSolidAt, target, this.#bodyShape)) {
+        this.#position = target;
+        continue;
+      }
+
+      let safeFraction = 0;
+      let blockedFraction = 1;
+      for (let iteration = 0; iteration < BINARY_SEARCH_ITERATIONS; iteration += 1) {
+        const middle = (safeFraction + blockedFraction) / 2;
+        const candidate = {
+          ...this.#position,
+          y: startY + stepAmount * middle,
+        };
+        if (voxelBodyCollides(isSolidAt, candidate, this.#bodyShape)) {
+          blockedFraction = middle;
+        } else {
+          safeFraction = middle;
+        }
+      }
+      this.#position.y = startY + stepAmount * safeFraction;
+      this.#verticalVelocity = 0;
+      this.#grounded = stepAmount < 0;
+      return;
+    }
+  }
+
+  #updateHeightfield(
+    input: PlayerMotorInput,
+    stepSeconds: number,
+  ): PlayerMotorState {
     const inputLength = Math.hypot(input.moveX, input.moveZ);
     const normalizedX = inputLength > 1 ? input.moveX / inputLength : input.moveX;
     const normalizedZ = inputLength > 1 ? input.moveZ / inputLength : input.moveZ;
@@ -134,34 +458,6 @@ export class KinematicPlayerMotor {
     }
 
     return this.getState();
-  }
-
-  public getState(): PlayerMotorState {
-    return {
-      position: { ...this.#position },
-      verticalVelocity: this.#verticalVelocity,
-      horizontalSpeed: this.#horizontalSpeed,
-      sprinting: this.#sprinting,
-      grounded: this.#grounded,
-    };
-  }
-
-  public reset(position?: PlayerVector): void {
-    const nextPosition = position ?? {
-      x: 0,
-      y: this.#getGroundHeight(0, 3.5),
-      z: 3.5,
-    };
-    const groundHeight = this.#getGroundHeight(nextPosition.x, nextPosition.z);
-
-    this.#position = { ...nextPosition };
-    this.#verticalVelocity = 0;
-    this.#horizontalSpeed = 0;
-    this.#sprinting = false;
-    this.#grounded = nextPosition.y <= groundHeight + 0.001;
-    if (this.#grounded) {
-      this.#position.y = groundHeight;
-    }
   }
 
   #getGroundHeight(worldX: number, worldZ: number): number {
