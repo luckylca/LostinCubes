@@ -40,7 +40,9 @@ export interface PlayerMotorConfig {
   readonly radius: number;
   readonly halfHeight: number;
   readonly maximumStepHeight: number;
+  readonly maximumAutoJumpHeight: number;
   readonly maximumMovementSubstep: number;
+  readonly autoJump: boolean;
   readonly groundHeightAt: GroundHeightProvider;
   readonly isSolidAt?: VoxelSolidProvider;
   readonly spawnPosition?: PlayerVector;
@@ -56,8 +58,12 @@ const DEFAULT_CONFIG: PlayerMotorConfig = {
   gravity: -18,
   radius: PLAYER_COLLISION_RADIUS,
   halfHeight: PLAYER_COLLISION_HALF_HEIGHT,
-  maximumStepHeight: 1.05,
+  // Vanilla Minecraft players only step roughly 0.6 blocks. A full block is
+  // crossed by jumping/auto-jumping instead of teleporting the body upward.
+  maximumStepHeight: 0.6,
+  maximumAutoJumpHeight: 1.05,
   maximumMovementSubstep: 0.2,
+  autoJump: true,
   groundHeightAt: () => 2.9,
 };
 
@@ -72,6 +78,7 @@ type HorizontalAxis = 'x' | 'z';
 const SUPPORT_PROBE_DISTANCE = 0.06;
 const COLLISION_EPSILON = 1e-6;
 const BINARY_SEARCH_ITERATIONS = 12;
+const AUTO_JUMP_CLEARANCE_PROBE = 0.18;
 
 export class KinematicPlayerMotor {
   readonly #config: PlayerMotorConfig;
@@ -271,7 +278,12 @@ export class KinematicPlayerMotor {
       return false;
     }
 
-    return this.#tryStepUp(axis, amount, isSolidAt);
+    if (this.#tryStepUp(axis, amount, isSolidAt)) {
+      return true;
+    }
+
+    this.#tryAutoJump(axis, amount, isSolidAt);
+    return false;
   }
 
   #tryStepUp(
@@ -283,7 +295,11 @@ export class KinematicPlayerMotor {
       ...this.#position,
       [axis]: this.#position[axis] + amount,
     };
-    for (const lift of this.#collectStepHeights(horizontalCandidate, isSolidAt)) {
+    for (const lift of this.#collectStepHeights(
+      horizontalCandidate,
+      isSolidAt,
+      this.#config.maximumStepHeight,
+    )) {
       const candidate = {
         ...horizontalCandidate,
         y: this.#position.y + lift,
@@ -306,9 +322,60 @@ export class KinematicPlayerMotor {
     return false;
   }
 
+  #tryAutoJump(
+    axis: HorizontalAxis,
+    amount: number,
+    isSolidAt: VoxelSolidProvider,
+  ): boolean {
+    if (!this.#config.autoJump) {
+      return false;
+    }
+
+    const horizontalCandidate = {
+      ...this.#position,
+      [axis]: this.#position[axis] + amount,
+    };
+    const lifts = this.#collectStepHeights(
+      horizontalCandidate,
+      isSolidAt,
+      this.#config.maximumAutoJumpHeight,
+    );
+
+    for (const lift of lifts) {
+      if (lift <= this.#config.maximumStepHeight + COLLISION_EPSILON) {
+        continue;
+      }
+
+      const earlyJumpPosition = {
+        ...this.#position,
+        y: this.#position.y + Math.min(AUTO_JUMP_CLEARANCE_PROBE, lift),
+      };
+      const landingPosition = {
+        ...horizontalCandidate,
+        y: this.#position.y + lift,
+      };
+      if (
+        !voxelBodyCollides(isSolidAt, earlyJumpPosition, this.#bodyShape) &&
+        !voxelBodyCollides(isSolidAt, landingPosition, this.#bodyShape) &&
+        voxelBodyIsSupported(
+          isSolidAt,
+          landingPosition,
+          this.#bodyShape,
+          SUPPORT_PROBE_DISTANCE,
+        )
+      ) {
+        this.#grounded = false;
+        this.#verticalVelocity = this.#config.jumpSpeed;
+        return true;
+      }
+    }
+    return false;
+  }
+
   #collectStepHeights(
     candidate: MutablePosition,
     isSolidAt: VoxelSolidProvider,
+    maximumHeight: number,
   ): number[] {
     const firstX = Math.floor(
       candidate.x - this.#bodyShape.radius + 0.5 + COLLISION_EPSILON,
@@ -325,7 +392,7 @@ export class KinematicPlayerMotor {
     const feetY = this.#position.y - this.#bodyShape.halfHeight;
     const firstY = Math.floor(feetY + 0.5 + COLLISION_EPSILON);
     const lastY = Math.floor(
-      feetY + this.#config.maximumStepHeight + 0.5 - COLLISION_EPSILON,
+      feetY + maximumHeight + 0.5 - COLLISION_EPSILON,
     );
     const lifts = new Set<number>();
 
@@ -339,7 +406,7 @@ export class KinematicPlayerMotor {
             worldY + 0.5 + this.#bodyShape.halfHeight - this.#position.y;
           if (
             lift > COLLISION_EPSILON &&
-            lift <= this.#config.maximumStepHeight + COLLISION_EPSILON
+            lift <= maximumHeight + COLLISION_EPSILON
           ) {
             lifts.add(lift);
           }

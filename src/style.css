@@ -94,8 +94,51 @@ body.is-pointer-locked #game-canvas {
   border-radius: 2px;
   translate: -50% -50%;
   rotate: 45deg;
+  opacity: 1;
   pointer-events: none;
   box-shadow: 0 0 12px rgb(180 255 118 / 55%);
+  transition: opacity 100ms linear;
+}
+
+body.camera-third-person #crosshair {
+  opacity: 0;
+}
+
+.target-reticle {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 7;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgb(238 255 191 / 92%);
+  border-radius: 4px;
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px rgb(130 255 102 / 70%));
+  will-change: transform;
+}
+
+.target-reticle::before,
+.target-reticle::after {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  content: "";
+  background: rgb(238 255 191 / 92%);
+  translate: -50% -50%;
+}
+
+.target-reticle::before {
+  width: 6px;
+  height: 2px;
+}
+
+.target-reticle::after {
+  width: 2px;
+  height: 6px;
+}
+
+.target-reticle[hidden] {
+  display: none;
 }
 
 #game-hud {

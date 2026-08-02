@@ -5,6 +5,8 @@ import {
 } from './PlayerView';
 
 export const THIRD_PERSON_CAMERA_DISTANCE = 4;
+export const THIRD_PERSON_SHOULDER_OFFSET = 0.72;
+export const THIRD_PERSON_VERTICAL_OFFSET = 0.28;
 export const CAMERA_FOV_RADIANS = (70 * Math.PI) / 180;
 
 export interface CameraVector {
@@ -17,41 +19,65 @@ export interface PlayerCameraPose {
   readonly position: CameraVector;
   readonly target: CameraVector;
   readonly pivot: CameraVector;
+  readonly forward: CameraVector;
 }
 
 /**
- * Minecraft-style centered camera pose.
+ * Keeps interaction and camera responsibilities separate.
  *
- * First person starts at the eye and looks forward. Third person places the
- * camera directly behind the same eye/view ray and looks back at the eye, so
- * the player, reticle, and interaction direction remain aligned.
+ * The player's eye/yaw/pitch remain the authoritative Minecraft-style aim.
+ * First person uses that ray directly. Third person keeps the same rotation but
+ * offsets the camera over the right shoulder, leaving the player model out of
+ * the target line. The actual hit point is projected separately by the UI.
  */
 export function getPlayerCameraPose(
   player: PlayerState,
   thirdPersonDistance = THIRD_PERSON_CAMERA_DISTANCE,
 ): PlayerCameraPose {
   const pivot = getPlayerEyePosition(player);
-  const direction = getPlayerViewDirection(player);
+  const forward = getPlayerViewDirection(player);
 
   if (player.cameraMode === 'first-person') {
     return {
       position: pivot,
       pivot,
+      forward,
       target: {
-        x: pivot.x + direction.x * 10,
-        y: pivot.y + direction.y * 10,
-        z: pivot.z + direction.z * 10,
+        x: pivot.x + forward.x * 10,
+        y: pivot.y + forward.y * 10,
+        z: pivot.z + forward.z * 10,
       },
     };
   }
 
+  const right = {
+    x: Math.cos(player.yaw),
+    y: 0,
+    z: -Math.sin(player.yaw),
+  };
+  const position = {
+    x:
+      pivot.x -
+      forward.x * thirdPersonDistance +
+      right.x * THIRD_PERSON_SHOULDER_OFFSET,
+    y:
+      pivot.y -
+      forward.y * thirdPersonDistance +
+      THIRD_PERSON_VERTICAL_OFFSET,
+    z:
+      pivot.z -
+      forward.z * thirdPersonDistance +
+      right.z * THIRD_PERSON_SHOULDER_OFFSET,
+  };
+
   return {
     pivot,
-    position: {
-      x: pivot.x - direction.x * thirdPersonDistance,
-      y: pivot.y - direction.y * thirdPersonDistance,
-      z: pivot.z - direction.z * thirdPersonDistance,
+    position,
+    forward,
+    target: {
+      x: position.x + forward.x * 10,
+      y: position.y + forward.y * 10,
+      z: position.z + forward.z * 10,
     },
-    target: pivot,
   };
 }

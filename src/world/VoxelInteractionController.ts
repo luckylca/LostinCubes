@@ -32,6 +32,12 @@ export interface VoxelInteractionCallbacks {
   readonly onBlockPlaced: (block: BlockTypeValue) => void;
 }
 
+export interface InteractionTargetPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
 function blockIntersectsPlayer(
   worldX: number,
   worldY: number,
@@ -59,6 +65,7 @@ export class VoxelInteractionController {
   readonly #timing = new BlockInteractionState();
   readonly #callbacks: VoxelInteractionCallbacks;
   #target: VoxelRaycastHit | null = null;
+  #targetPoint: InteractionTargetPoint | null = null;
   #selectedBlock: BlockTypeValue = BlockType.Air;
   #breakProgress = 0;
 
@@ -137,6 +144,14 @@ export class VoxelInteractionController {
     return this.#breakProgress;
   }
 
+  public get targetPoint(): InteractionTargetPoint | null {
+    return this.#targetPoint;
+  }
+
+  public get hasTarget(): boolean {
+    return this.#target !== null;
+  }
+
   public dispose(): void {
     this.#highlightMaterial.dispose();
     this.#highlight.dispose(false, false);
@@ -154,11 +169,17 @@ export class VoxelInteractionController {
     );
 
     if (this.#target === null) {
+      this.#targetPoint = null;
       this.#highlight.setEnabled(false);
       return;
     }
 
-    const { block } = this.#target;
+    const { block, normal, distance } = this.#target;
+    this.#targetPoint = {
+      x: eye.x + direction.x * distance + normal.x * 0.02,
+      y: eye.y + direction.y * distance + normal.y * 0.02,
+      z: eye.z + direction.z * distance + normal.z * 0.02,
+    };
     this.#highlight.position.set(block.x, block.y, block.z);
     this.#highlight.setEnabled(true);
   }
@@ -194,6 +215,7 @@ export class VoxelInteractionController {
     this.#callbacks.onBlockChanged(x, y, z);
     this.#callbacks.onBlockBroken(brokenBlock);
     this.#target = null;
+    this.#targetPoint = null;
     this.#highlight.setEnabled(false);
     return true;
   }
