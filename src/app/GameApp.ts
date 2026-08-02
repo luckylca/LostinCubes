@@ -4,8 +4,14 @@ import { RenderLoop } from '../engine/RenderLoop';
 import { LocalGameSession } from '../game/session/LocalGameSession';
 import type { PlayerState } from '../game/session/GameSession';
 import { InputManager } from '../input/InputManager';
+import {
+  loadPlayerInventory,
+  savePlayerInventory,
+} from '../inventory/InventoryPersistence';
+import { PlayerInventory } from '../inventory/PlayerInventory';
 import { PlayerCameraController } from '../player/PlayerCameraController';
 import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
+import { HotbarView } from '../ui/HotbarView';
 import { BlockType } from '../world/BlockType';
 import type { BlockType as BlockTypeValue } from '../world/BlockType';
 import { VoxelInteractionController } from '../world/VoxelInteractionController';
@@ -14,12 +20,15 @@ import { VoxelWorldRenderer } from '../world/VoxelWorldRenderer';
 import type { VoxelWorldStats } from '../world/VoxelWorldRenderer';
 
 const WORLD_SEED = 'world-fragment-01';
+const SPAWN_X = 0;
+const SPAWN_Z = 3.5;
 
 export interface GameUiElements {
   readonly touchControls: HTMLElement | null;
   readonly status: HTMLElement;
   readonly viewMode: HTMLElement;
   readonly position: HTMLElement;
+  readonly hotbar: HTMLElement;
 }
 
 function formatCount(value: number): string {
@@ -29,7 +38,7 @@ function formatCount(value: number): string {
   return `${(value / 1_000).toFixed(1)}k`;
 }
 
-function getBlockLabel(block: BlockTypeValue): string {
+function getBlockLabel(block: BlockTypeValue | null): string {
   switch (block) {
     case BlockType.Grass:
       return '草方块';
@@ -40,7 +49,16 @@ function getBlockLabel(block: BlockTypeValue): string {
     case BlockType.RuneStone:
       return '符文石';
     case BlockType.Air:
-      return '空气';
+    case null:
+      return '空手';
+  }
+}
+
+function getLocalStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
   }
 }
 
@@ -55,6 +73,9 @@ export class GameApp {
   #worldData: VoxelWorldData | null = null;
   #worldRenderer: VoxelWorldRenderer | null = null;
   #interaction: VoxelInteractionController | null = null;
+  #inventory: PlayerInventory | null = null;
+  #hotbar: HotbarView | null = null;
+  #inventoryStorage: Storage | null = null;
   #smoothedFps = 60;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
@@ -66,31 +87,65 @@ export class GameApp {
   public async start(): Promise<void> {
     const { scene } = this.#engineHost.createWorldScene();
     const worldData = new VoxelWorldData(WORLD_SEED);
-    const session = new LocalGameSession(
-      WORLD_SEED,
-      (worldX, worldZ) => worldData.sampleStandingY(worldX, worldZ),
-    );
+    this.#worldData = worldData;
+    await worldData.initialize();
+
+    const session = new LocalGameSession(WORLD_SEED, {
+      isSolidAt: (worldX, worldY, worldZ) =>
+        worldData.isSolidAt(worldX, worldY, worldZ),
+      spawnPosition: {
+        x: SPAWN_X,
+        y: worldData.sampleStandingY(SPAWN_X, SPAWN_Z),
+        z: SPAWN_Z,
+      },
+    });
     const input = new InputManager(this.#canvas, this.#ui.touchControls);
+    const inventoryStorage = getLocalStorage();
+    const inventory = loadPlayerInventory(WORLD_SEED, inventoryStorage);
+    input.selectHotbarSlot(inventory.selectedSlot);
+    const hotbar = new HotbarView(this.#ui.hotbar, (slot) => {
+      input.selectHotbarSlot(slot);
+    });
+    let renderedInventoryRevision = -1;
+    const syncInventory = (): void => {
+      if (inventory.revision === renderedInventoryRevision) {
+        return;
+      }
+      hotbar.render(inventory.snapshot);
+      savePlayerInventory(WORLD_SEED, inventory, inventoryStorage);
+      renderedInventoryRevision = inventory.revision;
+    };
+    syncInventory();
+
     const cameraController = new PlayerCameraController(scene);
     const playerModel = new VoxelPlayerModel(scene);
     const worldRenderer = new VoxelWorldRenderer(scene, worldData, 2);
-    const interaction = new VoxelInteractionController(
-      scene,
-      worldData,
-      (worldX, worldY, worldZ) =>
+    const interaction = new VoxelInteractionController(scene, worldData, {
+      onBlockChanged: (worldX, worldY, worldZ) =>
         worldRenderer.invalidateBlock(worldX, worldY, worldZ),
-    );
+      onBlockBroken: (block) => {
+        inventory.add(block, 1);
+        syncInventory();
+      },
+      canPlaceBlock: (block) => inventory.canConsumeSelected(block),
+      onBlockPlaced: () => {
+        inventory.consumeSelected(1);
+        syncInventory();
+      },
+    });
+    interaction.setSelectedBlock(inventory.selectedBlock);
     let breakHeld = false;
     let placeHeld = false;
 
     this.#session = session;
     this.#input = input;
     this.#playerModel = playerModel;
-    this.#worldData = worldData;
     this.#worldRenderer = worldRenderer;
     this.#interaction = interaction;
+    this.#inventory = inventory;
+    this.#hotbar = hotbar;
+    this.#inventoryStorage = inventoryStorage;
 
-    await worldData.initialize();
     await session.start();
     const initialPlayer = session.getWorldState().player;
     await worldRenderer.initialize(
@@ -117,7 +172,7 @@ export class GameApp {
       this.#updateHud(
         player,
         worldStats,
-        interaction.selectedBlock,
+        inventory.selectedBlock,
         interaction.breakProgress,
         input.usesPointerLock && !input.pointerLocked,
         frameSeconds,
@@ -131,7 +186,9 @@ export class GameApp {
       beforeFrame: () => {
         const worldState = session.getWorldState();
         const command = input.poll(worldState.tick);
-        interaction.setSelectedBlock(command.selectedBlock);
+        inventory.selectSlot(command.selectedHotbarSlot);
+        interaction.setSelectedBlock(inventory.selectedBlock);
+        syncInventory();
         breakHeld = command.breakBlock;
         placeHeld = command.placeBlock;
         session.submitCommand(command);
@@ -145,6 +202,19 @@ export class GameApp {
   }
 
   public dispose(): void {
+    if (this.#inventory !== null) {
+      savePlayerInventory(
+        WORLD_SEED,
+        this.#inventory,
+        this.#inventoryStorage,
+      );
+      this.#inventory = null;
+    }
+    this.#inventoryStorage = null;
+
+    this.#hotbar?.dispose();
+    this.#hotbar = null;
+
     this.#input?.dispose();
     this.#input = null;
 
@@ -177,7 +247,7 @@ export class GameApp {
   #updateHud(
     player: PlayerState,
     world: VoxelWorldStats,
-    selectedBlock: BlockTypeValue,
+    selectedBlock: BlockTypeValue | null,
     breakProgress: number,
     awaitingPointerLock: boolean,
     frameSeconds: number,
