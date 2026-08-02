@@ -29,6 +29,7 @@
 - [x] Add desktop bindings and basic touch controls
 - [x] Add pause/settings input context
 - [x] Add movement and camera tests
+- [x] Confirm TypeScript, ESLint, Vitest, and production build pass in CI
 
 ## Milestone 2
 
