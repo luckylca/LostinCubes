@@ -1,7 +1,11 @@
 import type { PlayerState } from '../game/session/GameSession';
 
-/** Eye level measured from the player model root. */
-export const PLAYER_EYE_HEIGHT = 0.96;
+/**
+ * The collision body is 1.8 blocks tall and centered on player.position.
+ * Minecraft's standing eye height is roughly 1.62 blocks above the feet,
+ * therefore the eye sits 0.72 block above the collision-body center.
+ */
+export const PLAYER_EYE_HEIGHT = 0.72;
 export const PLAYER_BLOCK_REACH = 4.5;
 
 export interface PlayerViewVector {
