@@ -1,12 +1,9 @@
-import {
-  getVisibleRecipes,
-} from '../crafting/CraftingRecipes';
+import { getVisibleRecipes } from '../crafting/CraftingRecipes';
 import type { CraftingRecipe } from '../crafting/CraftingRecipes';
 import {
   getItemDefinition,
   getItemLabel,
 } from '../inventory/ItemDefinitions';
-import type { ItemType } from '../inventory/ItemDefinitions';
 import {
   HOTBAR_START_INDEX,
   HOTBAR_SLOT_COUNT,
@@ -351,7 +348,7 @@ export class InventoryView {
       this.#cursor.replaceChildren();
       return;
     }
-    const definition = getItemDefinition(this.#cursorStack.item as ItemType);
+    const definition = getItemDefinition(this.#cursorStack.item);
     this.#cursor.hidden = false;
     this.#cursor.innerHTML = [
       `<span class="inventory-item item-${definition.cssClass}"></span>`,
