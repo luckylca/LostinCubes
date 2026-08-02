@@ -93,7 +93,7 @@ export class VoxelWorldRenderer {
 
   #synchronizeChunks(centerChunkX: number, centerChunkZ: number): void {
     const desiredKeys = new Set<string>();
-    const coordinates: Array<readonly [number, number]> = [];
+    const coordinates: (readonly [number, number])[] = [];
 
     for (
       let chunkZ = centerChunkZ - this.#renderRadius;
