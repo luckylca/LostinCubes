@@ -3,15 +3,20 @@ import {
   MeshBuilder,
   StandardMaterial,
 } from '@babylonjs/core';
-import type { Mesh, Ray, Scene } from '@babylonjs/core';
+import type { Mesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
+import {
+  getPlayerEyePosition,
+  getPlayerViewDirection,
+  PLAYER_BLOCK_REACH,
+} from '../player/PlayerView';
+import { BlockInteractionState } from './BlockInteractionState';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { raycastVoxels } from './VoxelRaycast';
 import type { VoxelRaycastHit } from './VoxelRaycast';
 import type { VoxelWorldData } from './VoxelWorldData';
 
-const INTERACTION_DISTANCE = 6;
 const PLAYER_RADIUS = 0.42;
 const PLAYER_HALF_HEIGHT = 0.9;
 
@@ -30,9 +35,16 @@ function blockIntersectsPlayer(
   return horizontalOverlap && verticalOverlap;
 }
 
+function createTargetKey(hit: VoxelRaycastHit): string {
+  const { x, y, z } = hit.block;
+  return `${String(x)},${String(y)},${String(z)}`;
+}
+
 export class VoxelInteractionController {
   readonly #world: VoxelWorldData;
   readonly #highlight: Mesh;
+  readonly #highlightMaterial: StandardMaterial;
+  readonly #timing = new BlockInteractionState();
   readonly #onBlockChanged: (
     worldX: number,
     worldY: number,
@@ -40,6 +52,7 @@ export class VoxelInteractionController {
   ) => void;
   #target: VoxelRaycastHit | null = null;
   #selectedBlock: BlockTypeValue = BlockType.Dirt;
+  #breakProgress = 0;
 
   public constructor(
     scene: Scene,
@@ -53,29 +66,87 @@ export class VoxelInteractionController {
     this.#world = world;
     this.#onBlockChanged = onBlockChanged;
 
-    const material = new StandardMaterial('voxel-target-material', scene);
-    material.diffuseColor = new Color3(0.95, 0.86, 0.25);
-    material.emissiveColor = new Color3(0.42, 0.32, 0.04);
-    material.alpha = 0.72;
-    material.wireframe = true;
-    material.disableLighting = true;
+    this.#highlightMaterial = new StandardMaterial(
+      'voxel-target-material',
+      scene,
+    );
+    this.#highlightMaterial.diffuseColor = new Color3(0.95, 0.86, 0.25);
+    this.#highlightMaterial.emissiveColor = new Color3(0.42, 0.32, 0.04);
+    this.#highlightMaterial.alpha = 0.72;
+    this.#highlightMaterial.wireframe = true;
+    this.#highlightMaterial.disableLighting = true;
 
     this.#highlight = MeshBuilder.CreateBox(
       'voxel-target-highlight',
       { size: 1.035 },
       scene,
     );
-    this.#highlight.material = material;
+    this.#highlight.material = this.#highlightMaterial;
     this.#highlight.isPickable = false;
     this.#highlight.renderingGroupId = 1;
     this.#highlight.setEnabled(false);
   }
 
-  public update(ray: Ray): void {
+  public update(
+    player: PlayerState,
+    frameSeconds: number,
+    breakHeld: boolean,
+    placeHeld: boolean,
+  ): void {
+    this.#updateTarget(player);
+
+    const targetBlock =
+      this.#target === null
+        ? BlockType.Air
+        : this.#world.sampleBlock(
+            this.#target.block.x,
+            this.#target.block.y,
+            this.#target.block.z,
+          );
+    const timing = this.#timing.update({
+      targetKey: this.#target === null ? null : createTargetKey(this.#target),
+      targetBlock,
+      canBreakTarget: this.#target !== null && this.#target.block.y > 0,
+      breakHeld,
+      placeHeld,
+      frameSeconds,
+    });
+    this.#breakProgress = timing.breakProgress;
+    this.#updateHighlightPresentation();
+
+    if (timing.breakNow) {
+      this.#breakTarget();
+    } else if (timing.placeNow) {
+      this.#placeTarget(player);
+    }
+  }
+
+  public setSelectedBlock(block: BlockTypeValue): void {
+    if (block !== BlockType.Air) {
+      this.#selectedBlock = block;
+    }
+  }
+
+  public get selectedBlock(): BlockTypeValue {
+    return this.#selectedBlock;
+  }
+
+  public get breakProgress(): number {
+    return this.#breakProgress;
+  }
+
+  public dispose(): void {
+    this.#highlightMaterial.dispose();
+    this.#highlight.dispose(false, false);
+  }
+
+  #updateTarget(player: PlayerState): void {
+    const eye = getPlayerEyePosition(player);
+    const direction = getPlayerViewDirection(player);
     this.#target = raycastVoxels(
-      { x: ray.origin.x, y: ray.origin.y, z: ray.origin.z },
-      { x: ray.direction.x, y: ray.direction.y, z: ray.direction.z },
-      INTERACTION_DISTANCE,
+      eye,
+      direction,
+      PLAYER_BLOCK_REACH,
       (worldX, worldY, worldZ) =>
         this.#world.sampleBlock(worldX, worldY, worldZ),
     );
@@ -90,7 +161,23 @@ export class VoxelInteractionController {
     this.#highlight.setEnabled(true);
   }
 
-  public breakTarget(): boolean {
+  #updateHighlightPresentation(): void {
+    if (this.#target === null) {
+      return;
+    }
+
+    const progress = this.#breakProgress;
+    const scale = 1 + progress * 0.035;
+    this.#highlight.scaling.setAll(scale);
+    this.#highlightMaterial.alpha = 0.72 + progress * 0.2;
+    this.#highlightMaterial.emissiveColor.set(
+      0.42 + progress * 0.35,
+      0.32 - progress * 0.12,
+      0.04,
+    );
+  }
+
+  #breakTarget(): boolean {
     if (this.#target === null || this.#target.block.y <= 0) {
       return false;
     }
@@ -104,7 +191,7 @@ export class VoxelInteractionController {
     return true;
   }
 
-  public placeTarget(player: PlayerState): boolean {
+  #placeTarget(player: PlayerState): boolean {
     if (this.#target === null) {
       return false;
     }
@@ -120,20 +207,5 @@ export class VoxelInteractionController {
     }
     this.#onBlockChanged(x, y, z);
     return true;
-  }
-
-  public setSelectedBlock(block: BlockTypeValue): void {
-    if (block !== BlockType.Air) {
-      this.#selectedBlock = block;
-    }
-  }
-
-  public get selectedBlock(): BlockTypeValue {
-    return this.#selectedBlock;
-  }
-
-  public dispose(): void {
-    this.#highlight.material?.dispose();
-    this.#highlight.dispose(false, false);
   }
 }
