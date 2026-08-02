@@ -65,7 +65,8 @@ export class HotbarView {
       const countElement = button.querySelector<HTMLElement>('.hotbar-count');
       const durabilityElement =
         button.querySelector<HTMLElement>('.hotbar-durability');
-      const durabilityFill = durabilityElement?.querySelector<HTMLElement>('span');
+      const durabilityFill =
+        durabilityElement?.querySelector<HTMLElement>('span') ?? null;
 
       if (itemElement !== null) {
         itemElement.className = `hotbar-item item-${definition?.cssClass ?? 'empty'}`;
