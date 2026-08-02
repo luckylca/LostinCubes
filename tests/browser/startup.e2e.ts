@@ -17,6 +17,13 @@ test('boots the playable world and exposes the hotbar', async ({ page }) => {
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
   await expect(page.locator('#hotbar .hotbar-slot.is-selected')).toHaveCount(1);
+  await expect(page.locator('#target-reticle')).toHaveCount(1);
+  await expect(page.locator('#game-canvas')).toHaveAttribute(
+    'data-camera-mode',
+    'third-person',
+  );
+  await expect(page.locator('body')).toHaveClass(/camera-third-person/);
+  await expect(page.locator('#crosshair')).toHaveCSS('opacity', '0');
 
   await page.keyboard.press('3');
   await expect(page.locator('#hotbar .hotbar-slot').nth(2)).toHaveClass(
@@ -25,6 +32,12 @@ test('boots the playable world and exposes the hotbar', async ({ page }) => {
 
   await page.keyboard.press('v');
   await expect(page.locator('#hud-view')).toContainText('第一人称');
+  await expect(page.locator('#game-canvas')).toHaveAttribute(
+    'data-camera-mode',
+    'first-person',
+  );
+  await expect(page.locator('body')).not.toHaveClass(/camera-third-person/);
+  await expect(page.locator('#crosshair')).toHaveCSS('opacity', '1');
 
   const canvasBounds = await page.locator('#game-canvas').boundingBox();
   expect(canvasBounds?.width ?? 0).toBeGreaterThan(100);
