@@ -9,6 +9,11 @@ interface ToneOptions {
   readonly frequencyEnd?: number;
 }
 
+interface OptionalAudioConstructors {
+  readonly AudioContext?: typeof AudioContext;
+  readonly webkitAudioContext?: typeof AudioContext;
+}
+
 function blockFrequency(block: BlockTypeValue): number {
   switch (block) {
     case BlockType.Grass:
@@ -116,10 +121,9 @@ export class GameAudio {
     if (this.#context !== null) {
       return this.#context;
     }
+    const constructors = globalThis as unknown as OptionalAudioConstructors;
     const AudioContextConstructor =
-      window.AudioContext ??
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext;
+      constructors.AudioContext ?? constructors.webkitAudioContext;
     if (AudioContextConstructor === undefined) {
       return null;
     }
