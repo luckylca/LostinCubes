@@ -1,4 +1,6 @@
 import type { Engine } from '@babylonjs/core';
+import { GameAudio } from '../audio/GameAudio';
+import type { CraftingRecipe } from '../crafting/CraftingRecipes';
 import { BabylonEngine } from '../engine/BabylonEngine';
 import { RenderLoop } from '../engine/RenderLoop';
 import { LocalGameSession } from '../game/session/LocalGameSession';
@@ -14,8 +16,15 @@ import type { PlayerInventory } from '../inventory/PlayerInventory';
 import { PlayerCameraController } from '../player/PlayerCameraController';
 import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
 import { HotbarView } from '../ui/HotbarView';
+import { InventoryView } from '../ui/InventoryView';
 import { ThirdPersonTargetView } from '../ui/ThirdPersonTargetView';
+import { BlockType } from '../world/BlockType';
+import {
+  loadDroppedItems,
+  saveDroppedItems,
+} from '../world/DropPersistence';
 import { DroppedItemManager } from '../world/DroppedItemManager';
+import { VoxelBreakEffects } from '../world/VoxelBreakEffects';
 import { VoxelInteractionController } from '../world/VoxelInteractionController';
 import { VoxelWorldData } from '../world/VoxelWorldData';
 import { VoxelWorldRenderer } from '../world/VoxelWorldRenderer';
@@ -24,6 +33,7 @@ import type { VoxelWorldStats } from '../world/VoxelWorldRenderer';
 const WORLD_SEED = 'world-fragment-01';
 const SPAWN_X = 0;
 const SPAWN_Z = 3.5;
+const DROP_SAVE_INTERVAL_SECONDS = 2;
 
 type CameraMode = PlayerState['cameraMode'];
 
@@ -34,6 +44,7 @@ export interface GameUiElements {
   readonly position: HTMLElement;
   readonly hotbar: HTMLElement;
   readonly targetReticle: HTMLElement;
+  readonly inventoryRoot: HTMLElement;
 }
 
 function formatCount(value: number): string {
@@ -63,12 +74,16 @@ export class GameApp {
   #worldRenderer: VoxelWorldRenderer | null = null;
   #interaction: VoxelInteractionController | null = null;
   #drops: DroppedItemManager | null = null;
+  #effects: VoxelBreakEffects | null = null;
+  #audio: GameAudio | null = null;
   #inventory: PlayerInventory | null = null;
   #hotbar: HotbarView | null = null;
+  #inventoryView: InventoryView | null = null;
   #targetView: ThirdPersonTargetView | null = null;
-  #inventoryStorage: Storage | null = null;
+  #localStorage: Storage | null = null;
   #lastCameraMode: CameraMode | null = null;
   #lastHeldItem: ItemType | null | undefined;
+  #dropSaveElapsed = 0;
   #smoothedFps = 60;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
@@ -93,20 +108,44 @@ export class GameApp {
       },
     });
     const input = new InputManager(this.#canvas, this.#ui.touchControls);
-    const inventoryStorage = getLocalStorage();
-    const inventory = loadPlayerInventory(WORLD_SEED, inventoryStorage);
+    const localStorage = getLocalStorage();
+    const inventory = loadPlayerInventory(WORLD_SEED, localStorage);
     input.selectHotbarSlot(inventory.selectedSlot);
     const hotbar = new HotbarView(this.#ui.hotbar, (slot) => {
       input.selectHotbarSlot(slot);
     });
+    const audio = new GameAudio();
     let renderedInventoryRevision = -1;
+    let inventoryView: InventoryView;
     const syncInventory = (): void => {
       if (inventory.revision === renderedInventoryRevision) {
         return;
       }
       hotbar.render(inventory.snapshot);
-      savePlayerInventory(WORLD_SEED, inventory, inventoryStorage);
+      inventoryView?.render();
+      savePlayerInventory(WORLD_SEED, inventory, localStorage);
       renderedInventoryRevision = inventory.revision;
+    };
+
+    let breakHeld = false;
+    let placeHeld = false;
+    const closeMenuState = (): void => {
+      input.setUiOpen(false);
+      session.setMenuOpen(false);
+      this.#canvas.dataset.inventoryOpen = 'false';
+    };
+    inventoryView = new InventoryView(this.#ui.inventoryRoot, inventory, {
+      onChanged: syncInventory,
+      onClose: closeMenuState,
+      onCrafted: (_recipe: CraftingRecipe) => audio.playCraft(),
+    });
+    const openInventory = (usingCraftingTable: boolean): void => {
+      breakHeld = false;
+      placeHeld = false;
+      inventoryView.open(usingCraftingTable);
+      input.setUiOpen(true);
+      session.setMenuOpen(true);
+      this.#canvas.dataset.inventoryOpen = 'true';
     };
     syncInventory();
 
@@ -118,17 +157,23 @@ export class GameApp {
       scene,
     );
     const worldRenderer = new VoxelWorldRenderer(scene, worldData, 2);
+    const effects = new VoxelBreakEffects(scene);
     const drops = new DroppedItemManager(scene, worldData, {
       onPickup: (block, count) => {
         const remaining = inventory.addBlock(block, count);
         syncInventory();
         return remaining;
       },
+      onPickupSucceeded: () => audio.playPickup(),
     });
+    drops.restore(loadDroppedItems(WORLD_SEED, localStorage));
+
     const interaction = new VoxelInteractionController(scene, worldData, {
       onBlockChanged: (worldX, worldY, worldZ) =>
         worldRenderer.invalidateBlock(worldX, worldY, worldZ),
       onBlockBroken: (block, position) => {
+        effects.spawn(block, position.x, position.y, position.z);
+        audio.playBreak(block);
         const remaining = drops.spawn(
           block,
           position.x,
@@ -142,18 +187,24 @@ export class GameApp {
         }
       },
       canPlaceBlock: (block) => inventory.canConsumeSelectedBlock(block),
-      onBlockPlaced: () => {
+      onBlockPlaced: (block) => {
         inventory.consumeSelectedBlock(1);
+        audio.playPlace(block);
         syncInventory();
       },
       onToolUsed: () => {
         inventory.damageSelectedTool(1);
         syncInventory();
       },
+      onUseBlock: (block) => {
+        if (block !== BlockType.CraftingTable) {
+          return false;
+        }
+        openInventory(true);
+        return true;
+      },
     });
     interaction.setHeldItem(inventory.selectedItem);
-    let breakHeld = false;
-    let placeHeld = false;
 
     this.#session = session;
     this.#input = input;
@@ -161,10 +212,13 @@ export class GameApp {
     this.#worldRenderer = worldRenderer;
     this.#interaction = interaction;
     this.#drops = drops;
+    this.#effects = effects;
+    this.#audio = audio;
     this.#inventory = inventory;
     this.#hotbar = hotbar;
+    this.#inventoryView = inventoryView;
     this.#targetView = targetView;
-    this.#inventoryStorage = inventoryStorage;
+    this.#localStorage = localStorage;
 
     await session.start();
     const initialPlayer = session.getWorldState().player;
@@ -187,7 +241,9 @@ export class GameApp {
         !player.paused && breakHeld,
         !player.paused && placeHeld,
       );
-      drops.update(player, player.paused ? 0 : frameSeconds);
+      const simulationSeconds = player.paused ? 0 : frameSeconds;
+      drops.update(player, simulationSeconds);
+      effects.update(simulationSeconds);
       cameraController.update(player, frameSeconds);
       targetView.update(player, interaction.targetPoint);
       playerModel.update(player, frameSeconds, {
@@ -209,8 +265,15 @@ export class GameApp {
         interaction.breakProgress,
         drops.activeCount,
         input.usesPointerLock && !input.pointerLocked,
+        inventoryView.isOpen,
         frameSeconds,
       );
+
+      this.#dropSaveElapsed += frameSeconds;
+      if (this.#dropSaveElapsed >= DROP_SAVE_INTERVAL_SECONDS) {
+        this.#dropSaveElapsed = 0;
+        saveDroppedItems(WORLD_SEED, drops.snapshots, localStorage);
+      }
     };
 
     applyPlayerState(initialPlayer, 1 / 60);
@@ -220,11 +283,23 @@ export class GameApp {
       beforeFrame: () => {
         const worldState = session.getWorldState();
         const command = input.poll(worldState.tick);
-        inventory.selectSlot(command.selectedHotbarSlot);
-        interaction.setHeldItem(inventory.selectedItem);
+        if (command.toggleInventory) {
+          if (inventoryView.isOpen) {
+            inventoryView.close();
+          } else {
+            openInventory(false);
+          }
+        }
+        if (!inventoryView.isOpen) {
+          inventory.selectSlot(command.selectedHotbarSlot);
+          interaction.setHeldItem(inventory.selectedItem);
+          breakHeld = command.breakBlock;
+          placeHeld = command.placeBlock;
+        } else {
+          breakHeld = false;
+          placeHeld = false;
+        }
         syncInventory();
-        breakHeld = command.breakBlock;
-        placeHeld = command.placeBlock;
         session.submitCommand(command);
       },
       fixedUpdate: (stepSeconds) => session.step(stepSeconds),
@@ -236,29 +311,37 @@ export class GameApp {
   }
 
   public dispose(): void {
-    document.body.classList.remove('camera-third-person');
+    document.body.classList.remove('camera-third-person', 'inventory-open');
     this.#canvas.removeAttribute('data-camera-mode');
     this.#canvas.removeAttribute('data-held-item');
     this.#canvas.removeAttribute('data-player-pitch');
     this.#canvas.removeAttribute('data-has-target');
+    this.#canvas.removeAttribute('data-inventory-open');
     this.#lastCameraMode = null;
     this.#lastHeldItem = undefined;
+
+    this.#inventoryView?.dispose();
+    this.#inventoryView = null;
 
     this.#targetView?.dispose();
     this.#targetView = null;
 
-    this.#drops?.dispose();
-    this.#drops = null;
+    if (this.#drops !== null) {
+      saveDroppedItems(WORLD_SEED, this.#drops.snapshots, this.#localStorage);
+      this.#drops.dispose();
+      this.#drops = null;
+    }
+
+    this.#effects?.dispose();
+    this.#effects = null;
+    this.#audio?.dispose();
+    this.#audio = null;
 
     if (this.#inventory !== null) {
-      savePlayerInventory(
-        WORLD_SEED,
-        this.#inventory,
-        this.#inventoryStorage,
-      );
+      savePlayerInventory(WORLD_SEED, this.#inventory, this.#localStorage);
       this.#inventory = null;
     }
-    this.#inventoryStorage = null;
+    this.#localStorage = null;
 
     this.#hotbar?.dispose();
     this.#hotbar = null;
@@ -322,6 +405,7 @@ export class GameApp {
     breakProgress: number,
     activeDrops: number,
     awaitingPointerLock: boolean,
+    inventoryOpen: boolean,
     frameSeconds: number,
   ): void {
     if (frameSeconds > 0) {
@@ -338,7 +422,9 @@ export class GameApp {
         ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%`
         : '';
 
-    if (awaitingPointerLock) {
+    if (inventoryOpen) {
+      this.#ui.status.textContent = '背包已打开 · E 或 Esc 关闭';
+    } else if (awaitingPointerLock) {
       this.#ui.status.textContent = player.paused
         ? '已暂停 · 点击画面继续'
         : '点击锁定鼠标，或按住画面拖动观察';
