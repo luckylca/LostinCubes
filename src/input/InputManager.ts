@@ -1,6 +1,5 @@
 import type { PlayerInputCommand } from '../game/commands/PlayerInputCommand';
-import { BlockType } from '../world/BlockType';
-import type { BlockType as BlockTypeValue } from '../world/BlockType';
+import { HOTBAR_SLOT_COUNT } from '../inventory/PlayerInventory';
 
 type HeldAction =
   | 'move-forward'
@@ -14,6 +13,12 @@ type HeldAction =
 type EdgeAction = 'jump' | 'toggle-camera' | 'toggle-pause';
 
 const FALLBACK_DRAG_THRESHOLD_PX = 4;
+const HOTBAR_KEYS = new Map<string, number>(
+  Array.from({ length: HOTBAR_SLOT_COUNT }, (_, index) => [
+    `Digit${String(index + 1)}`,
+    index,
+  ]),
+);
 const GAMEPLAY_KEYS = new Set([
   'KeyW',
   'KeyA',
@@ -27,10 +32,7 @@ const GAMEPLAY_KEYS = new Set([
   'KeyV',
   'F5',
   'Escape',
-  'Digit1',
-  'Digit2',
-  'Digit3',
-  'Digit4',
+  ...HOTBAR_KEYS.keys(),
 ]);
 
 function isHeldAction(value: string): value is HeldAction {
@@ -77,7 +79,7 @@ export class InputManager {
   #pointerLockPending = false;
   #resumeAfterPointerLock = false;
   #suppressUnlockPause = false;
-  #selectedBlock: BlockTypeValue = BlockType.Dirt;
+  #selectedHotbarSlot = 1;
 
   public constructor(canvas: HTMLCanvasElement, touchRoot: HTMLElement | null) {
     this.#canvas = canvas;
@@ -91,6 +93,10 @@ export class InputManager {
     document.addEventListener('pointermove', this.#onPointerMove, { signal });
     document.addEventListener('pointerup', this.#onPointerUp, { signal });
     document.addEventListener('pointercancel', this.#onPointerCancel, { signal });
+    document.addEventListener('wheel', this.#onWheel, {
+      signal,
+      passive: false,
+    });
     document.addEventListener('pointerlockchange', this.#onPointerLockChange, {
       signal,
     });
@@ -160,7 +166,7 @@ export class InputManager {
         this.#mouseButtons.has(2) ||
         this.#keys.has('KeyE') ||
         this.#touchActions.has('place-block'),
-      selectedBlock: this.#selectedBlock,
+      selectedHotbarSlot: this.#selectedHotbarSlot,
     };
 
     this.#lookDeltaX = 0;
@@ -171,6 +177,16 @@ export class InputManager {
     this.#breakPulse = false;
     this.#placePulse = false;
     return command;
+  }
+
+  public selectHotbarSlot(index: number): void {
+    if (!Number.isInteger(index)) {
+      return;
+    }
+    this.#selectedHotbarSlot = Math.min(
+      Math.max(index, 0),
+      HOTBAR_SLOT_COUNT - 1,
+    );
   }
 
   public get usesPointerLock(): boolean {
@@ -200,7 +216,10 @@ export class InputManager {
     }
 
     if (!event.repeat) {
-      if (event.code === 'Space') {
+      const hotbarSlot = HOTBAR_KEYS.get(event.code);
+      if (hotbarSlot !== undefined) {
+        this.#selectedHotbarSlot = hotbarSlot;
+      } else if (event.code === 'Space') {
         this.#jumpRequested = true;
       } else if (event.code === 'KeyV' || event.code === 'F5') {
         this.#cameraToggleRequested = true;
@@ -210,14 +229,6 @@ export class InputManager {
         !this.#resumeAfterPointerLock
       ) {
         this.#pauseToggleRequested = true;
-      } else if (event.code === 'Digit1') {
-        this.#selectedBlock = BlockType.Grass;
-      } else if (event.code === 'Digit2') {
-        this.#selectedBlock = BlockType.Dirt;
-      } else if (event.code === 'Digit3') {
-        this.#selectedBlock = BlockType.Stone;
-      } else if (event.code === 'Digit4') {
-        this.#selectedBlock = BlockType.RuneStone;
       }
     }
 
@@ -226,6 +237,24 @@ export class InputManager {
 
   readonly #onKeyUp = (event: KeyboardEvent): void => {
     this.#keys.delete(event.code);
+  };
+
+  readonly #onWheel = (event: WheelEvent): void => {
+    if (
+      !this.#pointerLocked &&
+      event.target !== this.#canvas &&
+      !this.#canvas.contains(event.target as Node | null)
+    ) {
+      return;
+    }
+    if (event.deltaY === 0) {
+      return;
+    }
+    event.preventDefault();
+    const direction = event.deltaY > 0 ? 1 : -1;
+    this.#selectedHotbarSlot =
+      (this.#selectedHotbarSlot + direction + HOTBAR_SLOT_COUNT) %
+      HOTBAR_SLOT_COUNT;
   };
 
   readonly #onBlur = (): void => {

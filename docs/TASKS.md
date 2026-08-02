@@ -46,7 +46,9 @@
 - [x] Limit main-thread mesh uploads per frame
 - [x] Reject stale worker results after edits or chunk movement
 - [x] Connect player grounding and step limits to voxel terrain
-- [ ] Add full body collision against voxel walls and ceilings
+- [x] Add full body collision against voxel walls and ceilings
+- [x] Add axis-separated wall sliding, exact step-up candidates, and movement substeps
+- [x] Add safe upward spawn depenetration and head collision
 - [x] Add deterministic voxel targeting
 - [x] Make first- and third-person interaction originate from the player eye
 - [x] Align the centered third-person camera with the player view ray
@@ -58,15 +60,18 @@
 - [x] Persist sparse block modifications with IndexedDB
 - [x] Restore persisted edits before the first chunk is shown
 - [x] Add chunk queue, greedy quad, mining progress, and FPS diagnostics to the HUD
-- [x] Add meshing, worker task, persistence, raycast, view, and interaction timing tests
+- [x] Add meshing, worker task, persistence, raycast, view, interaction, collision, and inventory tests
 
 ## Milestone 3
 
-- [ ] Add complete voxel body collision and safe depenetration
-- [ ] Add an inventory and hotbar instead of direct block selection
-- [ ] Add tools, block-specific drops, and collection
+- [x] Add complete voxel body collision and safe depenetration
+- [x] Add a nine-slot inventory hotbar with keyboard, wheel, click, and touch selection
+- [x] Add finite stacks, block collection, placement consumption, and world-scoped persistence
+- [x] Add automated Chromium runtime smoke tests
+- [ ] Add visible dropped-item entities and collection radius behavior
+- [ ] Add tools and tool-dependent mining speed
 - [ ] Add world save metadata and multiple save slots
 - [ ] Add biome and structure generation
 - [ ] Add LOD or distance-tiered chunk rendering
 - [ ] Add worker-side cancellation or priority replacement
-- [ ] Add automated browser runtime smoke tests
+- [ ] Add representative desktop and mobile performance profiles

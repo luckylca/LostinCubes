@@ -1,7 +1,7 @@
 import type { PlayerInputCommand } from '../commands/PlayerInputCommand';
 import { createNeutralPlayerInput } from '../commands/PlayerInputCommand';
 import { KinematicPlayerMotor } from '../../player/KinematicPlayerMotor';
-import type { GroundHeightProvider } from '../../player/KinematicPlayerMotor';
+import type { PlayerMotorConfig } from '../../player/KinematicPlayerMotor';
 import type {
   CameraMode,
   GameCommand,
@@ -35,12 +35,10 @@ export class LocalGameSession implements GameSession {
 
   public constructor(
     worldSeed: string,
-    groundHeightAt?: GroundHeightProvider,
+    motorConfig: Partial<PlayerMotorConfig> = {},
   ) {
     this.#worldSeed = worldSeed;
-    this.#motor = new KinematicPlayerMotor(
-      groundHeightAt === undefined ? {} : { groundHeightAt },
-    );
+    this.#motor = new KinematicPlayerMotor(motorConfig);
     this.#worldState = this.#createWorldState(0);
   }
 

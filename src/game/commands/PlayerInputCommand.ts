@@ -1,5 +1,3 @@
-import type { BlockType } from '../../world/BlockType';
-import { BlockType as Blocks } from '../../world/BlockType';
 import type { GameCommand } from '../session/GameSession';
 
 export interface PlayerInputCommand extends GameCommand {
@@ -14,7 +12,7 @@ export interface PlayerInputCommand extends GameCommand {
   readonly togglePause: boolean;
   readonly breakBlock: boolean;
   readonly placeBlock: boolean;
-  readonly selectedBlock: BlockType;
+  readonly selectedHotbarSlot: number;
 }
 
 export function createNeutralPlayerInput(
@@ -33,6 +31,6 @@ export function createNeutralPlayerInput(
     togglePause: false,
     breakBlock: false,
     placeBlock: false,
-    selectedBlock: Blocks.Dirt,
+    selectedHotbarSlot: 1,
   };
 }
