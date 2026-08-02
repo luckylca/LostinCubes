@@ -35,10 +35,11 @@ export async function bootstrap(): Promise<void> {
       position: requireElement('#hud-position'),
       hotbar: requireElement('#hotbar'),
       targetReticle: requireElement('#target-reticle'),
+      inventoryRoot: requireElement('#inventory-screen'),
     };
 
     app = new GameApp(canvasElement, ui);
-    loadingMessage.textContent = '正在生成附近区块……';
+    loadingMessage.textContent = '正在生成附近区块与森林……';
     await app.start();
 
     loadingMessage.textContent = '世界碎片已稳定';
