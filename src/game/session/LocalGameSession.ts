@@ -1,6 +1,7 @@
 import type { PlayerInputCommand } from '../commands/PlayerInputCommand';
 import { createNeutralPlayerInput } from '../commands/PlayerInputCommand';
 import { KinematicPlayerMotor } from '../../player/KinematicPlayerMotor';
+import type { GroundHeightProvider } from '../../player/KinematicPlayerMotor';
 import type {
   CameraMode,
   GameCommand,
@@ -23,7 +24,7 @@ function isPlayerInputCommand(command: GameCommand): command is PlayerInputComma
 
 export class LocalGameSession implements GameSession {
   readonly #worldSeed: string;
-  readonly #motor = new KinematicPlayerMotor();
+  readonly #motor: KinematicPlayerMotor;
   #worldState: WorldState;
   #pendingCommand: PlayerInputCommand | null = null;
   #heldCommand = createNeutralPlayerInput(0);
@@ -32,8 +33,14 @@ export class LocalGameSession implements GameSession {
   #cameraMode: CameraMode = 'third-person';
   #paused = false;
 
-  public constructor(worldSeed: string) {
+  public constructor(
+    worldSeed: string,
+    groundHeightAt?: GroundHeightProvider,
+  ) {
     this.#worldSeed = worldSeed;
+    this.#motor = new KinematicPlayerMotor(
+      groundHeightAt === undefined ? {} : { groundHeightAt },
+    );
     this.#worldState = this.#createWorldState(0);
   }
 

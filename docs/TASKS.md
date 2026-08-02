@@ -38,10 +38,12 @@
 
 - [x] Introduce seeded chunk data structures
 - [x] Generate terrain data from a deterministic world seed
-- [ ] Render generated chunks in the playable scene
-- [ ] Stream chunks around the player
-- [ ] Implement hidden-face culling and greedy meshing
+- [x] Render generated chunks in the playable scene
+- [x] Stream a 3×3 chunk window around the player
+- [x] Implement cross-chunk hidden-face culling
+- [ ] Implement greedy meshing
 - [ ] Move generation and meshing work into Web Workers
-- [ ] Connect player grounding and collision to voxel terrain
+- [x] Connect player grounding and step limits to voxel terrain
+- [ ] Add full body collision against voxel walls and ceilings
 - [ ] Add block targeting, breaking, and placement
 - [ ] Persist block modifications

@@ -20,14 +20,16 @@ export interface PlayerMotorInput {
   readonly yaw: number;
 }
 
+export type GroundHeightProvider = (worldX: number, worldZ: number) => number;
+
 export interface PlayerMotorConfig {
   readonly walkSpeed: number;
   readonly sprintSpeed: number;
   readonly jumpSpeed: number;
   readonly gravity: number;
-  readonly standingY: number;
-  readonly worldHalfExtent: number;
   readonly radius: number;
+  readonly maximumStepHeight: number;
+  readonly groundHeightAt: GroundHeightProvider;
 }
 
 const DEFAULT_CONFIG: PlayerMotorConfig = {
@@ -35,9 +37,9 @@ const DEFAULT_CONFIG: PlayerMotorConfig = {
   sprintSpeed: 6.2,
   jumpSpeed: 6.4,
   gravity: -18,
-  standingY: 2.9,
-  worldHalfExtent: 5.15,
   radius: 0.34,
+  maximumStepHeight: 1.05,
+  groundHeightAt: () => 2.9,
 };
 
 interface MutablePosition {
@@ -46,50 +48,9 @@ interface MutablePosition {
   z: number;
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(Math.max(value, minimum), maximum);
-}
-
-function resolveMonolithCollision(position: MutablePosition, radius: number): void {
-  const minimumX = -0.85 - radius;
-  const maximumX = 0.85 + radius;
-  const minimumZ = -0.85 - radius;
-  const maximumZ = 0.85 + radius;
-
-  if (
-    position.x <= minimumX ||
-    position.x >= maximumX ||
-    position.z <= minimumZ ||
-    position.z >= maximumZ
-  ) {
-    return;
-  }
-
-  const distanceToLeft = position.x - minimumX;
-  const distanceToRight = maximumX - position.x;
-  const distanceToNear = position.z - minimumZ;
-  const distanceToFar = maximumZ - position.z;
-  const smallest = Math.min(
-    distanceToLeft,
-    distanceToRight,
-    distanceToNear,
-    distanceToFar,
-  );
-
-  if (smallest === distanceToLeft) {
-    position.x = minimumX;
-  } else if (smallest === distanceToRight) {
-    position.x = maximumX;
-  } else if (smallest === distanceToNear) {
-    position.z = minimumZ;
-  } else {
-    position.z = maximumZ;
-  }
-}
-
 export class KinematicPlayerMotor {
   readonly #config: PlayerMotorConfig;
-  #position: MutablePosition = { x: 0, y: DEFAULT_CONFIG.standingY, z: 3.5 };
+  #position: MutablePosition = { x: 0, y: 0, z: 3.5 };
   #verticalVelocity = 0;
   #horizontalSpeed = 0;
   #sprinting = false;
@@ -97,7 +58,10 @@ export class KinematicPlayerMotor {
 
   public constructor(config: Partial<PlayerMotorConfig> = {}) {
     this.#config = { ...DEFAULT_CONFIG, ...config };
-    this.#position.y = this.#config.standingY;
+    this.#position.y = this.#getGroundHeight(
+      this.#position.x,
+      this.#position.z,
+    );
   }
 
   public update(input: PlayerMotorInput, stepSeconds: number): PlayerMotorState {
@@ -114,29 +78,56 @@ export class KinematicPlayerMotor {
     const forwardZ = Math.cos(input.yaw);
     const rightX = Math.cos(input.yaw);
     const rightZ = -Math.sin(input.yaw);
+    const previousX = this.#position.x;
+    const previousZ = this.#position.z;
+    const previousGroundHeight = this.#getGroundHeight(previousX, previousZ);
 
     this.#position.x +=
       (rightX * normalizedX + forwardX * normalizedZ) * speed * stepSeconds;
     this.#position.z +=
       (rightZ * normalizedX + forwardZ * normalizedZ) * speed * stepSeconds;
 
-    resolveMonolithCollision(this.#position, this.#config.radius);
+    let destinationGroundHeight = this.#getGroundHeight(
+      this.#position.x,
+      this.#position.z,
+    );
 
-    const limit = this.#config.worldHalfExtent - this.#config.radius;
-    this.#position.x = clamp(this.#position.x, -limit, limit);
-    this.#position.z = clamp(this.#position.z, -limit, limit);
+    if (
+      this.#grounded &&
+      destinationGroundHeight - previousGroundHeight >
+        this.#config.maximumStepHeight
+    ) {
+      this.#position.x = previousX;
+      this.#position.z = previousZ;
+      destinationGroundHeight = previousGroundHeight;
+      this.#horizontalSpeed = 0;
+      this.#sprinting = false;
+    }
 
     if (input.jump && this.#grounded) {
       this.#grounded = false;
       this.#verticalVelocity = this.#config.jumpSpeed;
     }
 
+    if (this.#grounded) {
+      const dropHeight = this.#position.y - destinationGroundHeight;
+      if (dropHeight <= this.#config.maximumStepHeight) {
+        this.#position.y = destinationGroundHeight;
+      } else {
+        this.#grounded = false;
+      }
+    }
+
     if (!this.#grounded) {
       this.#verticalVelocity += this.#config.gravity * stepSeconds;
       this.#position.y += this.#verticalVelocity * stepSeconds;
 
-      if (this.#position.y <= this.#config.standingY) {
-        this.#position.y = this.#config.standingY;
+      const landingHeight = this.#getGroundHeight(
+        this.#position.x,
+        this.#position.z,
+      );
+      if (this.#verticalVelocity <= 0 && this.#position.y <= landingHeight) {
+        this.#position.y = landingHeight;
         this.#verticalVelocity = 0;
         this.#grounded = true;
       }
@@ -155,13 +146,29 @@ export class KinematicPlayerMotor {
     };
   }
 
-  public reset(
-    position: PlayerVector = { x: 0, y: this.#config.standingY, z: 3.5 },
-  ): void {
-    this.#position = { ...position };
+  public reset(position?: PlayerVector): void {
+    const nextPosition = position ?? {
+      x: 0,
+      y: this.#getGroundHeight(0, 3.5),
+      z: 3.5,
+    };
+    const groundHeight = this.#getGroundHeight(nextPosition.x, nextPosition.z);
+
+    this.#position = { ...nextPosition };
     this.#verticalVelocity = 0;
     this.#horizontalSpeed = 0;
     this.#sprinting = false;
-    this.#grounded = position.y <= this.#config.standingY;
+    this.#grounded = nextPosition.y <= groundHeight + 0.001;
+    if (this.#grounded) {
+      this.#position.y = groundHeight;
+    }
+  }
+
+  #getGroundHeight(worldX: number, worldZ: number): number {
+    const height = this.#config.groundHeightAt(worldX, worldZ);
+    if (!Number.isFinite(height)) {
+      throw new RangeError('groundHeightAt must return a finite height.');
+    }
+    return height;
   }
 }
