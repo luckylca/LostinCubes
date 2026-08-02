@@ -20,6 +20,7 @@ function createMergedBlocks(
   const sourceMeshes = positions.map((position, index) => {
     const block = MeshBuilder.CreateBox(`${name}-source-${String(index)}`, { size: 1 }, scene);
     block.position.copyFrom(position);
+    block.computeWorldMatrix(true);
     return block;
   });
 
@@ -49,9 +50,10 @@ export class BabylonEngine {
     });
     this.#resizeHandler = () => this.engine.resize();
     window.addEventListener('resize', this.#resizeHandler);
+    this.engine.resize();
   }
 
-  public async createPrototypeScene(): Promise<Scene> {
+  public createPrototypeScene(): Scene {
     const scene = new Scene(this.engine);
     scene.clearColor = new Color4(0.025, 0.07, 0.045, 1);
     scene.ambientColor = new Color3(0.08, 0.14, 0.1);
@@ -111,7 +113,6 @@ export class BabylonEngine {
     monolith.rotation.y = Math.PI / 4;
     monolith.material = stone;
 
-    await scene.whenReadyAsync();
     return scene;
   }
 
