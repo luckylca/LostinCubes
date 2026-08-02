@@ -28,4 +28,16 @@ describe('TerrainGenerator', () => {
     expect(chunk.countBlocks(BlockType.Stone)).toBeGreaterThan(0);
     expect(chunk.countBlocks(BlockType.Dirt)).toBeGreaterThan(0);
   });
+
+  it('samples matching surface blocks and player standing heights', () => {
+    const terrain = new TerrainGenerator('standing-test');
+    const surface = terrain.sampleSurfaceHeight(-7, 11);
+
+    expect(terrain.sampleBlock(-7, surface + 1, 11)).toBe(BlockType.Air);
+    expect(terrain.sampleBlock(-7, surface, 11)).toBe(BlockType.Grass);
+    expect(terrain.sampleBlock(-7, surface - 1, 11)).toBe(BlockType.Dirt);
+    expect(terrain.sampleStandingY(-6.2, 11.8)).toBeCloseTo(
+      terrain.sampleSurfaceHeight(-7, 11) + 1.4,
+    );
+  });
 });
