@@ -1,4 +1,3 @@
-import { BlockType } from '../world/BlockType';
 import type { BlockType as BlockTypeValue } from '../world/BlockType';
 import {
   getItemDefinition,
@@ -118,6 +117,22 @@ function slotOrderForPickup(): number[] {
   ];
 }
 
+function aggregateRequirements(
+  requirements: readonly ItemRequirement[],
+): ReadonlyMap<ItemTypeValue, number> | null {
+  const totals = new Map<ItemTypeValue, number>();
+  for (const requirement of requirements) {
+    if (!Number.isInteger(requirement.count) || requirement.count <= 0) {
+      return null;
+    }
+    totals.set(
+      requirement.item,
+      (totals.get(requirement.item) ?? 0) + requirement.count,
+    );
+  }
+  return totals;
+}
+
 const PICKUP_SLOT_ORDER = slotOrderForPickup();
 
 export class PlayerInventory {
@@ -186,13 +201,15 @@ export class PlayerInventory {
       for (const index of PICKUP_SLOT_ORDER) {
         const slot = this.#slots[index];
         if (
-          slot === undefined ||
-          slot.item !== item ||
+          slot?.item !== item ||
           slot.count >= definition.maximumStack
         ) {
           continue;
         }
-        const accepted = Math.min(definition.maximumStack - slot.count, remaining);
+        const accepted = Math.min(
+          definition.maximumStack - slot.count,
+          remaining,
+        );
         slot.count += accepted;
         remaining -= accepted;
         if (remaining === 0) {
@@ -204,7 +221,7 @@ export class PlayerInventory {
 
     for (const index of PICKUP_SLOT_ORDER) {
       const slot = this.#slots[index];
-      if (slot === undefined || slot.item !== null) {
+      if (slot?.item !== null) {
         continue;
       }
       const accepted = Math.min(definition.maximumStack, remaining);
@@ -235,23 +252,33 @@ export class PlayerInventory {
   }
 
   public hasItems(requirements: readonly ItemRequirement[]): boolean {
-    return requirements.every(
-      (requirement) =>
-        Number.isInteger(requirement.count) &&
-        requirement.count > 0 &&
-        this.countItem(requirement.item) >= requirement.count,
-    );
+    const totals = aggregateRequirements(requirements);
+    if (totals === null) {
+      return false;
+    }
+    for (const [item, count] of totals) {
+      if (this.countItem(item) < count) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public consumeItems(requirements: readonly ItemRequirement[]): boolean {
-    if (!this.hasItems(requirements)) {
+    const totals = aggregateRequirements(requirements);
+    if (totals === null) {
       return false;
     }
+    for (const [item, count] of totals) {
+      if (this.countItem(item) < count) {
+        return false;
+      }
+    }
 
-    for (const requirement of requirements) {
-      let remaining = requirement.count;
+    for (const [item, count] of totals) {
+      let remaining = count;
       for (const slot of this.#slots) {
-        if (slot.item !== requirement.item) {
+        if (slot.item !== item) {
           continue;
         }
         const removed = Math.min(slot.count, remaining);
