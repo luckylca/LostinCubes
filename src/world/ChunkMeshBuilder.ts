@@ -165,13 +165,16 @@ export function buildChunkMeshData(
             );
           }
 
+          // Babylon's default left-handed scene treats clockwise triangles as
+          // front-facing. The face vertex tables are authored with outward
+          // normals, so the index order is intentionally reversed here.
           indices.push(
             firstVertex,
+            firstVertex + 2,
             firstVertex + 1,
-            firstVertex + 2,
             firstVertex,
-            firstVertex + 2,
             firstVertex + 3,
+            firstVertex + 2,
           );
           faceCount += 1;
         }
