@@ -85,7 +85,7 @@ export class VoxelWorldRenderer {
 
   public dispose(): void {
     for (const chunk of this.#chunks.values()) {
-      chunk.mesh.dispose(false, true);
+      chunk.mesh.dispose(false, false);
     }
     this.#chunks.clear();
     this.#material.dispose();
@@ -128,7 +128,7 @@ export class VoxelWorldRenderer {
 
     for (const [key, chunk] of this.#chunks) {
       if (!desiredKeys.has(key)) {
-        chunk.mesh.dispose(false, true);
+        chunk.mesh.dispose(false, false);
         this.#chunks.delete(key);
       }
     }
