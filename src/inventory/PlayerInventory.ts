@@ -307,9 +307,10 @@ export class PlayerInventory {
     if (this.#slots.some((slot) => slot.item === item)) {
       return;
     }
+    const preferred = this.#slots[preferredSlot];
     const target =
-      this.#slots[preferredSlot]?.item === null
-        ? this.#slots[preferredSlot]
+      preferred?.item === null
+        ? preferred
         : this.#slots.find((slot) => slot.item === null);
     if (target === undefined) {
       return;
