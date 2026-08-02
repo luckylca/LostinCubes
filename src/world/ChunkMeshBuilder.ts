@@ -1,5 +1,6 @@
-import { BlockType, isSolidBlock } from './BlockType';
+import { isSolidBlock } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
+import { getBlockFaceColor } from './BlockVisuals';
 import { CHUNK_HEIGHT, CHUNK_SIZE } from './VoxelChunk';
 
 type VectorTuple = readonly [number, number, number];
@@ -25,31 +26,6 @@ const MAXIMUM_MASK_SIZE = Math.max(
   CHUNK_SIZE * CHUNK_HEIGHT,
   CHUNK_SIZE * CHUNK_SIZE,
 );
-
-function getBlockColor(block: BlockTypeValue): VectorTuple {
-  switch (block) {
-    case BlockType.Grass:
-      return [0.2, 0.52, 0.27];
-    case BlockType.Dirt:
-      return [0.42, 0.25, 0.12];
-    case BlockType.RuneStone:
-      return [0.12, 0.58, 0.34];
-    case BlockType.Stone:
-      return [0.4, 0.44, 0.42];
-    case BlockType.Air:
-      return [0, 0, 0];
-  }
-}
-
-function getFaceShade(axis: number, positive: boolean): number {
-  if (axis === 0) {
-    return positive ? 0.78 : 0.72;
-  }
-  if (axis === 1) {
-    return positive ? 1 : 0.55;
-  }
-  return positive ? 0.84 : 0.68;
-}
 
 function getComponent(vector: VectorTuple | MutableVector, axis: number): number {
   if (axis === 0) {
@@ -195,8 +171,6 @@ export function buildChunkMeshData(
 
           const positive = encodedFace > 0;
           const block = Math.abs(encodedFace) as BlockTypeValue;
-          const shade = getFaceShade(axis, positive);
-          const [red, green, blue] = getBlockColor(block);
           const base: MutableVector = [0, 0, 0];
           const edgeU: MutableVector = [0, 0, 0];
           const edgeV: MutableVector = [0, 0, 0];
@@ -219,11 +193,24 @@ export function buildChunkMeshData(
           const normalX = axis === 0 ? (positive ? 1 : -1) : 0;
           const normalY = axis === 1 ? (positive ? 1 : -1) : 0;
           const normalZ = axis === 2 ? (positive ? 1 : -1) : 0;
+          const worldColorX =
+            chunkX * CHUNK_SIZE + Math.floor(base[0] + 0.5);
+          const worldColorY = Math.floor(base[1] + 0.5);
+          const worldColorZ =
+            chunkZ * CHUNK_SIZE + Math.floor(base[2] + 0.5);
+          const [red, green, blue] = getBlockFaceColor(
+            block,
+            axis,
+            positive,
+            worldColorX,
+            worldColorY,
+            worldColorZ,
+          );
 
           for (const corner of corners) {
             positions.push(corner[0], corner[1], corner[2]);
             normals.push(normalX, normalY, normalZ);
-            colors.push(red * shade, green * shade, blue * shade, 1);
+            colors.push(red, green, blue, 1);
           }
 
           // Babylon's default left-handed scene uses clockwise front faces.
