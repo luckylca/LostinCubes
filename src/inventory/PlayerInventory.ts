@@ -226,8 +226,9 @@ export class PlayerInventory {
   public canConsumeSelectedBlock(block: BlockTypeValue, count = 1): boolean {
     const slot = this.#slots[this.#selectedSlot];
     return (
-      slot?.item !== null &&
-      itemToBlock(slot?.item ?? null) === block &&
+      slot !== undefined &&
+      slot.item !== null &&
+      itemToBlock(slot.item) === block &&
       Number.isInteger(count) &&
       count > 0 &&
       slot.count >= count
