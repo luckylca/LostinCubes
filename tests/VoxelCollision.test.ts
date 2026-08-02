@@ -49,7 +49,7 @@ describe('voxel body collision', () => {
 
   it('uses a jump arc for a full voxel instead of snapping up one block', () => {
     const oneBlockStep = (worldX: number, worldY: number): boolean =>
-      worldY === FLOOR_Y || (worldX === 1 && worldY === 1);
+      worldY === FLOOR_Y || (worldX >= 1 && worldY === 1);
     const motor = new KinematicPlayerMotor({
       isSolidAt: oneBlockStep,
       spawnPosition: { x: 0, y: STANDING_Y, z: 0 },
@@ -76,7 +76,7 @@ describe('voxel body collision', () => {
 
   it('requires a manual jump for a full voxel when auto-jump is disabled', () => {
     const oneBlockStep = (worldX: number, worldY: number): boolean =>
-      worldY === FLOOR_Y || (worldX === 1 && worldY === 1);
+      worldY === FLOOR_Y || (worldX >= 1 && worldY === 1);
     const motor = new KinematicPlayerMotor({
       isSolidAt: oneBlockStep,
       autoJump: false,
