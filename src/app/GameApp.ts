@@ -12,6 +12,7 @@ import type { PlayerInventory } from '../inventory/PlayerInventory';
 import { PlayerCameraController } from '../player/PlayerCameraController';
 import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
 import { HotbarView } from '../ui/HotbarView';
+import { ThirdPersonTargetView } from '../ui/ThirdPersonTargetView';
 import { BlockType } from '../world/BlockType';
 import type { BlockType as BlockTypeValue } from '../world/BlockType';
 import { VoxelInteractionController } from '../world/VoxelInteractionController';
@@ -23,12 +24,15 @@ const WORLD_SEED = 'world-fragment-01';
 const SPAWN_X = 0;
 const SPAWN_Z = 3.5;
 
+type CameraMode = PlayerState['cameraMode'];
+
 export interface GameUiElements {
   readonly touchControls: HTMLElement | null;
   readonly status: HTMLElement;
   readonly viewMode: HTMLElement;
   readonly position: HTMLElement;
   readonly hotbar: HTMLElement;
+  readonly targetReticle: HTMLElement;
 }
 
 function formatCount(value: number): string {
@@ -75,7 +79,9 @@ export class GameApp {
   #interaction: VoxelInteractionController | null = null;
   #inventory: PlayerInventory | null = null;
   #hotbar: HotbarView | null = null;
+  #targetView: ThirdPersonTargetView | null = null;
   #inventoryStorage: Storage | null = null;
+  #lastCameraMode: CameraMode | null = null;
   #smoothedFps = 60;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
@@ -119,6 +125,11 @@ export class GameApp {
 
     const cameraController = new PlayerCameraController(scene);
     const playerModel = new VoxelPlayerModel(scene);
+    const targetView = new ThirdPersonTargetView(
+      this.#ui.targetReticle,
+      this.#canvas,
+      scene,
+    );
     const worldRenderer = new VoxelWorldRenderer(scene, worldData, 2);
     const interaction = new VoxelInteractionController(scene, worldData, {
       onBlockChanged: (worldX, worldY, worldZ) =>
@@ -144,6 +155,7 @@ export class GameApp {
     this.#interaction = interaction;
     this.#inventory = inventory;
     this.#hotbar = hotbar;
+    this.#targetView = targetView;
     this.#inventoryStorage = inventoryStorage;
 
     await session.start();
@@ -161,14 +173,20 @@ export class GameApp {
         player.position.x,
         player.position.z,
       );
-      playerModel.update(player, frameSeconds);
-      cameraController.update(player, frameSeconds);
       interaction.update(
         player,
         frameSeconds,
         !player.paused && breakHeld,
         !player.paused && placeHeld,
       );
+      cameraController.update(player, frameSeconds);
+      targetView.update(player, interaction.targetPoint);
+      playerModel.update(player, frameSeconds, {
+        breaking: !player.paused && breakHeld && interaction.hasTarget,
+        placing: !player.paused && placeHeld && interaction.hasTarget,
+        breakProgress: interaction.breakProgress,
+      });
+      this.#syncCameraMode(player.cameraMode);
       this.#updateHud(
         player,
         worldStats,
@@ -202,6 +220,13 @@ export class GameApp {
   }
 
   public dispose(): void {
+    document.body.classList.remove('camera-third-person');
+    this.#canvas.removeAttribute('data-camera-mode');
+    this.#lastCameraMode = null;
+
+    this.#targetView?.dispose();
+    this.#targetView = null;
+
     if (this.#inventory !== null) {
       savePlayerInventory(
         WORLD_SEED,
@@ -242,6 +267,16 @@ export class GameApp {
 
   public get engine(): Engine {
     return this.#engineHost.engine;
+  }
+
+  #syncCameraMode(cameraMode: CameraMode): void {
+    if (cameraMode === this.#lastCameraMode) {
+      return;
+    }
+    this.#lastCameraMode = cameraMode;
+    const thirdPerson = cameraMode === 'third-person';
+    document.body.classList.toggle('camera-third-person', thirdPerson);
+    this.#canvas.dataset.cameraMode = cameraMode;
   }
 
   #updateHud(
