@@ -8,7 +8,7 @@ import {
   loadPlayerInventory,
   savePlayerInventory,
 } from '../inventory/InventoryPersistence';
-import { PlayerInventory } from '../inventory/PlayerInventory';
+import type { PlayerInventory } from '../inventory/PlayerInventory';
 import { PlayerCameraController } from '../player/PlayerCameraController';
 import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
 import { HotbarView } from '../ui/HotbarView';
