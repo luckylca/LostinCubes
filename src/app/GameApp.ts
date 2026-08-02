@@ -1,6 +1,5 @@
 import type { Engine } from '@babylonjs/core';
 import { GameAudio } from '../audio/GameAudio';
-import type { CraftingRecipe } from '../crafting/CraftingRecipes';
 import { BabylonEngine } from '../engine/BabylonEngine';
 import { RenderLoop } from '../engine/RenderLoop';
 import { LocalGameSession } from '../game/session/LocalGameSession';
@@ -115,14 +114,16 @@ export class GameApp {
       input.selectHotbarSlot(slot);
     });
     const audio = new GameAudio();
+    const inventoryViewHolder: { current: InventoryView | null } = {
+      current: null,
+    };
     let renderedInventoryRevision = -1;
-    let inventoryView: InventoryView;
     const syncInventory = (): void => {
       if (inventory.revision === renderedInventoryRevision) {
         return;
       }
       hotbar.render(inventory.snapshot);
-      inventoryView?.render();
+      inventoryViewHolder.current?.render();
       savePlayerInventory(WORLD_SEED, inventory, localStorage);
       renderedInventoryRevision = inventory.revision;
     };
@@ -134,11 +135,16 @@ export class GameApp {
       session.setMenuOpen(false);
       this.#canvas.dataset.inventoryOpen = 'false';
     };
-    inventoryView = new InventoryView(this.#ui.inventoryRoot, inventory, {
-      onChanged: syncInventory,
-      onClose: closeMenuState,
-      onCrafted: (_recipe: CraftingRecipe) => audio.playCraft(),
-    });
+    const inventoryView = new InventoryView(
+      this.#ui.inventoryRoot,
+      inventory,
+      {
+        onChanged: syncInventory,
+        onClose: closeMenuState,
+        onCrafted: () => audio.playCraft(),
+      },
+    );
+    inventoryViewHolder.current = inventoryView;
     const openInventory = (usingCraftingTable: boolean): void => {
       breakHeld = false;
       placeHeld = false;
@@ -147,6 +153,7 @@ export class GameApp {
       session.setMenuOpen(true);
       this.#canvas.dataset.inventoryOpen = 'true';
     };
+    this.#canvas.dataset.inventoryOpen = 'false';
     syncInventory();
 
     const cameraController = new PlayerCameraController(scene);
