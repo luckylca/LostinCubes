@@ -4,6 +4,7 @@ import {
   getVisibleRecipes,
 } from '../src/crafting/CraftingRecipes';
 import { ItemType } from '../src/inventory/ItemDefinitions';
+import type { ItemType as ItemTypeValue } from '../src/inventory/ItemDefinitions';
 import { PlayerInventory } from '../src/inventory/PlayerInventory';
 
 describe('crafting recipes', () => {
@@ -48,7 +49,7 @@ describe('crafting recipes', () => {
   });
 
   it('marks all actual tool recipes as workbench-only', () => {
-    const toolOutputs = new Set([
+    const toolOutputs = new Set<ItemTypeValue>([
       ItemType.WoodenPickaxe,
       ItemType.WoodenShovel,
       ItemType.WoodenAxe,
