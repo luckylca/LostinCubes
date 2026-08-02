@@ -1,5 +1,5 @@
-import { FreeCamera, Ray, Scene, Vector3 } from '@babylonjs/core';
-import type { AbstractMesh } from '@babylonjs/core';
+import { FreeCamera, Ray, Vector3 } from '@babylonjs/core';
+import type { AbstractMesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
 
 const THIRD_PERSON_DISTANCE = 5;
