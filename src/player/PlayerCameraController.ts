@@ -31,7 +31,8 @@ export class PlayerCameraController {
     scene.activeCamera = this.#camera;
   }
 
-  public update(player: PlayerState, _frameSeconds: number): void {
+  public update(player: PlayerState, frameSeconds: number): void {
+    void frameSeconds;
     const pose = getPlayerCameraPose(player);
     this.#desiredPosition.set(
       pose.position.x,
