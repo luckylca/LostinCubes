@@ -11,6 +11,8 @@ const PLAYER_FOOT_OFFSET = 0.9;
 const TREE_CELL_SIZE = 7;
 const TREE_CHANCE = 0.52;
 const TREE_STRUCTURE_HEIGHT = 8;
+const SPAWN_CLEAR_RADIUS = 6.5;
+const MAXIMUM_CANOPY_RADIUS = 2;
 
 interface TreeAnchor {
   readonly x: number;
@@ -229,8 +231,11 @@ export class TerrainGenerator {
     const x = cellX * TREE_CELL_SIZE + xOffset;
     const z = cellZ * TREE_CELL_SIZE + zOffset;
 
-    // Keep the initial spawn clearing readable and collision-safe.
-    if (Math.hypot(x, z - 3.5) < 6.5) {
+    // Reserve the full spawn clearing plus the widest two-block leaf canopy.
+    if (
+      Math.hypot(x, z - 3.5) <
+      SPAWN_CLEAR_RADIUS + MAXIMUM_CANOPY_RADIUS
+    ) {
       return null;
     }
 
