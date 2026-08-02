@@ -39,11 +39,29 @@
 - [x] Introduce seeded chunk data structures
 - [x] Generate terrain data from a deterministic world seed
 - [x] Render generated chunks in the playable scene
-- [x] Stream a 3×3 chunk window around the player
+- [x] Stream a 5×5 chunk window around the player
 - [x] Implement cross-chunk hidden-face culling
-- [ ] Implement greedy meshing
-- [ ] Move generation and meshing work into Web Workers
+- [x] Implement greedy meshing with typed output buffers
+- [x] Move generation and meshing work into a bounded Web Worker pool
+- [x] Limit main-thread mesh uploads per frame
+- [x] Reject stale worker results after edits or chunk movement
 - [x] Connect player grounding and step limits to voxel terrain
 - [ ] Add full body collision against voxel walls and ceilings
-- [ ] Add block targeting, breaking, and placement
-- [ ] Persist block modifications
+- [x] Add deterministic voxel targeting
+- [x] Add block breaking and placement on desktop and touch controls
+- [x] Prevent placement inside the player body
+- [x] Persist sparse block modifications with IndexedDB
+- [x] Restore persisted edits before the first chunk is shown
+- [x] Add chunk queue, greedy quad, and FPS diagnostics to the HUD
+- [x] Add meshing, worker task, persistence, and raycast regression tests
+
+## Milestone 3
+
+- [ ] Add complete voxel body collision and safe depenetration
+- [ ] Add an inventory and hotbar instead of direct block selection
+- [ ] Add block breaking duration, tools, drops, and collection
+- [ ] Add world save metadata and multiple save slots
+- [ ] Add biome and structure generation
+- [ ] Add LOD or distance-tiered chunk rendering
+- [ ] Add worker-side cancellation or priority replacement
+- [ ] Add automated browser runtime smoke tests
