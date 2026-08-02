@@ -1,6 +1,7 @@
 import {
   Color3,
   Color4,
+  DirectionalLight,
   Engine,
   HemisphericLight,
   Scene,
@@ -29,17 +30,34 @@ export class BabylonEngine {
 
   public createWorldScene(): WorldSceneBundle {
     const scene = new Scene(this.engine);
-    scene.clearColor = new Color4(0.035, 0.085, 0.07, 1);
-    scene.ambientColor = new Color3(0.12, 0.16, 0.14);
+    const skyColor = new Color3(0.42, 0.62, 0.75);
+    scene.clearColor = new Color4(skyColor.r, skyColor.g, skyColor.b, 1);
+    scene.ambientColor = new Color3(0.2, 0.23, 0.21);
     scene.collisionsEnabled = false;
+    scene.skipPointerMovePicking = true;
+    scene.fogMode = Scene.FOGMODE_LINEAR;
+    scene.fogColor = skyColor;
+    scene.fogStart = 22;
+    scene.fogEnd = 58;
 
-    const light = new HemisphericLight(
-      'world-light',
-      new Vector3(-0.35, 1, 0.25),
+    const skyLight = new HemisphericLight(
+      'world-sky-light',
+      new Vector3(-0.25, 1, 0.18),
       scene,
     );
-    light.intensity = 1.2;
-    light.groundColor = new Color3(0.09, 0.12, 0.105);
+    skyLight.intensity = 0.72;
+    skyLight.diffuse = new Color3(0.92, 0.98, 1);
+    skyLight.groundColor = new Color3(0.16, 0.19, 0.17);
+    skyLight.specular = Color3.Black();
+
+    const sun = new DirectionalLight(
+      'world-sun',
+      new Vector3(-0.55, -1, 0.38),
+      scene,
+    );
+    sun.intensity = 1.05;
+    sun.diffuse = new Color3(1, 0.91, 0.72);
+    sun.specular = Color3.Black();
 
     return { scene };
   }
