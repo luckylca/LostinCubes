@@ -31,6 +31,9 @@ export function worldToChunkCoordinate(worldCoordinate: number): number {
 export function worldToLocalCoordinate(worldCoordinate: number): number {
   assertInteger(worldCoordinate, 'worldCoordinate');
   const remainder = worldCoordinate % CHUNK_SIZE;
+  if (Object.is(remainder, -0) || remainder === 0) {
+    return 0;
+  }
   return remainder < 0 ? remainder + CHUNK_SIZE : remainder;
 }
 
