@@ -10,6 +10,8 @@ export interface VectorState {
 export interface PlayerState {
   readonly position: VectorState;
   readonly verticalVelocity: number;
+  readonly horizontalSpeed: number;
+  readonly sprinting: boolean;
   readonly grounded: boolean;
   readonly yaw: number;
   readonly pitch: number;
