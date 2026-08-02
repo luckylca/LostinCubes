@@ -13,7 +13,7 @@
 - [x] Add GitHub Pages workflow
 - [x] Add minimal Babylon.js voxel-fragment scene
 - [x] Add architecture, design, lore, story, save, controls, and performance documents
-- [ ] Confirm CI passes on GitHub-hosted runner
+- [x] Confirm CI passes on GitHub-hosted runner
 - [ ] Merge milestone 0 pull request into `main`
 - [ ] Confirm deployed Pages URL after merge
 
