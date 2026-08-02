@@ -1,6 +1,6 @@
 # Controls
 
-## Implemented desktop controls
+## Desktop controls
 
 | Action | Default |
 | --- | --- |
@@ -11,93 +11,102 @@
 | Jump | Space |
 | Sprint | Left or right Shift |
 | Switch camera | F5 or V |
-| Release mouse and pause | Escape |
+| Open or close inventory | E |
+| Close inventory / release mouse / pause | Escape |
 | Mine targeted block | Hold left mouse button or Q |
-| Place selected block | Right mouse button or E |
+| Use targeted block / place selected block | Right mouse button |
 | Select hotbar slot | 1–9 or mouse wheel |
 
-Desktop input prefers the browser Pointer Lock API. If pointer lock is unavailable or rejected, holding and dragging on the canvas still rotates the view.
+When the inventory is open, movement, looking, mining, placement, player physics, and drop physics are frozen. Pointer lock is released without also toggling the normal pause state. Pressing E or Escape closes the inventory.
 
-## Camera and targeting rules
+## Camera and targeting
 
-- First- and third-person modes use the same authoritative player yaw and pitch.
-- Interaction always starts at the actual player eye and follows the player view direction.
-- First person uses the fixed center crosshair.
-- Third person offsets the camera over the right shoulder while keeping its rotation parallel to player aim.
-- Third person hides the misleading fixed center crosshair and projects the real eye-ray hit point onto the selected block face.
-- The selected voxel keeps its world-space outline.
-- Camera obstruction shortens the camera boom before a solid world mesh.
-- Reach is limited to 4.5 blocks.
+- First- and third-person modes share authoritative player yaw and pitch.
+- Pitch reaches effectively ±90 degrees, so the player can mine directly below or above.
+- Interaction starts at the 1.62-block standing eye height and follows the player view direction.
+- First person uses a center crosshair and a camera-parented held-item model.
+- Third person uses a right-shoulder camera, a projected real-hit marker, and an item attached to the right hand.
+- Camera obstruction shortens the third-person boom before a solid world mesh.
+- Block reach is 4.5 blocks.
 
-## Voxel movement and collision
+## Movement and collision
 
-- Horizontal movement resolves X and Z independently so the player slides along walls.
-- Movement is divided into bounded substeps to prevent tunneling.
-- Normal step height is limited to 0.6 blocks.
-- A full one-block obstacle uses a real jump or auto-jump arc instead of snapping the player upward.
+- X and Z movement resolve independently for wall sliding.
+- Movement uses bounded substeps to prevent tunneling.
+- Automatic step height is limited to 0.6 blocks.
+- A full one-block obstacle uses a real jump or auto-jump arc.
 - Two-block walls and low ceilings stop auto-jump.
-- Falling lands on the first solid surface reached by the body.
+- Falling lands on the first solid voxel surface.
 - Spawn recovery searches upward for a collision-free position.
 
-## Mining, tools, and placement
+## Gathering and tools
 
-The selected hotbar item controls both attack and use behavior.
+The selected hotbar item controls mining and placement.
 
-- Selecting a block allows right-click placement and consumes one block only after placement succeeds.
-- Selecting a tool disables placement because the held item is not a block.
-- Empty hand and block items mine at the base speed.
-- The wooden shovel is 3.4× faster on grass and dirt.
-- The wooden pickaxe is 3× faster on stone and rune stone.
-- A mismatched tool receives no speed bonus.
-- A selected tool loses one durability only after a block is successfully broken.
-- When durability reaches zero, the tool disappears from its slot.
-- Mining progress resets when the target changes, attack is released, the player pauses, or the target leaves reach.
-- Holding use places immediately and then repeats at a bounded cadence.
+- Empty hand and block items mine at base speed.
+- Shovels accelerate grass and dirt.
+- Pickaxes accelerate stone and rune stone.
+- Axes accelerate logs, planks, and crafting tables.
+- Wooden tools provide a 3.4× matching-tool multiplier and have 59 durability.
+- Stone tools provide a 5.2× matching-tool multiplier and have 131 durability.
+- Leaves break quickly without requiring a special tool.
+- Mismatched tools receive no speed bonus but still lose durability after a successful break.
+- Tools lose one durability only when a block is actually removed.
+- Mining progress resets when the target changes, attack is released, the menu opens, or the target leaves reach.
 
-## Drops and pickup
+## Forest and wood progression
 
-Breaking a block no longer writes it directly into the inventory.
+Oak trees are deterministic world structures made from solid log and leaf voxels. They participate in meshing, collision, targeting, persistence, and drops like terrain blocks.
 
-1. The world block is removed and its affected chunk is invalidated.
-2. A small pooled block item appears at the broken position with a short upward impulse.
-3. The item falls onto solid voxel surfaces, rotates, and bobs after landing.
-4. Nearby same-block drops merge up to a stack of 64.
-5. After a short pickup delay, drops within 2.5 blocks move toward the player.
-6. Inventory overflow remains in the world instead of being deleted.
+The initial progression is:
 
-The scene keeps at most 96 visible drop entities. Their Babylon meshes are reused rather than recreated every frame.
+1. Break an oak log by hand.
+2. Open the inventory with E and craft four oak planks from one log.
+3. Craft sticks and a crafting table with personal recipes.
+4. Put the crafting table in the hotbar and place it.
+5. Right-click the placed table to open workbench recipes.
+6. Craft wooden tools, gather stone, then craft stone tools.
 
-## Hotbar and inventory
+## Inventory and crafting
 
-The bottom-center hotbar contains nine shared item slots.
+The inventory contains 27 storage slots plus nine hotbar slots.
 
-- Slots 1–4 begin with grass, dirt, stone, and rune stone.
-- Slot 5 begins with a wooden shovel.
-- Slot 6 begins with a wooden pickaxe.
-- Slots 7–9 begin empty.
-- Block stacks are capped at 64.
-- Tools occupy one slot and display a durability bar.
-- Clicking or tapping a slot selects it directly.
-- Inventory contents and selection are persisted per world seed.
-- Legacy block-only saves are migrated and starter tools are inserted into available empty slots.
-- Hotbar DOM and local storage update only when the inventory revision changes.
+- Left-click takes a whole stack, merges matching stacks, or swaps different stacks.
+- Right-click takes half a stack or places one item into a slot.
+- Block and material stacks are capped at 64.
+- Tools occupy one slot and display durability.
+- Closing the inventory attempts to return the cursor stack automatically.
+- Closing is blocked if every compatible and empty slot is full, preventing item loss.
+- Personal recipes include planks, sticks, and a crafting table.
+- Tool recipes require using a placed crafting table.
+- Recipe outputs go to the inventory cursor and obey stack limits.
 
-## Implemented mobile controls
+New worlds start with an empty inventory. Legacy nine-slot saves migrate into the new hotbar at slots 28–36 without deleting existing items.
 
-Landscape and narrow-screen layouts show movement, mining, placement, sprint, jump, camera, pause, drag-to-look, and a horizontally scrollable nine-slot hotbar. Multi-touch uses independent pointer IDs for movement, camera, actions, and hotbar selection.
+## Drops, particles, and audio
+
+Breaking a block creates a pooled visible drop instead of writing directly into inventory.
+
+- Nearby same-block drops merge up to 64.
+- Drops fall onto solid voxels, rotate, bob, and attract toward the player.
+- Inventory overflow remains in the world.
+- Up to 96 visible drop entities are reused through a fixed pool.
+- Ground-drop snapshots are saved every two seconds and on page exit, then restored on the next load.
+- Block breaks activate up to 48 pooled cube fragments for short visual feedback.
+- Break, placement, pickup, and crafting sounds are synthesized with Web Audio and silently disable themselves when audio is unavailable.
+
+## Mobile controls
+
+Landscape and narrow-screen layouts provide movement, mining, use, inventory, sprint, jump, camera, pause, drag-to-look, and a horizontally scrollable hotbar. Multi-touch uses independent pointer IDs for movement, camera, actions, and hotbar selection.
 
 ## Persistence
 
 - Sparse world edits are stored in IndexedDB by world seed.
-- Generated terrain itself is never copied into the database.
-- Inventory items, counts, durability, and selection are stored in a small world-scoped local-storage snapshot.
-- Invalid inventory data is clamped or converted to safe empty slots.
-- Ground drops are session entities and are not yet persisted.
-
-## Input contexts
-
-Pausing stops player simulation, mining progress, world edits, and drop physics while UI rendering continues. Crafting, dialogue, and full inventory screens will use the same command-layer boundary.
+- Deterministic terrain and trees are regenerated rather than stored.
+- Inventory items, counts, durability, and selection use a versioned world-scoped local-storage snapshot.
+- Ground drops use a separate bounded world-scoped local-storage snapshot.
+- Invalid inventory and drop data is clamped or ignored during restore.
 
 ## Accessibility goals
 
-Expose auto-jump, look sensitivity, invert-Y, shoulder side, hold/toggle choices, touch opacity/scale, camera shake strength, and remappable desktop controls after the base input layer is stable.
+Expose auto-jump, look sensitivity, invert-Y, shoulder side, hold/toggle choices, touch opacity/scale, audio volume, camera shake strength, and remappable desktop controls after the base interaction layer is stable.
