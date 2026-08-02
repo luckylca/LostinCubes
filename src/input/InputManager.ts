@@ -7,16 +7,12 @@ type HeldAction =
   | 'move-backward'
   | 'move-left'
   | 'move-right'
-  | 'sprint';
-
-type EdgeAction =
-  | 'jump'
-  | 'toggle-camera'
-  | 'toggle-pause'
+  | 'sprint'
   | 'break-block'
   | 'place-block';
 
-const CLICK_DRAG_THRESHOLD_PX = 5;
+type EdgeAction = 'jump' | 'toggle-camera' | 'toggle-pause';
+
 const GAMEPLAY_KEYS = new Set([
   'KeyW',
   'KeyA',
@@ -42,37 +38,32 @@ function isHeldAction(value: string): value is HeldAction {
     'move-left',
     'move-right',
     'sprint',
+    'break-block',
+    'place-block',
   ].includes(value);
 }
 
 function isEdgeAction(value: string): value is EdgeAction {
-  return [
-    'jump',
-    'toggle-camera',
-    'toggle-pause',
-    'break-block',
-    'place-block',
-  ].includes(value);
+  return ['jump', 'toggle-camera', 'toggle-pause'].includes(value);
 }
 
 export class InputManager {
   readonly #canvas: HTMLCanvasElement;
   readonly #abortController = new AbortController();
   readonly #keys = new Set<string>();
+  readonly #mouseButtons = new Set<number>();
   readonly #touchActions = new Set<HeldAction>();
-  #lookPointerId: number | null = null;
-  #lookPointerX = 0;
-  #lookPointerY = 0;
-  #lookPointerStartX = 0;
-  #lookPointerStartY = 0;
-  #lookPointerDragged = false;
+  #touchLookPointerId: number | null = null;
+  #touchLookX = 0;
+  #touchLookY = 0;
   #lookDeltaX = 0;
   #lookDeltaY = 0;
   #jumpRequested = false;
   #cameraToggleRequested = false;
   #pauseToggleRequested = false;
-  #breakBlockRequested = false;
-  #placeBlockRequested = false;
+  #pointerLocked = false;
+  #resumeAfterPointerLock = false;
+  #suppressUnlockPause = false;
   #selectedBlock: BlockTypeValue = BlockType.Dirt;
 
   public constructor(canvas: HTMLCanvasElement, touchRoot: HTMLElement | null) {
@@ -81,12 +72,24 @@ export class InputManager {
 
     document.addEventListener('keydown', this.#onKeyDown, { signal });
     document.addEventListener('keyup', this.#onKeyUp, { signal });
+    document.addEventListener('mousemove', this.#onLockedMouseMove, { signal });
+    document.addEventListener('mouseup', this.#onMouseUp, { signal });
+    document.addEventListener('pointerlockchange', this.#onPointerLockChange, {
+      signal,
+    });
     window.addEventListener('blur', this.#onBlur, { signal });
 
-    canvas.addEventListener('pointerdown', this.#onLookPointerDown, { signal });
-    canvas.addEventListener('pointermove', this.#onLookPointerMove, { signal });
-    canvas.addEventListener('pointerup', this.#onLookPointerUp, { signal });
-    canvas.addEventListener('pointercancel', this.#onLookPointerUp, { signal });
+    canvas.addEventListener('mousedown', this.#onMouseDown, { signal });
+    canvas.addEventListener('pointerdown', this.#onTouchLookPointerDown, {
+      signal,
+    });
+    canvas.addEventListener('pointermove', this.#onTouchLookPointerMove, {
+      signal,
+    });
+    canvas.addEventListener('pointerup', this.#onTouchLookPointerUp, { signal });
+    canvas.addEventListener('pointercancel', this.#onTouchLookPointerUp, {
+      signal,
+    });
     canvas.addEventListener('contextmenu', this.#onContextMenu, { signal });
 
     if (touchRoot !== null) {
@@ -137,8 +140,14 @@ export class InputManager {
         this.#touchActions.has('sprint'),
       toggleCamera: this.#cameraToggleRequested,
       togglePause: this.#pauseToggleRequested,
-      breakBlock: this.#breakBlockRequested,
-      placeBlock: this.#placeBlockRequested,
+      breakBlock:
+        this.#mouseButtons.has(0) ||
+        this.#keys.has('KeyQ') ||
+        this.#touchActions.has('break-block'),
+      placeBlock:
+        this.#mouseButtons.has(2) ||
+        this.#keys.has('KeyE') ||
+        this.#touchActions.has('place-block'),
       selectedBlock: this.#selectedBlock,
     };
 
@@ -147,14 +156,18 @@ export class InputManager {
     this.#jumpRequested = false;
     this.#cameraToggleRequested = false;
     this.#pauseToggleRequested = false;
-    this.#breakBlockRequested = false;
-    this.#placeBlockRequested = false;
     return command;
   }
 
   public dispose(): void {
+    this.#suppressUnlockPause = true;
+    if (document.pointerLockElement === this.#canvas) {
+      document.exitPointerLock();
+    }
+    document.body.classList.remove('is-pointer-locked');
     this.#abortController.abort();
     this.#keys.clear();
+    this.#mouseButtons.clear();
     this.#touchActions.clear();
   }
 
@@ -168,12 +181,12 @@ export class InputManager {
         this.#jumpRequested = true;
       } else if (event.code === 'KeyV') {
         this.#cameraToggleRequested = true;
-      } else if (event.code === 'Escape') {
+      } else if (
+        event.code === 'Escape' &&
+        !this.#pointerLocked &&
+        !this.#resumeAfterPointerLock
+      ) {
         this.#pauseToggleRequested = true;
-      } else if (event.code === 'KeyQ') {
-        this.#breakBlockRequested = true;
-      } else if (event.code === 'KeyE') {
-        this.#placeBlockRequested = true;
       } else if (event.code === 'Digit1') {
         this.#selectedBlock = BlockType.Grass;
       } else if (event.code === 'Digit2') {
@@ -194,69 +207,85 @@ export class InputManager {
 
   readonly #onBlur = (): void => {
     this.#keys.clear();
+    this.#mouseButtons.clear();
     this.#touchActions.clear();
-    this.#lookPointerId = null;
-    this.#lookPointerDragged = false;
+    this.#touchLookPointerId = null;
   };
 
   readonly #onContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
   };
 
-  readonly #onLookPointerDown = (event: PointerEvent): void => {
-    if (event.button === 2) {
-      event.preventDefault();
-      this.#placeBlockRequested = true;
-      return;
-    }
-    if (this.#lookPointerId !== null) {
+  readonly #onMouseDown = (event: MouseEvent): void => {
+    event.preventDefault();
+    if (!this.#pointerLocked) {
+      this.#canvas.requestPointerLock();
       return;
     }
 
-    this.#lookPointerId = event.pointerId;
-    this.#lookPointerX = event.clientX;
-    this.#lookPointerY = event.clientY;
-    this.#lookPointerStartX = event.clientX;
-    this.#lookPointerStartY = event.clientY;
-    this.#lookPointerDragged = false;
+    if (event.button === 0 || event.button === 2) {
+      this.#mouseButtons.add(event.button);
+    }
+  };
+
+  readonly #onMouseUp = (event: MouseEvent): void => {
+    this.#mouseButtons.delete(event.button);
+  };
+
+  readonly #onLockedMouseMove = (event: MouseEvent): void => {
+    if (!this.#pointerLocked) {
+      return;
+    }
+    this.#lookDeltaX += event.movementX;
+    this.#lookDeltaY += event.movementY;
+  };
+
+  readonly #onPointerLockChange = (): void => {
+    const wasLocked = this.#pointerLocked;
+    this.#pointerLocked = document.pointerLockElement === this.#canvas;
+    document.body.classList.toggle('is-pointer-locked', this.#pointerLocked);
+
+    if (this.#pointerLocked) {
+      if (this.#resumeAfterPointerLock) {
+        this.#resumeAfterPointerLock = false;
+        this.#pauseToggleRequested = true;
+      }
+      return;
+    }
+
+    this.#mouseButtons.clear();
+    if (wasLocked && !this.#suppressUnlockPause) {
+      this.#resumeAfterPointerLock = true;
+      this.#pauseToggleRequested = true;
+    }
+  };
+
+  readonly #onTouchLookPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse' || this.#touchLookPointerId !== null) {
+      return;
+    }
+
+    this.#touchLookPointerId = event.pointerId;
+    this.#touchLookX = event.clientX;
+    this.#touchLookY = event.clientY;
     this.#canvas.setPointerCapture(event.pointerId);
   };
 
-  readonly #onLookPointerMove = (event: PointerEvent): void => {
-    if (event.pointerId !== this.#lookPointerId) {
+  readonly #onTouchLookPointerMove = (event: PointerEvent): void => {
+    if (event.pointerId !== this.#touchLookPointerId) {
       return;
     }
 
-    this.#lookDeltaX += event.clientX - this.#lookPointerX;
-    this.#lookDeltaY += event.clientY - this.#lookPointerY;
-    this.#lookPointerX = event.clientX;
-    this.#lookPointerY = event.clientY;
-
-    if (
-      Math.hypot(
-        event.clientX - this.#lookPointerStartX,
-        event.clientY - this.#lookPointerStartY,
-      ) >= CLICK_DRAG_THRESHOLD_PX
-    ) {
-      this.#lookPointerDragged = true;
-    }
+    this.#lookDeltaX += event.clientX - this.#touchLookX;
+    this.#lookDeltaY += event.clientY - this.#touchLookY;
+    this.#touchLookX = event.clientX;
+    this.#touchLookY = event.clientY;
   };
 
-  readonly #onLookPointerUp = (event: PointerEvent): void => {
-    if (event.pointerId !== this.#lookPointerId) {
-      return;
+  readonly #onTouchLookPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId === this.#touchLookPointerId) {
+      this.#touchLookPointerId = null;
     }
-
-    if (
-      event.type === 'pointerup' &&
-      event.pointerType === 'mouse' &&
-      event.button === 0 &&
-      !this.#lookPointerDragged
-    ) {
-      this.#breakBlockRequested = true;
-    }
-    this.#lookPointerId = null;
-    this.#lookPointerDragged = false;
   };
 
   readonly #onTouchButtonDown = (event: PointerEvent): void => {
@@ -282,12 +311,8 @@ export class InputManager {
         this.#jumpRequested = true;
       } else if (action === 'toggle-camera') {
         this.#cameraToggleRequested = true;
-      } else if (action === 'toggle-pause') {
-        this.#pauseToggleRequested = true;
-      } else if (action === 'break-block') {
-        this.#breakBlockRequested = true;
       } else {
-        this.#placeBlockRequested = true;
+        this.#pauseToggleRequested = true;
       }
     }
   };
