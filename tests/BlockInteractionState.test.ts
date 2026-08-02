@@ -12,6 +12,7 @@ function update(
     canBreakTarget: true,
     breakHeld: false,
     placeHeld: false,
+    breakSpeedMultiplier: 1,
     frameSeconds: 0.1,
     ...overrides,
   });
@@ -21,10 +22,29 @@ describe('BlockInteractionState', () => {
   it('requires continuous focus on one block before breaking it', () => {
     const state = new BlockInteractionState();
 
-    expect(update(state, { breakHeld: true }).breakProgress).toBeCloseTo(0.25);
+    expect(update(state, { breakHeld: true }).breakProgress).toBeCloseTo(0.2);
+    expect(update(state, { breakHeld: true }).breakNow).toBe(false);
     expect(update(state, { breakHeld: true }).breakNow).toBe(false);
     expect(update(state, { breakHeld: true }).breakNow).toBe(false);
     expect(update(state, { breakHeld: true }).breakNow).toBe(true);
+  });
+
+  it('applies the held tool speed multiplier', () => {
+    const bareHand = new BlockInteractionState();
+    const shovel = new BlockInteractionState();
+
+    const bareProgress = update(bareHand, {
+      breakHeld: true,
+      targetBlock: BlockType.Dirt,
+    }).breakProgress;
+    const shovelProgress = update(shovel, {
+      breakHeld: true,
+      targetBlock: BlockType.Dirt,
+      breakSpeedMultiplier: 3.4,
+    }).breakProgress;
+
+    expect(shovelProgress).toBeGreaterThan(bareProgress * 3);
+    expect(shovelProgress).toBeLessThan(1);
   });
 
   it('resets mining progress when the target changes or attack is released', () => {
@@ -33,7 +53,7 @@ describe('BlockInteractionState', () => {
     update(state, { breakHeld: true });
     expect(
       update(state, { breakHeld: true, targetKey: '2,2,3' }).breakProgress,
-    ).toBeCloseTo(0.25);
+    ).toBeCloseTo(0.2);
     expect(update(state, { breakHeld: false }).breakProgress).toBe(0);
   });
 
