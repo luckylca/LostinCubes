@@ -14,7 +14,7 @@
 | Release mouse and pause | Escape |
 | Mine targeted block | Hold left mouse button or Q |
 | Place selected block | Right mouse button or E |
-| Select grass / dirt / stone / rune stone | 1 / 2 / 3 / 4 |
+| Select hotbar slot | 1–9 or mouse wheel |
 
 Desktop input prefers the browser Pointer Lock API. Capability is detected from the actual browser API rather than the device's coarse/fine pointer media query, because hybrid devices may report a coarse pointer even while a mouse is active.
 
@@ -33,17 +33,42 @@ If pointer lock is unavailable or rejected, holding and dragging on the canvas s
 
 The eye height is derived from the visible voxel model rather than the old prototype capsule. This keeps the camera pivot, head pose, reticle, and interaction ray at the same physical height.
 
-## Minecraft-style targeting rules
+## Voxel movement and collision
+
+The player now collides with actual solid voxels instead of only querying the highest block below each X/Z position.
+
+- Horizontal movement resolves X and Z independently so the player slides along walls.
+- Movement is divided into bounded substeps to prevent sprinting through thin walls during a large frame.
+- A one-block obstacle can be stepped onto when the body and head clearance are free.
+- Taller walls stop movement.
+- Jumping stops against a low ceiling instead of passing through it.
+- Falling lands on the first solid surface reached by the body.
+- Spawn recovery searches upward for a collision-free position if saved terrain overlaps the player.
+
+## Targeting and world editing
 
 - First- and third-person modes share one interaction origin: the player's eye position.
 - The ray follows the player's yaw and pitch, never the third-person camera position.
 - The first solid voxel is selected and outlined.
 - Placement uses the empty cell adjacent to the exact face that was hit.
 - Placement is rejected if that cell overlaps the player.
+- The bottom foundation layer cannot be broken.
 
 Holding attack accumulates progress only while the same block remains targeted. Changing targets, looking away, releasing attack, or pausing resets progress. Grass and dirt break faster than stone, while rune stone is slower. Holding use places immediately and then repeats at a bounded cadence.
 
-The input manager converts browser events into a typed `PlayerInputCommand`. Movement remains fixed-step at 60 Hz. Attack and use are held states consumed by the presentation/world interaction layer, while jump, camera switching, and pause remain edge-triggered.
+## Hotbar and inventory
+
+The bottom-center hotbar contains nine slots.
+
+- Slots 1–4 begin with grass, dirt, stone, and rune stone stacks.
+- Slots 5–9 begin empty.
+- Each stack is capped at 64 blocks.
+- Breaking a block adds it to an existing matching stack before using an empty slot.
+- A successful placement consumes one block from the selected stack.
+- An exhausted slot becomes empty and the player cannot place from it.
+- Clicking or tapping a hotbar slot selects it directly.
+- Inventory contents and the selected slot are persisted separately for each world seed.
+- Hotbar DOM and local storage are updated only when the inventory revision changes, not every rendered frame.
 
 ## Implemented mobile controls
 
@@ -56,24 +81,20 @@ Landscape and narrow-screen layouts show:
 - First/third-person camera switch
 - Pause
 - Dragging the world view to rotate the player view
+- A horizontally scrollable nine-slot hotbar
 
-Multi-touch is supported because movement buttons and the camera drag zone use independent pointer IDs.
+Multi-touch is supported because movement buttons, hotbar slots, action buttons, and the camera drag zone use independent pointer IDs.
 
-## World-edit behavior
+## Persistence
 
-- The bottom foundation layer cannot be broken.
-- Only an air cell can receive a placed block.
-- Blocks cannot be placed inside the player volume.
-- Edits rebuild the affected chunk and only the neighboring chunks whose shared boundary may have changed.
-- Sparse edits are persisted by world seed and restored before the first playable chunk is shown.
+- Sparse world edits are stored in IndexedDB by world seed.
+- Generated terrain itself is never copied into the database.
+- Inventory stacks and selection are stored as a small world-scoped local-storage snapshot.
+- Invalid inventory data is clamped or converted to safe empty slots during restore.
 
 ## Input contexts
 
-Pausing stops player simulation, mining progress, and world edits while UI rendering continues. Later inventory, crafting, and dialogue contexts will use the same command-layer boundary.
-
-## Planned bindings
-
-Combat, target lock, recovery, inventory, crafting, and a real hotbar remain reserved for later milestones. The current numeric block selection is a temporary development hotbar.
+Pausing stops player simulation, mining progress, and world edits while UI rendering continues. Later crafting, dialogue, and full inventory screens will use the same command-layer boundary.
 
 ## Accessibility goals
 
