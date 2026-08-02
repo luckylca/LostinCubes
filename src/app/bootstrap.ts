@@ -34,6 +34,7 @@ export async function bootstrap(): Promise<void> {
       viewMode: requireElement('#hud-view'),
       position: requireElement('#hud-position'),
       hotbar: requireElement('#hotbar'),
+      targetReticle: requireElement('#target-reticle'),
     };
 
     app = new GameApp(canvasElement, ui);
