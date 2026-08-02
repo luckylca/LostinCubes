@@ -42,7 +42,9 @@ export class RenderLoop {
   readonly #frame = (): void => {
     const frameSeconds = this.#engine.getDeltaTime() / 1000;
     this.#hooks.beforeFrame();
-    this.#clock.advance(frameSeconds, this.#hooks.fixedUpdate);
+    this.#clock.advance(frameSeconds, (stepSeconds, tick) => {
+      this.#hooks.fixedUpdate(stepSeconds, tick);
+    });
     this.#hooks.renderUpdate(frameSeconds);
     this.#scene.render();
   };
