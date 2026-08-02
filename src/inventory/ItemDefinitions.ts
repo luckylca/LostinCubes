@@ -73,7 +73,7 @@ const DEFINITIONS: Readonly<Record<ItemType, ItemDefinition>> = {
 };
 
 export function isItemType(value: unknown): value is ItemType {
-  return typeof value === 'string' && value in DEFINITIONS;
+  return typeof value === 'string' && Object.hasOwn(DEFINITIONS, value);
 }
 
 export function getItemDefinition(item: ItemType): ItemDefinition {
