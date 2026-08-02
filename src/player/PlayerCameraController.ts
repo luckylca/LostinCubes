@@ -17,6 +17,7 @@ export class PlayerCameraController {
   readonly #desiredPosition = new Vector3();
   readonly #target = new Vector3();
   readonly #pivot = new Vector3();
+  readonly #forward = new Vector3();
   readonly #cameraOffset = new Vector3();
 
   public constructor(scene: Scene) {
@@ -39,15 +40,18 @@ export class PlayerCameraController {
       pose.position.y,
       pose.position.z,
     );
-    this.#target.set(pose.target.x, pose.target.y, pose.target.z);
     this.#pivot.set(pose.pivot.x, pose.pivot.y, pose.pivot.z);
+    this.#forward.set(pose.forward.x, pose.forward.y, pose.forward.z);
 
     if (player.cameraMode === 'third-person') {
       this.#resolveCameraWallCollision();
     }
 
-    // Minecraft-style camera movement is immediate. A spring-smoothed camera
-    // makes mouse input feel delayed and causes the avatar to drift off-axis.
+    // Keep camera rotation exactly parallel to the authoritative player view.
+    // The UI projects the real eye-ray hit point instead of pretending that
+    // the center of an offset third-person camera is the interaction ray.
+    this.#forward.scaleToRef(10, this.#target);
+    this.#target.addInPlace(this.#desiredPosition);
     this.#camera.position.copyFrom(this.#desiredPosition);
     this.#camera.setTarget(this.#target);
   }
