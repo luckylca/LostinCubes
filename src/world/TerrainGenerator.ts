@@ -93,7 +93,7 @@ export class TerrainGenerator {
         const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
 
         for (let localY = 0; localY <= surfaceHeight; localY += 1) {
-          let block = BlockType.Stone;
+          let block: BlockType = BlockType.Stone;
           if (localY === surfaceHeight) {
             block = BlockType.Grass;
           } else if (localY >= surfaceHeight - 2) {
