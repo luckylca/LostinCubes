@@ -9,6 +9,18 @@ import type { PlayerState } from '../game/session/GameSession';
 
 type VectorTuple = readonly [number, number, number];
 
+export interface PlayerActionPresentation {
+  readonly breaking: boolean;
+  readonly placing: boolean;
+  readonly breakProgress: number;
+}
+
+const IDLE_ACTION: PlayerActionPresentation = {
+  breaking: false,
+  placing: false,
+  breakProgress: 0,
+};
+
 function createMaterial(
   name: string,
   diffuse: Color3,
@@ -68,6 +80,7 @@ export class VoxelPlayerModel {
   readonly #leftLeg: TransformNode;
   readonly #rightLeg: TransformNode;
   #animationPhase = 0;
+  #actionPhase = 0;
   #currentBob = 0;
 
   public constructor(scene: Scene) {
@@ -157,7 +170,11 @@ export class VoxelPlayerModel {
     this.#createLeg('right', this.#rightLeg, tunic, boots, scene);
   }
 
-  public update(player: PlayerState, frameSeconds: number): void {
+  public update(
+    player: PlayerState,
+    frameSeconds: number,
+    action: PlayerActionPresentation = IDLE_ACTION,
+  ): void {
     this.#root.setEnabled(player.cameraMode !== 'first-person');
 
     const speedFactor = Math.min(player.horizontalSpeed / 6.2, 1);
@@ -166,11 +183,17 @@ export class VoxelPlayerModel {
       const gaitRate = player.sprinting ? 12 : 8;
       this.#animationPhase += frameSeconds * gaitRate * Math.max(0.4, speedFactor);
     }
+    if (action.breaking || action.placing) {
+      this.#actionPhase += frameSeconds * (action.breaking ? 16 : 10);
+    } else {
+      this.#actionPhase = 0;
+    }
 
     let leftLeg = 0;
     let rightLeg = 0;
     let leftArm = 0;
     let rightArm = 0;
+    let rightArmRoll = 0;
     let bodyTilt = 0;
     let bob = 0;
 
@@ -192,10 +215,24 @@ export class VoxelPlayerModel {
       bob = Math.abs(Math.sin(this.#animationPhase * 2)) * 0.045 * speedFactor;
     }
 
+    if (action.breaking) {
+      const strike = Math.abs(Math.sin(this.#actionPhase));
+      rightArm = -0.82 - strike * (0.72 + action.breakProgress * 0.16);
+      rightArmRoll = -0.16;
+    } else if (action.placing) {
+      rightArm = -1.05 - Math.abs(Math.sin(this.#actionPhase)) * 0.22;
+      rightArmRoll = -0.1;
+    }
+
     this.#leftLeg.rotation.x = ease(this.#leftLeg.rotation.x, leftLeg, frameSeconds);
     this.#rightLeg.rotation.x = ease(this.#rightLeg.rotation.x, rightLeg, frameSeconds);
     this.#leftArm.rotation.x = ease(this.#leftArm.rotation.x, leftArm, frameSeconds);
     this.#rightArm.rotation.x = ease(this.#rightArm.rotation.x, rightArm, frameSeconds);
+    this.#rightArm.rotation.z = ease(
+      this.#rightArm.rotation.z,
+      rightArmRoll,
+      frameSeconds,
+    );
     this.#bodyRoot.rotation.x = ease(this.#bodyRoot.rotation.x, bodyTilt, frameSeconds);
     this.#headRoot.rotation.x = ease(
       this.#headRoot.rotation.x,
