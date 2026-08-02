@@ -120,7 +120,7 @@ export class ChunkWorkerPool {
 
   #handleMessage(slot: WorkerSlot, response: ChunkBuildResponse): void {
     const current = slot.current;
-    if (current === null || current.request.requestId !== response.requestId) {
+    if (current?.request.requestId !== response.requestId) {
       return;
     }
     slot.current = null;
