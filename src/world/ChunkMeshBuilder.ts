@@ -1,5 +1,5 @@
 import { BlockType, isSolidBlock } from './BlockType';
-import { CHUNK_SIZE } from './VoxelChunk';
+import { CHUNK_HEIGHT, CHUNK_SIZE } from './VoxelChunk';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import type { VoxelChunk } from './VoxelChunk';
 
@@ -120,7 +120,7 @@ export function buildChunkMeshData(
   const colors: number[] = [];
   let faceCount = 0;
 
-  for (let localY = 0; localY < 32; localY += 1) {
+  for (let localY = 0; localY < CHUNK_HEIGHT; localY += 1) {
     for (let localZ = 0; localZ < CHUNK_SIZE; localZ += 1) {
       for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
         const block = chunk.getBlock(localX, localY, localZ);
