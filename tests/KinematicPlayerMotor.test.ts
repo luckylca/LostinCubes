@@ -25,21 +25,21 @@ describe('KinematicPlayerMotor', () => {
     expect(motor.getState().position.y).toBeCloseTo(2.9);
   });
 
-  it('steps onto a one-block voxel height change', () => {
+  it('steps onto a half-block height change', () => {
     const motor = new KinematicPlayerMotor({
-      groundHeightAt: (worldX) => (worldX >= 0.8 ? 3.9 : 2.9),
+      groundHeightAt: (worldX) => (worldX >= 0.8 ? 3.4 : 2.9),
     });
 
     motor.update({ ...STILL_INPUT, moveX: 1 }, 0.25);
 
     expect(motor.getState().position.x).toBeGreaterThan(0.8);
-    expect(motor.getState().position.y).toBeCloseTo(3.9);
+    expect(motor.getState().position.y).toBeCloseTo(3.4);
     expect(motor.getState().grounded).toBe(true);
   });
 
   it('blocks terrain steps that are taller than the configured limit', () => {
     const motor = new KinematicPlayerMotor({
-      groundHeightAt: (worldX) => (worldX >= 0.8 ? 5.1 : 2.9),
+      groundHeightAt: (worldX) => (worldX >= 0.8 ? 3.6 : 2.9),
     });
 
     motor.update({ ...STILL_INPUT, moveX: 1 }, 0.25);
