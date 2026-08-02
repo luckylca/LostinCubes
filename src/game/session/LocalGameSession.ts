@@ -34,6 +34,7 @@ export class LocalGameSession implements GameSession {
   #pitch = -0.12;
   #cameraMode: CameraMode = 'third-person';
   #paused = false;
+  #menuOpen = false;
 
   public constructor(
     worldSeed: string,
@@ -50,6 +51,7 @@ export class LocalGameSession implements GameSession {
     this.#pitch = -0.12;
     this.#cameraMode = 'third-person';
     this.#paused = false;
+    this.#menuOpen = false;
     this.#pendingCommand = null;
     this.#heldCommand = createNeutralPlayerInput(0);
     this.#worldState = this.#createWorldState(0);
@@ -68,26 +70,38 @@ export class LocalGameSession implements GameSession {
     }
   }
 
+  public setMenuOpen(open: boolean): void {
+    if (open === this.#menuOpen) {
+      return;
+    }
+    this.#menuOpen = open;
+    this.#pendingCommand = null;
+    this.#heldCommand = createNeutralPlayerInput(this.#worldState.tick);
+    this.#worldState = this.#createWorldState(this.#worldState.tick);
+  }
+
   public step(stepSeconds: number): void {
     const command = this.#consumeCommand();
 
-    if (command.togglePause) {
+    if (command.togglePause && !this.#menuOpen) {
       this.#paused = !this.#paused;
     }
 
-    if (command.toggleCamera) {
+    if (command.toggleCamera && !this.#menuOpen) {
       this.#cameraMode =
         this.#cameraMode === 'third-person' ? 'first-person' : 'third-person';
     }
 
-    this.#yaw -= command.lookX * LOOK_SENSITIVITY;
-    this.#pitch = clamp(
-      this.#pitch - command.lookY * LOOK_SENSITIVITY,
-      MINIMUM_PITCH,
-      MAXIMUM_PITCH,
-    );
+    if (!this.#menuOpen) {
+      this.#yaw -= command.lookX * LOOK_SENSITIVITY;
+      this.#pitch = clamp(
+        this.#pitch - command.lookY * LOOK_SENSITIVITY,
+        MINIMUM_PITCH,
+        MAXIMUM_PITCH,
+      );
+    }
 
-    if (!this.#paused) {
+    if (!this.#paused && !this.#menuOpen) {
       this.#motor.update(
         {
           moveX: command.moveX,
@@ -121,6 +135,7 @@ export class LocalGameSession implements GameSession {
       jump: false,
       toggleCamera: false,
       togglePause: false,
+      toggleInventory: false,
       breakBlock: false,
       placeBlock: false,
     };
@@ -138,7 +153,7 @@ export class LocalGameSession implements GameSession {
       yaw: this.#yaw,
       pitch: this.#pitch,
       cameraMode: this.#cameraMode,
-      paused: this.#paused,
+      paused: this.#paused || this.#menuOpen,
     };
 
     return {
