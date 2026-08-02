@@ -49,6 +49,7 @@ function isEdgeAction(value: string): value is EdgeAction {
 
 export class InputManager {
   readonly #canvas: HTMLCanvasElement;
+  readonly #usesPointerLock: boolean;
   readonly #abortController = new AbortController();
   readonly #keys = new Set<string>();
   readonly #mouseButtons = new Set<number>();
@@ -68,6 +69,7 @@ export class InputManager {
 
   public constructor(canvas: HTMLCanvasElement, touchRoot: HTMLElement | null) {
     this.#canvas = canvas;
+    this.#usesPointerLock = window.matchMedia('(pointer: fine)').matches;
     const signal = this.#abortController.signal;
 
     document.addEventListener('keydown', this.#onKeyDown, { signal });
@@ -159,6 +161,14 @@ export class InputManager {
     return command;
   }
 
+  public get usesPointerLock(): boolean {
+    return this.#usesPointerLock;
+  }
+
+  public get pointerLocked(): boolean {
+    return this.#pointerLocked;
+  }
+
   public dispose(): void {
     this.#suppressUnlockPause = true;
     if (document.pointerLockElement === this.#canvas) {
@@ -217,6 +227,10 @@ export class InputManager {
   };
 
   readonly #onMouseDown = (event: MouseEvent): void => {
+    if (!this.#usesPointerLock) {
+      return;
+    }
+
     event.preventDefault();
     if (!this.#pointerLocked) {
       this.#canvas.requestPointerLock();
