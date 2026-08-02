@@ -1,34 +1,39 @@
 # Controls
 
-## Desktop defaults
+## Implemented desktop controls
 
 | Action | Default |
 | --- | --- |
 | Move | WASD |
-| Look | Mouse |
+| Look | Drag on the game canvas |
 | Jump | Space |
-| Sprint | Shift |
-| Light attack / tool | Left mouse |
-| Block / place / aim | Right mouse |
-| Interact | E |
-| Target lock | Q |
+| Sprint | Left or right Shift |
 | Switch camera | V |
-| Recover | R |
-| Hotbar | 1–9 / wheel |
-| Inventory | Tab |
-| Crafting | C |
-| Pause | Escape |
+| Pause gameplay simulation | Escape |
 
-Bindings will be represented as centralized action mappings rather than scattered key checks.
+The input manager converts browser events into a typed `PlayerInputCommand`. The simulation session consumes commands at a fixed 60 Hz step, so movement and jumping do not depend on display refresh rate.
 
-## Mobile landscape layout
+## Implemented mobile controls
 
-Left virtual stick controls movement. A right-side drag zone controls the camera. Dedicated buttons cover attack, heavy attack/hold, dodge, jump, interact, target lock, recovery, camera switch, inventory, and hotbar selection.
+Landscape and narrow-screen layouts show:
+
+- Four directional movement buttons
+- Sprint
+- Jump
+- First/third-person camera switch
+- Pause
+- Dragging the world view to rotate the camera
+
+Multi-touch is supported because movement buttons and the camera drag zone use independent pointer IDs.
 
 ## Input contexts
 
-Gameplay, inventory, crafting, dialogue, and pause menus have separate contexts. Opening a blocking menu releases pointer lock and prevents stale touch/movement commands.
+The first context boundary is now active: pausing stops player simulation while camera and UI rendering continue. Later inventory, crafting, and dialogue contexts will use the same command-layer boundary.
+
+## Planned bindings
+
+Combat, interaction, target lock, recovery, hotbar, inventory, and crafting bindings remain reserved for later milestones.
 
 ## Accessibility goals
 
-Expose look sensitivity, invert-Y, hold/toggle choices where useful, touch opacity/scale, camera shake strength, and remappable desktop controls after the base input layer is stable.
+Expose look sensitivity, invert-Y, hold/toggle choices, touch opacity/scale, camera shake strength, and remappable desktop controls after the base input layer is stable.
