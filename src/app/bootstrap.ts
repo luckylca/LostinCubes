@@ -18,6 +18,7 @@ function describeError(error: unknown): string {
 export async function bootstrap(): Promise<void> {
   const loadingMessage = requireElement('#loading-message');
   let app: GameApp | null = null;
+  document.documentElement.dataset.gameState = 'loading';
 
   try {
     const canvasElement = requireElement('#game-canvas');
@@ -32,6 +33,7 @@ export async function bootstrap(): Promise<void> {
       status: requireElement('#hud-status'),
       viewMode: requireElement('#hud-view'),
       position: requireElement('#hud-position'),
+      hotbar: requireElement('#hotbar'),
     };
 
     app = new GameApp(canvasElement, ui);
@@ -41,10 +43,12 @@ export async function bootstrap(): Promise<void> {
     loadingMessage.textContent = '世界碎片已稳定';
     gameHud.hidden = false;
     loadingScreen.classList.add('is-hidden');
+    document.documentElement.dataset.gameState = 'ready';
   } catch (error: unknown) {
     console.error('Failed to start Lost in Cubes.', error);
     app?.dispose();
     app = null;
+    document.documentElement.dataset.gameState = 'error';
     loadingMessage.textContent = `启动失败：${describeError(error)}`;
   }
 
