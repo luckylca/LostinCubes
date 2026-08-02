@@ -12,7 +12,12 @@ test('boots the forest, crafts in inventory, and preserves camera controls', asy
   });
 
   await page.addInitScript(() => {
-    const slots = Array.from({ length: 36 }, () => ({
+    interface SeedSlot {
+      item: string | null;
+      count: number;
+      durability: number | null;
+    }
+    const slots: SeedSlot[] = Array.from({ length: 36 }, () => ({
       item: null,
       count: 0,
       durability: null,
