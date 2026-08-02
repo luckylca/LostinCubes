@@ -23,9 +23,10 @@ function createPlayer(overrides: Partial<PlayerState> = {}): PlayerState {
 }
 
 describe('player view helpers', () => {
-  it('uses the player eye as the interaction origin in third person', () => {
+  it('uses the model eye as the interaction origin in third person', () => {
     const eye = getPlayerEyePosition(createPlayer());
 
+    expect(PLAYER_EYE_HEIGHT).toBeCloseTo(0.96, 12);
     expect(eye).toEqual({ x: 3, y: 7 + PLAYER_EYE_HEIGHT, z: -2 });
     expect(PLAYER_BLOCK_REACH).toBe(4.5);
   });

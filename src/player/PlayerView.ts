@@ -1,6 +1,7 @@
 import type { PlayerState } from '../game/session/GameSession';
 
-export const PLAYER_EYE_HEIGHT = 0.62;
+/** Eye level measured from the player model root. */
+export const PLAYER_EYE_HEIGHT = 0.96;
 export const PLAYER_BLOCK_REACH = 4.5;
 
 export interface PlayerViewVector {

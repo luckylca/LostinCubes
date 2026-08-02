@@ -198,7 +198,7 @@ export class GameApp {
     if (awaitingPointerLock) {
       this.#ui.status.textContent = player.paused
         ? '已暂停 · 点击画面继续'
-        : '点击画面锁定鼠标';
+        : '点击锁定鼠标，或按住画面拖动观察';
     } else {
       this.#ui.status.textContent = player.paused
         ? '已暂停'
