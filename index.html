@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#07150f" />
+    <meta
+      name="description"
+      content="Lost in Cubes — an original browser-based voxel action RPG."
+    />
+    <title>Lost in Cubes</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas" aria-label="Lost in Cubes 3D scene"></canvas>
+      <section id="loading-screen" role="status" aria-live="polite">
+        <p class="eyebrow">WORLD FRAGMENT 01</p>
+        <h1>Lost in Cubes</h1>
+        <p id="loading-message">正在唤醒破碎世界……</p>
+      </section>
+      <aside id="prototype-hud" hidden>
+        <span>里程碑 0 · 世界引擎已启动</span>
+        <span>拖动旋转视角 · 滚轮缩放</span>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
