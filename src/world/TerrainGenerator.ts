@@ -104,11 +104,11 @@ export class TerrainGenerator {
       return BlockType.Air;
     }
 
-    const treeBlock = this.#sampleTreeBlock(worldX, worldY, worldZ);
-    if (treeBlock !== BlockType.Air) {
-      return treeBlock;
+    const terrainBlock = this.#sampleTerrainBlock(worldX, worldY, worldZ);
+    if (terrainBlock !== BlockType.Air) {
+      return terrainBlock;
     }
-    return this.#sampleTerrainBlock(worldX, worldY, worldZ);
+    return this.#sampleTreeBlock(worldX, worldY, worldZ);
   }
 
   public sampleStandingY(worldX: number, worldZ: number): number {
