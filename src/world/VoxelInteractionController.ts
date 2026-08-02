@@ -6,6 +6,11 @@ import {
 import type { Mesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
 import {
+  getMiningSpeedMultiplier,
+  itemToBlock,
+} from '../inventory/ItemDefinitions';
+import type { ItemType } from '../inventory/ItemDefinitions';
+import {
   PLAYER_COLLISION_HALF_HEIGHT,
   PLAYER_COLLISION_RADIUS,
 } from '../player/KinematicPlayerMotor';
@@ -18,7 +23,7 @@ import { BlockInteractionState } from './BlockInteractionState';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { raycastVoxels } from './VoxelRaycast';
-import type { VoxelRaycastHit } from './VoxelRaycast';
+import type { VoxelCoordinate, VoxelRaycastHit } from './VoxelRaycast';
 import type { VoxelWorldData } from './VoxelWorldData';
 
 export interface VoxelInteractionCallbacks {
@@ -27,9 +32,13 @@ export interface VoxelInteractionCallbacks {
     worldY: number,
     worldZ: number,
   ) => void;
-  readonly onBlockBroken: (block: BlockTypeValue) => void;
+  readonly onBlockBroken: (
+    block: BlockTypeValue,
+    position: VoxelCoordinate,
+  ) => void;
   readonly canPlaceBlock: (block: BlockTypeValue) => boolean;
   readonly onBlockPlaced: (block: BlockTypeValue) => void;
+  readonly onToolUsed: (block: BlockTypeValue) => void;
 }
 
 export interface InteractionTargetPoint {
@@ -66,6 +75,7 @@ export class VoxelInteractionController {
   readonly #callbacks: VoxelInteractionCallbacks;
   #target: VoxelRaycastHit | null = null;
   #targetPoint: InteractionTargetPoint | null = null;
+  #heldItem: ItemType | null = null;
   #selectedBlock: BlockTypeValue = BlockType.Air;
   #breakProgress = 0;
 
@@ -120,6 +130,10 @@ export class VoxelInteractionController {
       canBreakTarget: this.#target !== null && this.#target.block.y > 0,
       breakHeld,
       placeHeld: placeHeld && this.#selectedBlock !== BlockType.Air,
+      breakSpeedMultiplier: getMiningSpeedMultiplier(
+        this.#heldItem,
+        targetBlock,
+      ),
       frameSeconds,
     });
     this.#breakProgress = timing.breakProgress;
@@ -132,8 +146,9 @@ export class VoxelInteractionController {
     }
   }
 
-  public setSelectedBlock(block: BlockTypeValue | null): void {
-    this.#selectedBlock = block ?? BlockType.Air;
+  public setHeldItem(item: ItemType | null): void {
+    this.#heldItem = item;
+    this.#selectedBlock = itemToBlock(item) ?? BlockType.Air;
   }
 
   public get selectedBlock(): BlockTypeValue {
@@ -213,7 +228,8 @@ export class VoxelInteractionController {
       return false;
     }
     this.#callbacks.onBlockChanged(x, y, z);
-    this.#callbacks.onBlockBroken(brokenBlock);
+    this.#callbacks.onToolUsed(brokenBlock);
+    this.#callbacks.onBlockBroken(brokenBlock, { x, y, z });
     this.#target = null;
     this.#targetPoint = null;
     this.#highlight.setEnabled(false);

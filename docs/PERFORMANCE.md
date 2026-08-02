@@ -8,93 +8,90 @@
 
 ## Current voxel pipeline
 
-The playable world never creates one Babylon mesh per block. Each visible chunk is one mesh built by this pipeline:
+Each visible chunk is one Babylon mesh built by this pipeline:
 
 1. Reconstruct deterministic terrain from the world seed.
-2. Overlay only sparse player-authored block modifications.
-3. Cull faces against blocks in the same chunk and neighboring chunks.
-4. Greedily merge coplanar faces that share a block material and normal.
-5. Return typed position, normal, color, and index arrays from a Web Worker.
-6. Transfer the underlying buffers without structured-clone copies.
-7. Upload at most two completed chunk meshes on the main thread per frame.
+2. Overlay sparse player-authored block modifications.
+3. Cull faces against the same and neighboring chunks.
+4. Greedily merge coplanar faces sharing material and normal.
+5. Build typed position, normal, color, and index buffers in a Web Worker.
+6. Transfer buffers without structured-clone copies.
+7. Upload at most two completed chunk meshes per rendered frame.
 
-A full 16×1×16 slab has 576 exposed source faces but collapses to six rendered quads. The HUD reports rendered greedy quads instead of only raw face counts so regressions are visible while playing.
+A full 16×1×16 slab has 576 exposed source faces but collapses to six rendered quads.
 
-## Streaming budgets
+## Streaming and worker budgets
 
 - Chunk dimensions: 16×32×16 blocks.
-- Current radius: two chunks from the player, producing a 5×5 desired window.
-- Worker pool: one or two workers, bounded by available logical processors.
-- Main-thread mesh uploads: maximum two chunks per rendered frame.
-- Scheduling: nearest chunks are requested first.
-- Stale work: revision numbers prevent old worker results replacing newer edits.
-- Unloading: meshes outside the desired window are disposed immediately.
+- Current radius: two chunks, producing a 5×5 desired window.
+- Worker pool: one or two workers, bounded by logical processor count.
+- Main-thread mesh uploads: maximum two chunks per frame.
+- Every build has a stable chunk key and Manhattan-distance priority.
+- Scheduling is nearest-first and stable for equal priorities.
+- Scheduling a newer revision for the same key cancels the old queued or active build.
+- Moving the desired window cancels builds whose keys are no longer visible.
+- Active cancellation terminates the occupied Worker and immediately creates a replacement slot.
+- Revision numbers still reject any result that races with an edit or view change.
+- Cancellation is expected control flow and is not printed as an error.
 
-The first center chunk is awaited before the loading overlay is removed. The remaining chunks stream progressively so startup does not require building the entire 5×5 window.
+Terminating a Worker is more expensive than dropping a queued array entry, so cancellation occurs only for stable-key replacement and desired-window removal. This is preferable to spending a full terrain and greedy-mesh pass on a chunk that cannot be displayed.
 
 ## Collision budget
 
-Full player collision samples only the integer voxels overlapped by the compact player body. It does not scan a chunk or ask Babylon to collide against triangle meshes.
+Full player collision samples only voxels overlapped by the compact player body.
 
-- Normal body overlap checks inspect roughly a 2×3×2 voxel neighborhood.
-- Horizontal movement resolves X and Z independently for wall sliding.
-- Movement distance is divided into substeps no larger than 0.2 block to prevent tunneling.
-- Step-up candidates are derived from nearby voxel top surfaces instead of testing many arbitrary heights.
-- Vertical contacts use a bounded 12-iteration binary search only after a blocked movement step.
-- Support probes are short local checks and do not raycast through the scene.
-- The old heightfield mode remains available for isolated unit tests, while the game runtime uses full voxel collision.
+- Typical overlap checks inspect roughly a 2×3×2 neighborhood.
+- X and Z resolve independently for wall sliding.
+- Movement substeps are at most 0.2 block.
+- Step candidates come from nearby voxel top surfaces.
+- Vertical contacts use a bounded 12-iteration binary search only after blocking.
+- Support probes are short local checks rather than scene raycasts.
 
-This makes walls, ceilings, caves, overhangs, and player-authored structures valid collision geometry without creating physics bodies per block.
+Walls, ceilings, caves, overhangs, and player structures therefore work without one physics body per block.
+
+## Dropped-item budget
+
+Drops use a fixed-capacity entity pool rather than unrestricted mesh creation.
+
+- Maximum visible drop entities: 96.
+- Maximum count per drop entity: 64.
+- Nearby same-block drops merge before another pooled mesh is activated.
+- Meshes and four shared frozen materials are reused.
+- Physics clamps frame time and subdivides vertical motion to avoid falling through a surface.
+- Ground checks sample only the voxel directly under the small item cube.
+- Attraction and pickup operate only inside a 2.5-block radius.
+- Inventory overflow remains attached to the same drop entity.
+- Drops older than five minutes or below the world floor are recycled.
+
+The pool intentionally limits draw calls before hostile entities, particles, vegetation, and combat effects are added. Ground drops are session-only and are not serialized yet.
 
 ## Persistence and memory
 
-Generated terrain is not stored in IndexedDB and is not duplicated in long-lived JavaScript objects. Only sparse differences from deterministic generation are kept:
+Generated terrain is never stored in IndexedDB. Only sparse differences from deterministic generation are retained in maps and one record per changed block. Worker snapshots include only the target chunk and immediate-neighbor modifications.
 
-- one map for changed block values;
-- per-chunk maps for worker snapshots;
-- one IndexedDB record per modified block;
-- modifications are removed again when a block matches generated terrain.
-
-Worker requests include only modifications in the target chunk and its immediate neighbors, because only those edits can affect cross-boundary face visibility.
-
-The inventory is a fixed nine-slot structure. Its DOM and local-storage snapshot are updated only when a monotonically increasing inventory revision changes. Normal render frames therefore perform only an integer comparison rather than recreating slot elements or serializing inventory state.
+Inventory is a fixed nine-slot structure. Blocks, tools, counts, durability, and selection serialize only when the inventory revision changes. Normal frames perform an integer comparison rather than rebuilding DOM or writing storage.
 
 ## Frame and allocation rules
 
-Simulation uses a fixed step with bounded catch-up. Chunk generation and meshing never run in the normal render callback. Hot meshing loops reuse a fixed mask and emit typed arrays only once at completion. Shared world materials are frozen, chunk world matrices are frozen after placement, and interaction uses a deterministic voxel DDA ray rather than Babylon mesh picking.
+Simulation uses a fixed step with bounded catch-up. Chunk generation and meshing do not run in the render callback. Hot meshing loops reuse masks and emit typed arrays only at completion. Shared world materials and chunk matrices are frozen. Interaction uses voxel DDA rather than triangle picking.
 
-Input handlers reuse held-state sets instead of creating browser-event queues. The nine hotbar buttons are created once and updated in place. Entities, drops, particles, and combat effects should use pools only after profiling shows allocation pressure.
+Input handlers reuse held-state sets. Hotbar buttons are created once and updated in place. Drop meshes are pooled and mutate existing transforms. The third-person projected target reuses vectors and avoids DOM writes below a pixel threshold.
 
 ## Runtime validation
 
-CI now performs two levels of validation:
+CI has two validation levels:
 
-1. Vitest verifies deterministic collision, movement, meshing, inventory, persistence, interaction timing, and camera helpers.
-2. Playwright launches the Vite production preview in headless Chromium with software WebGL enabled, waits for the first playable chunk, rejects page/console errors, and checks the HUD, nine-slot hotbar, keyboard selection, camera switching, and canvas dimensions.
-
-The bootstrap exposes only a small `data-game-state` marker (`loading`, `ready`, or `error`) so runtime smoke tests can observe startup without reaching into internal engine objects.
-
-## Quality levels
-
-Low, medium, high, and auto should eventually adjust render scale, view distance, shadows, particles, vegetation, post-processing, and dynamic lights. Auto should start conservatively using device signals and later use measured frame time and worker queue depth.
+1. Vitest verifies collision, meshing, inventory migration, tool durability, mining multipliers, drop merging/pickup, worker cancellation, persistence, and camera helpers.
+2. Playwright launches the production preview in Chromium with software WebGL, waits for the first playable chunk, rejects page/console errors, and checks HUD, block/tool hotbar state, camera switching, and canvas rendering.
 
 ## Runtime diagnostics
 
-The current HUD exposes:
-
-- smoothed FPS;
-- loaded versus desired chunks;
-- pending chunk builds/uploads;
-- rendered greedy quad count;
-- selected hotbar block and camera mode;
-- active mining progress.
-
-The renderer also tracks source face count and average worker build duration for future profiling panels.
+The HUD exposes smoothed FPS, loaded/desired chunks, pending builds/uploads, rendered greedy quads, active ground drops, held item, camera mode, and mining progress. The renderer also tracks total cancelled builds, source faces, and average worker build duration for future profiling panels.
 
 ## Next performance work
 
-- Worker job cancellation or priority replacement when the player moves quickly.
-- Distance-tiered rendering or LOD before increasing view radius further.
-- Representative Chrome desktop and Android frame-time profiles.
-- Pooled dropped-item entities before adding large quantities of drops.
-- Profile collision query counts after caves and structures increase local voxel complexity.
+- Capture representative Chrome desktop and Android frame-time profiles.
+- Add distance-tiered rendering or LOD before increasing view radius.
+- Persist or unload ground drops by chunk before multiple save slots.
+- Profile drop draw calls and collision query counts after structures and combat are added.
+- Add automatic quality scaling based on sustained frame time and queue pressure.

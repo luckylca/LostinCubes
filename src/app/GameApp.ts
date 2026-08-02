@@ -8,13 +8,14 @@ import {
   loadPlayerInventory,
   savePlayerInventory,
 } from '../inventory/InventoryPersistence';
+import { getItemLabel } from '../inventory/ItemDefinitions';
+import type { ItemType } from '../inventory/ItemDefinitions';
 import type { PlayerInventory } from '../inventory/PlayerInventory';
 import { PlayerCameraController } from '../player/PlayerCameraController';
 import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
 import { HotbarView } from '../ui/HotbarView';
 import { ThirdPersonTargetView } from '../ui/ThirdPersonTargetView';
-import { BlockType } from '../world/BlockType';
-import type { BlockType as BlockTypeValue } from '../world/BlockType';
+import { DroppedItemManager } from '../world/DroppedItemManager';
 import { VoxelInteractionController } from '../world/VoxelInteractionController';
 import { VoxelWorldData } from '../world/VoxelWorldData';
 import { VoxelWorldRenderer } from '../world/VoxelWorldRenderer';
@@ -42,22 +43,6 @@ function formatCount(value: number): string {
   return `${(value / 1_000).toFixed(1)}k`;
 }
 
-function getBlockLabel(block: BlockTypeValue | null): string {
-  switch (block) {
-    case BlockType.Grass:
-      return '草方块';
-    case BlockType.Dirt:
-      return '泥土';
-    case BlockType.Stone:
-      return '石头';
-    case BlockType.RuneStone:
-      return '符文石';
-    case BlockType.Air:
-    case null:
-      return '空手';
-  }
-}
-
 function getLocalStorage(): Storage | null {
   try {
     return window.localStorage;
@@ -77,6 +62,7 @@ export class GameApp {
   #worldData: VoxelWorldData | null = null;
   #worldRenderer: VoxelWorldRenderer | null = null;
   #interaction: VoxelInteractionController | null = null;
+  #drops: DroppedItemManager | null = null;
   #inventory: PlayerInventory | null = null;
   #hotbar: HotbarView | null = null;
   #targetView: ThirdPersonTargetView | null = null;
@@ -131,20 +117,40 @@ export class GameApp {
       scene,
     );
     const worldRenderer = new VoxelWorldRenderer(scene, worldData, 2);
+    const drops = new DroppedItemManager(scene, worldData, {
+      onPickup: (block, count) => {
+        const remaining = inventory.addBlock(block, count);
+        syncInventory();
+        return remaining;
+      },
+    });
     const interaction = new VoxelInteractionController(scene, worldData, {
       onBlockChanged: (worldX, worldY, worldZ) =>
         worldRenderer.invalidateBlock(worldX, worldY, worldZ),
-      onBlockBroken: (block) => {
-        inventory.add(block, 1);
+      onBlockBroken: (block, position) => {
+        const remaining = drops.spawn(
+          block,
+          position.x,
+          position.y,
+          position.z,
+          1,
+        );
+        if (remaining > 0) {
+          inventory.addBlock(block, remaining);
+          syncInventory();
+        }
+      },
+      canPlaceBlock: (block) => inventory.canConsumeSelectedBlock(block),
+      onBlockPlaced: () => {
+        inventory.consumeSelectedBlock(1);
         syncInventory();
       },
-      canPlaceBlock: (block) => inventory.canConsumeSelected(block),
-      onBlockPlaced: () => {
-        inventory.consumeSelected(1);
+      onToolUsed: () => {
+        inventory.damageSelectedTool(1);
         syncInventory();
       },
     });
-    interaction.setSelectedBlock(inventory.selectedBlock);
+    interaction.setHeldItem(inventory.selectedItem);
     let breakHeld = false;
     let placeHeld = false;
 
@@ -153,6 +159,7 @@ export class GameApp {
     this.#playerModel = playerModel;
     this.#worldRenderer = worldRenderer;
     this.#interaction = interaction;
+    this.#drops = drops;
     this.#inventory = inventory;
     this.#hotbar = hotbar;
     this.#targetView = targetView;
@@ -179,6 +186,7 @@ export class GameApp {
         !player.paused && breakHeld,
         !player.paused && placeHeld,
       );
+      drops.update(player, player.paused ? 0 : frameSeconds);
       cameraController.update(player, frameSeconds);
       targetView.update(player, interaction.targetPoint);
       playerModel.update(player, frameSeconds, {
@@ -190,8 +198,9 @@ export class GameApp {
       this.#updateHud(
         player,
         worldStats,
-        inventory.selectedBlock,
+        inventory.selectedItem,
         interaction.breakProgress,
+        drops.activeCount,
         input.usesPointerLock && !input.pointerLocked,
         frameSeconds,
       );
@@ -205,7 +214,7 @@ export class GameApp {
         const worldState = session.getWorldState();
         const command = input.poll(worldState.tick);
         inventory.selectSlot(command.selectedHotbarSlot);
-        interaction.setSelectedBlock(inventory.selectedBlock);
+        interaction.setHeldItem(inventory.selectedItem);
         syncInventory();
         breakHeld = command.breakBlock;
         placeHeld = command.placeBlock;
@@ -226,6 +235,9 @@ export class GameApp {
 
     this.#targetView?.dispose();
     this.#targetView = null;
+
+    this.#drops?.dispose();
+    this.#drops = null;
 
     if (this.#inventory !== null) {
       savePlayerInventory(
@@ -282,8 +294,9 @@ export class GameApp {
   #updateHud(
     player: PlayerState,
     world: VoxelWorldStats,
-    selectedBlock: BlockTypeValue | null,
+    selectedItem: ItemType | null,
     breakProgress: number,
+    activeDrops: number,
     awaitingPointerLock: boolean,
     frameSeconds: number,
   ): void {
@@ -295,6 +308,7 @@ export class GameApp {
     const worldProgress = `${String(world.loadedChunks)}/${String(world.desiredChunks)}`;
     const queueLabel =
       world.pendingChunks > 0 ? ` · 队列 ${String(world.pendingChunks)}` : '';
+    const dropLabel = activeDrops > 0 ? ` · 掉落 ${String(activeDrops)}` : '';
     const breakLabel =
       breakProgress > 0
         ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%`
@@ -310,14 +324,14 @@ export class GameApp {
         : [
             '探索中',
             `${worldProgress} 区块${queueLabel}`,
-            `${formatCount(world.visibleQuads)} 四边形`,
+            `${formatCount(world.visibleQuads)} 四边形${dropLabel}`,
             `${Math.round(this.#smoothedFps).toString()} FPS${breakLabel}`,
           ].join(' · ');
     }
 
     this.#ui.viewMode.textContent = `${
       player.cameraMode === 'first-person' ? '第一人称' : '第三人称'
-    } · ${getBlockLabel(selectedBlock)}`;
+    } · ${getItemLabel(selectedItem)}`;
     this.#ui.position.textContent = [
       player.position.x.toFixed(1),
       player.position.y.toFixed(1),

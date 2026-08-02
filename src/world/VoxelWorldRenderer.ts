@@ -6,7 +6,10 @@ import {
 } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
 import type { ChunkBuildSuccess } from './ChunkBuildProtocol';
-import { ChunkWorkerPool } from './ChunkWorkerPool';
+import {
+  ChunkBuildCancelledError,
+  ChunkWorkerPool,
+} from './ChunkWorkerPool';
 import {
   CHUNK_SIZE,
   createChunkKey,
@@ -32,6 +35,7 @@ export interface VoxelWorldStats {
   readonly loadedChunks: number;
   readonly desiredChunks: number;
   readonly pendingChunks: number;
+  readonly cancelledBuilds: number;
   readonly visibleQuads: number;
   readonly sourceFaces: number;
   readonly centerChunkX: number;
@@ -41,11 +45,7 @@ export interface VoxelWorldStats {
 
 const MAXIMUM_MESH_UPLOADS_PER_FRAME = 2;
 
-/**
- * Streams a bounded chunk window. Generation and greedy meshing happen in a
- * worker pool; the main thread only uploads a small number of completed meshes
- * per frame to avoid visible frame-time spikes.
- */
+/** Streams a bounded, cancellable, nearest-first chunk window. */
 export class VoxelWorldRenderer {
   readonly #scene: Scene;
   readonly #world: VoxelWorldData;
@@ -90,7 +90,12 @@ export class VoxelWorldRenderer {
 
     const centerKey = createChunkKey(centerChunkX, centerChunkZ);
     const revision = this.#getRevision(centerKey);
-    const response = await this.#buildChunk(centerChunkX, centerChunkZ);
+    const response = await this.#buildChunk(
+      centerChunkX,
+      centerChunkZ,
+      centerKey,
+      0,
+    );
     if (!this.#disposed) {
       this.#applyChunk(centerKey, revision, response);
       this.#scheduleMissingChunks(centerChunkX, centerChunkZ);
@@ -109,6 +114,7 @@ export class VoxelWorldRenderer {
       this.#centerChunkX = centerChunkX;
       this.#centerChunkZ = centerChunkZ;
       this.#updateDesiredKeys(centerChunkX, centerChunkZ);
+      this.#cancelUndesiredWork();
       this.#unloadDistantChunks();
       this.#scheduleMissingChunks(centerChunkX, centerChunkZ);
     }
@@ -157,7 +163,8 @@ export class VoxelWorldRenderer {
     return {
       loadedChunks: this.#chunks.size,
       desiredChunks: this.#desiredKeys.size,
-      pendingChunks: this.#pendingRevisions.size + this.#completed.length,
+      pendingChunks: this.#workers.queuedCount + this.#completed.length,
+      cancelledBuilds: this.#workers.cancelledCount,
       visibleQuads,
       sourceFaces,
       centerChunkX: this.#centerChunkX ?? 0,
@@ -200,6 +207,21 @@ export class VoxelWorldRenderer {
     }
   }
 
+  #cancelUndesiredWork(): void {
+    this.#workers.cancelExcept(this.#desiredKeys);
+    for (const key of this.#pendingRevisions.keys()) {
+      if (!this.#desiredKeys.has(key)) {
+        this.#pendingRevisions.delete(key);
+      }
+    }
+    for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
+      const completed = this.#completed[index];
+      if (completed !== undefined && !this.#desiredKeys.has(completed.key)) {
+        this.#completed.splice(index, 1);
+      }
+    }
+  }
+
   #unloadDistantChunks(): void {
     for (const [key, chunk] of this.#chunks) {
       if (!this.#desiredKeys.has(key)) {
@@ -210,36 +232,34 @@ export class VoxelWorldRenderer {
   }
 
   #scheduleMissingChunks(centerChunkX: number, centerChunkZ: number): void {
-    const coordinates: (readonly [number, number])[] = [];
+    const coordinates: (readonly [number, number, number])[] = [];
     for (const key of this.#desiredKeys) {
       const [chunkX, chunkZ] = this.#parseChunkKey(key);
-      coordinates.push([chunkX, chunkZ]);
+      const distance =
+        Math.abs(chunkX - centerChunkX) + Math.abs(chunkZ - centerChunkZ);
+      coordinates.push([chunkX, chunkZ, distance]);
     }
-    coordinates.sort((left, right) => {
-      const leftDistance =
-        Math.abs(left[0] - centerChunkX) + Math.abs(left[1] - centerChunkZ);
-      const rightDistance =
-        Math.abs(right[0] - centerChunkX) + Math.abs(right[1] - centerChunkZ);
-      return leftDistance - rightDistance;
-    });
+    coordinates.sort((left, right) => left[2] - right[2]);
 
-    for (const [chunkX, chunkZ] of coordinates) {
+    for (const [chunkX, chunkZ, priority] of coordinates) {
       const key = createChunkKey(chunkX, chunkZ);
       if (!this.#chunks.has(key)) {
-        this.#scheduleChunk(chunkX, chunkZ);
+        this.#scheduleChunk(chunkX, chunkZ, priority);
       }
     }
   }
 
   #invalidateChunk(chunkX: number, chunkZ: number): void {
     const key = createChunkKey(chunkX, chunkZ);
+    this.#workers.cancel(key);
+    this.#pendingRevisions.delete(key);
     this.#revisions.set(key, this.#getRevision(key) + 1);
     if (this.#desiredKeys.has(key)) {
-      this.#scheduleChunk(chunkX, chunkZ);
+      this.#scheduleChunk(chunkX, chunkZ, this.#getPriority(chunkX, chunkZ));
     }
   }
 
-  #scheduleChunk(chunkX: number, chunkZ: number): void {
+  #scheduleChunk(chunkX: number, chunkZ: number, priority: number): void {
     if (this.#disposed) {
       return;
     }
@@ -250,7 +270,7 @@ export class VoxelWorldRenderer {
     }
     this.#pendingRevisions.set(key, revision);
 
-    void this.#buildChunk(chunkX, chunkZ)
+    void this.#buildChunk(chunkX, chunkZ, key, priority)
       .then((response) => {
         if (!this.#disposed) {
           this.#completed.push({ key, revision, response });
@@ -260,17 +280,27 @@ export class VoxelWorldRenderer {
         if (this.#pendingRevisions.get(key) === revision) {
           this.#pendingRevisions.delete(key);
         }
-        console.error(`Failed to build voxel chunk ${key}.`, error);
+        if (!(error instanceof ChunkBuildCancelledError)) {
+          console.error(`Failed to build voxel chunk ${key}.`, error);
+        }
       });
   }
 
-  #buildChunk(chunkX: number, chunkZ: number): Promise<ChunkBuildSuccess> {
-    return this.#workers.buildChunk({
-      worldSeed: this.#world.worldSeed,
-      chunkX,
-      chunkZ,
-      modifications: this.#world.getBuildModifications(chunkX, chunkZ),
-    });
+  #buildChunk(
+    chunkX: number,
+    chunkZ: number,
+    key: string,
+    priority: number,
+  ): Promise<ChunkBuildSuccess> {
+    return this.#workers.buildChunk(
+      {
+        worldSeed: this.#world.worldSeed,
+        chunkX,
+        chunkZ,
+        modifications: this.#world.getBuildModifications(chunkX, chunkZ),
+      },
+      { jobKey: key, priority },
+    );
   }
 
   #applyCompletedChunks(): void {
@@ -337,6 +367,13 @@ export class VoxelWorldRenderer {
       buildMilliseconds: response.buildMilliseconds,
     });
     previous?.mesh.dispose(false, false);
+  }
+
+  #getPriority(chunkX: number, chunkZ: number): number {
+    return (
+      Math.abs(chunkX - (this.#centerChunkX ?? chunkX)) +
+      Math.abs(chunkZ - (this.#centerChunkZ ?? chunkZ))
+    );
   }
 
   #getRevision(key: string): number {

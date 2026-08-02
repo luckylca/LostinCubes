@@ -51,7 +51,7 @@
 - [x] Add safe upward spawn depenetration and head collision
 - [x] Add deterministic voxel targeting
 - [x] Make first- and third-person interaction originate from the player eye
-- [x] Align the centered third-person camera with the player view ray
+- [x] Add shoulder-camera third person with projected real-hit reticle
 - [x] Add pointer-lock mouse look with Escape pause/resume behavior
 - [x] Add held mining progress with target-change reset
 - [x] Add bounded held-placement repetition
@@ -66,12 +66,17 @@
 
 - [x] Add complete voxel body collision and safe depenetration
 - [x] Add a nine-slot inventory hotbar with keyboard, wheel, click, and touch selection
-- [x] Add finite stacks, block collection, placement consumption, and world-scoped persistence
+- [x] Add finite stacks, placement consumption, and world-scoped persistence
 - [x] Add automated Chromium runtime smoke tests
-- [ ] Add visible dropped-item entities and collection radius behavior
-- [ ] Add tools and tool-dependent mining speed
+- [x] Add pooled visible block drops with gravity, merging, attraction, and pickup overflow
+- [x] Add block and tool items in one hotbar model
+- [x] Add wooden shovel and pickaxe mining multipliers and durability
+- [x] Migrate legacy block-only inventory snapshots without resetting saves
+- [x] Add keyed nearest-first chunk worker scheduling
+- [x] Cancel queued and active worker jobs after edits or chunk movement
 - [ ] Add world save metadata and multiple save slots
 - [ ] Add biome and structure generation
+- [ ] Add crafting and tool creation instead of starter tools
 - [ ] Add LOD or distance-tiered chunk rendering
-- [ ] Add worker-side cancellation or priority replacement
 - [ ] Add representative desktop and mobile performance profiles
+- [ ] Add hostile entities, combat, health, and recovery
