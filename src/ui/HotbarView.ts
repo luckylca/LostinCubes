@@ -1,39 +1,9 @@
+import {
+  getItemDefinition,
+  getItemLabel,
+} from '../inventory/ItemDefinitions';
 import type { PlayerInventorySnapshot } from '../inventory/PlayerInventory';
 import { HOTBAR_SLOT_COUNT } from '../inventory/PlayerInventory';
-import { BlockType } from '../world/BlockType';
-import type { BlockType as BlockTypeValue } from '../world/BlockType';
-
-function getBlockLabel(block: BlockTypeValue | null): string {
-  switch (block) {
-    case BlockType.Grass:
-      return '草方块';
-    case BlockType.Dirt:
-      return '泥土';
-    case BlockType.Stone:
-      return '石头';
-    case BlockType.RuneStone:
-      return '符文石';
-    case BlockType.Air:
-    case null:
-      return '空';
-  }
-}
-
-function getBlockClass(block: BlockTypeValue | null): string {
-  switch (block) {
-    case BlockType.Grass:
-      return 'grass';
-    case BlockType.Dirt:
-      return 'dirt';
-    case BlockType.Stone:
-      return 'stone';
-    case BlockType.RuneStone:
-      return 'rune';
-    case BlockType.Air:
-    case null:
-      return 'empty';
-  }
-}
 
 export class HotbarView {
   readonly #root: HTMLElement;
@@ -57,8 +27,9 @@ export class HotbarView {
       });
       button.innerHTML = [
         `<span class="hotbar-key">${String(slot + 1)}</span>`,
-        '<span class="hotbar-block" aria-hidden="true"></span>',
+        '<span class="hotbar-item" aria-hidden="true"></span>',
         '<span class="hotbar-count"></span>',
+        '<span class="hotbar-durability" aria-hidden="true"><span></span></span>',
       ].join('');
       this.#root.append(button);
       this.#buttons.push(button);
@@ -74,22 +45,45 @@ export class HotbarView {
       }
 
       const selected = slotIndex === snapshot.selectedSlot;
+      const definition =
+        slot.item === null ? null : getItemDefinition(slot.item);
       button.classList.toggle('is-selected', selected);
+      button.classList.toggle('is-tool', definition?.kind === 'tool');
       button.setAttribute('aria-pressed', String(selected));
       button.setAttribute(
         'aria-label',
-        `${String(slotIndex + 1)}：${getBlockLabel(slot.block)}${
-          slot.block === null ? '' : ` × ${String(slot.count)}`
+        `${String(slotIndex + 1)}：${getItemLabel(slot.item)}${
+          definition?.kind === 'block' ? ` × ${String(slot.count)}` : ''
+        }${
+          definition?.kind === 'tool' && slot.durability !== null
+            ? `，耐久 ${String(slot.durability)}/${String(definition.maximumDurability ?? 1)}`
+            : ''
         }`,
       );
 
-      const blockElement = button.querySelector<HTMLElement>('.hotbar-block');
+      const itemElement = button.querySelector<HTMLElement>('.hotbar-item');
       const countElement = button.querySelector<HTMLElement>('.hotbar-count');
-      if (blockElement !== null) {
-        blockElement.className = `hotbar-block block-${getBlockClass(slot.block)}`;
+      const durabilityElement =
+        button.querySelector<HTMLElement>('.hotbar-durability');
+      const durabilityFill = durabilityElement?.querySelector<HTMLElement>('span');
+
+      if (itemElement !== null) {
+        itemElement.className = `hotbar-item item-${definition?.cssClass ?? 'empty'}`;
       }
       if (countElement !== null) {
-        countElement.textContent = slot.block === null ? '' : String(slot.count);
+        countElement.textContent =
+          definition?.kind === 'block' ? String(slot.count) : '';
+      }
+      if (durabilityElement !== null) {
+        durabilityElement.hidden = definition?.kind !== 'tool';
+      }
+      if (
+        durabilityFill !== null &&
+        definition?.kind === 'tool' &&
+        slot.durability !== null
+      ) {
+        const maximum = definition.maximumDurability ?? 1;
+        durabilityFill.style.scale = `${String(slot.durability / maximum)} 1`;
       }
     }
   }
