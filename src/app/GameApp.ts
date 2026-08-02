@@ -10,8 +10,13 @@ export class GameApp {
     this.#engineHost = new BabylonEngine(canvas);
   }
 
-  public async start(): Promise<void> {
-    const scene = await this.#engineHost.createPrototypeScene();
+  public start(): void {
+    const scene = this.#engineHost.createPrototypeScene();
+
+    // Render once synchronously so WebGL and shader failures are reported to
+    // the loading screen instead of leaving the page stuck indefinitely.
+    scene.render();
+
     this.#renderLoop = new RenderLoop(this.#engineHost.engine, scene);
     this.#renderLoop.start();
   }
