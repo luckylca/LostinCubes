@@ -13,15 +13,45 @@
   <body>
     <div id="app">
       <canvas id="game-canvas" aria-label="Lost in Cubes 3D scene"></canvas>
+
       <section id="loading-screen" role="status" aria-live="polite">
         <p class="eyebrow">WORLD FRAGMENT 01</p>
         <h1>Lost in Cubes</h1>
         <p id="loading-message">正在唤醒破碎世界……</p>
       </section>
-      <aside id="prototype-hud" hidden>
-        <span>里程碑 0 · 世界引擎已启动</span>
-        <span>拖动旋转视角 · 滚轮缩放</span>
+
+      <div id="crosshair" aria-hidden="true"></div>
+
+      <aside id="game-hud" hidden>
+        <div class="hud-pill">
+          <span class="hud-label">状态</span>
+          <strong id="hud-status">探索中</strong>
+        </div>
+        <div class="hud-pill">
+          <span class="hud-label">视角</span>
+          <strong id="hud-view">第三人称</strong>
+        </div>
+        <div class="hud-pill hud-position">
+          <span class="hud-label">坐标</span>
+          <strong id="hud-position">0.0, 2.9, 3.5</strong>
+        </div>
+        <p class="desktop-help">WASD 移动 · 拖动观察 · Shift 冲刺 · Space 跳跃 · V 切换视角 · Esc 暂停</p>
       </aside>
+
+      <section id="touch-controls" aria-label="触屏游戏控制">
+        <div class="touch-move">
+          <button type="button" data-action="move-forward" aria-label="向前">▲</button>
+          <button type="button" data-action="move-left" aria-label="向左">◀</button>
+          <button type="button" data-action="move-backward" aria-label="向后">▼</button>
+          <button type="button" data-action="move-right" aria-label="向右">▶</button>
+        </div>
+        <div class="touch-actions">
+          <button type="button" data-action="sprint">冲刺</button>
+          <button type="button" data-action="jump">跳跃</button>
+          <button type="button" data-action="toggle-camera">视角</button>
+          <button type="button" data-action="toggle-pause">暂停</button>
+        </div>
+      </section>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
