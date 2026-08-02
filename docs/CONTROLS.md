@@ -4,33 +4,46 @@
 
 | Action | Default |
 | --- | --- |
+| Capture mouse / resume | Click the game canvas |
 | Move | WASD |
-| Look | Drag on the game canvas |
+| Look | Move the captured mouse |
 | Jump | Space |
 | Sprint | Left or right Shift |
 | Switch camera | V |
-| Pause gameplay simulation | Escape |
-| Break targeted block | Left mouse button or Q |
+| Release mouse and pause | Escape |
+| Mine targeted block | Hold left mouse button or Q |
 | Place selected block | Right mouse button or E |
 | Select grass / dirt / stone / rune stone | 1 / 2 / 3 / 4 |
 
-The center reticle targets the first solid voxel within six blocks. A wireframe box shows the selected block. Placement uses the adjacent cell on the hit face and is rejected when the new block would overlap the player.
+Desktop input now uses pointer lock rather than drag-to-look. The first click captures the mouse. Escape releases it and pauses; clicking the canvas again captures the mouse and resumes.
 
-The input manager converts browser events into a typed `PlayerInputCommand`. The simulation session consumes movement commands at a fixed 60 Hz step, while break/place/camera/pause inputs are edge-triggered so they are not repeated across fixed updates.
+## Minecraft-style targeting rules
+
+- First- and third-person modes share one interaction origin: the player's eye position.
+- The ray follows the player's yaw and pitch, never the third-person camera position.
+- The centered third-person camera sits directly behind the same eye ray, so the reticle, player facing direction, and actual hit point remain aligned.
+- Reach is limited to 4.5 blocks.
+- The first solid voxel is selected and outlined.
+- Placement uses the empty cell adjacent to the exact face that was hit.
+- Placement is rejected if that cell overlaps the player.
+
+Holding attack accumulates progress only while the same block remains targeted. Changing targets, looking away, releasing attack, or pausing resets progress. Grass and dirt break faster than stone, while rune stone is slower. Holding use places immediately and then repeats at a bounded cadence, allowing rows of blocks without sending one edit every rendered frame.
+
+The input manager converts browser events into a typed `PlayerInputCommand`. Movement remains fixed-step at 60 Hz. Attack and use are held states consumed by the presentation/world interaction layer, while jump, camera switching, and pause remain edge-triggered.
 
 ## Implemented mobile controls
 
 Landscape and narrow-screen layouts show:
 
 - Four directional movement buttons
-- Break and place buttons
+- Hold-to-break and hold-to-place buttons
 - Sprint
 - Jump
 - First/third-person camera switch
 - Pause
-- Dragging the world view to rotate the camera
+- Dragging the world view to rotate the player view
 
-Multi-touch is supported because movement buttons and the camera drag zone use independent pointer IDs. Touch camera dragging does not implicitly break a block.
+Multi-touch is supported because movement buttons and the camera drag zone use independent pointer IDs.
 
 ## World-edit behavior
 
@@ -42,7 +55,7 @@ Multi-touch is supported because movement buttons and the camera drag zone use i
 
 ## Input contexts
 
-The first context boundary is active: pausing stops player simulation and world edits while camera and UI rendering continue. Later inventory, crafting, and dialogue contexts will use the same command-layer boundary.
+Pausing stops player simulation, mining progress, and world edits while UI rendering continues. Later inventory, crafting, and dialogue contexts will use the same command-layer boundary.
 
 ## Planned bindings
 
