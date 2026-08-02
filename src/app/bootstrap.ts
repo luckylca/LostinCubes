@@ -1,4 +1,4 @@
-import { GameApp } from './GameApp';
+import { GameApp, type GameUiElements } from './GameApp';
 
 function requireElement(selector: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(selector);
@@ -26,13 +26,19 @@ export function bootstrap(): void {
     }
 
     const loadingScreen = requireElement('#loading-screen');
-    const prototypeHud = requireElement('#prototype-hud');
+    const gameHud = requireElement('#game-hud');
+    const ui: GameUiElements = {
+      touchControls: document.querySelector<HTMLElement>('#touch-controls'),
+      status: requireElement('#hud-status'),
+      viewMode: requireElement('#hud-view'),
+      position: requireElement('#hud-position'),
+    };
 
-    app = new GameApp(canvasElement);
+    app = new GameApp(canvasElement, ui);
     app.start();
 
     loadingMessage.textContent = '世界碎片已稳定';
-    prototypeHud.hidden = false;
+    gameHud.hidden = false;
     loadingScreen.classList.add('is-hidden');
   } catch (error: unknown) {
     console.error('Failed to start Lost in Cubes.', error);
