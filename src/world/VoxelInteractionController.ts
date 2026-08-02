@@ -6,6 +6,10 @@ import {
 import type { Mesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
 import {
+  PLAYER_COLLISION_HALF_HEIGHT,
+  PLAYER_COLLISION_RADIUS,
+} from '../player/KinematicPlayerMotor';
+import {
   getPlayerEyePosition,
   getPlayerViewDirection,
   PLAYER_BLOCK_REACH,
@@ -17,8 +21,16 @@ import { raycastVoxels } from './VoxelRaycast';
 import type { VoxelRaycastHit } from './VoxelRaycast';
 import type { VoxelWorldData } from './VoxelWorldData';
 
-const PLAYER_RADIUS = 0.42;
-const PLAYER_HALF_HEIGHT = 0.9;
+export interface VoxelInteractionCallbacks {
+  readonly onBlockChanged: (
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ) => void;
+  readonly onBlockBroken: (block: BlockTypeValue) => void;
+  readonly canPlaceBlock: (block: BlockTypeValue) => boolean;
+  readonly onBlockPlaced: (block: BlockTypeValue) => void;
+}
 
 function blockIntersectsPlayer(
   worldX: number,
@@ -27,11 +39,11 @@ function blockIntersectsPlayer(
   player: PlayerState,
 ): boolean {
   const horizontalOverlap =
-    Math.abs(player.position.x - worldX) < 0.5 + PLAYER_RADIUS &&
-    Math.abs(player.position.z - worldZ) < 0.5 + PLAYER_RADIUS;
+    Math.abs(player.position.x - worldX) < 0.5 + PLAYER_COLLISION_RADIUS &&
+    Math.abs(player.position.z - worldZ) < 0.5 + PLAYER_COLLISION_RADIUS;
   const verticalOverlap =
-    player.position.y + PLAYER_HALF_HEIGHT > worldY - 0.5 &&
-    player.position.y - PLAYER_HALF_HEIGHT < worldY + 0.5;
+    player.position.y + PLAYER_COLLISION_HALF_HEIGHT > worldY - 0.5 &&
+    player.position.y - PLAYER_COLLISION_HALF_HEIGHT < worldY + 0.5;
   return horizontalOverlap && verticalOverlap;
 }
 
@@ -45,26 +57,18 @@ export class VoxelInteractionController {
   readonly #highlight: Mesh;
   readonly #highlightMaterial: StandardMaterial;
   readonly #timing = new BlockInteractionState();
-  readonly #onBlockChanged: (
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ) => void;
+  readonly #callbacks: VoxelInteractionCallbacks;
   #target: VoxelRaycastHit | null = null;
-  #selectedBlock: BlockTypeValue = BlockType.Dirt;
+  #selectedBlock: BlockTypeValue = BlockType.Air;
   #breakProgress = 0;
 
   public constructor(
     scene: Scene,
     world: VoxelWorldData,
-    onBlockChanged: (
-      worldX: number,
-      worldY: number,
-      worldZ: number,
-    ) => void,
+    callbacks: VoxelInteractionCallbacks,
   ) {
     this.#world = world;
-    this.#onBlockChanged = onBlockChanged;
+    this.#callbacks = callbacks;
 
     this.#highlightMaterial = new StandardMaterial(
       'voxel-target-material',
@@ -108,7 +112,7 @@ export class VoxelInteractionController {
       targetBlock,
       canBreakTarget: this.#target !== null && this.#target.block.y > 0,
       breakHeld,
-      placeHeld,
+      placeHeld: placeHeld && this.#selectedBlock !== BlockType.Air,
       frameSeconds,
     });
     this.#breakProgress = timing.breakProgress;
@@ -121,10 +125,8 @@ export class VoxelInteractionController {
     }
   }
 
-  public setSelectedBlock(block: BlockTypeValue): void {
-    if (block !== BlockType.Air) {
-      this.#selectedBlock = block;
-    }
+  public setSelectedBlock(block: BlockTypeValue | null): void {
+    this.#selectedBlock = block ?? BlockType.Air;
   }
 
   public get selectedBlock(): BlockTypeValue {
@@ -182,17 +184,26 @@ export class VoxelInteractionController {
       return false;
     }
     const { x, y, z } = this.#target.block;
-    if (!this.#world.setBlock(x, y, z, BlockType.Air)) {
+    const brokenBlock = this.#world.sampleBlock(x, y, z);
+    if (
+      brokenBlock === BlockType.Air ||
+      !this.#world.setBlock(x, y, z, BlockType.Air)
+    ) {
       return false;
     }
-    this.#onBlockChanged(x, y, z);
+    this.#callbacks.onBlockChanged(x, y, z);
+    this.#callbacks.onBlockBroken(brokenBlock);
     this.#target = null;
     this.#highlight.setEnabled(false);
     return true;
   }
 
   #placeTarget(player: PlayerState): boolean {
-    if (this.#target === null) {
+    if (
+      this.#target === null ||
+      this.#selectedBlock === BlockType.Air ||
+      !this.#callbacks.canPlaceBlock(this.#selectedBlock)
+    ) {
       return false;
     }
     const { x, y, z } = this.#target.adjacent;
@@ -205,7 +216,8 @@ export class VoxelInteractionController {
     if (!this.#world.setBlock(x, y, z, this.#selectedBlock)) {
       return false;
     }
-    this.#onBlockChanged(x, y, z);
+    this.#callbacks.onBlockChanged(x, y, z);
+    this.#callbacks.onBlockPlaced(this.#selectedBlock);
     return true;
   }
 }
