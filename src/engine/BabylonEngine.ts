@@ -18,7 +18,7 @@ function createMergedBlocks(
   scene: Scene,
 ): Mesh {
   const sourceMeshes = positions.map((position, index) => {
-    const block = MeshBuilder.CreateBox(`${name}-source-${index}`, { size: 1 }, scene);
+    const block = MeshBuilder.CreateBox(`${name}-source-${String(index)}`, { size: 1 }, scene);
     block.position.copyFrom(position);
     return block;
   });

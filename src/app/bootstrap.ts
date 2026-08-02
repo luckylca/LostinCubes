@@ -1,7 +1,7 @@
 import { GameApp } from './GameApp';
 
-function requireElement<T extends HTMLElement>(selector: string): T {
-  const element = document.querySelector<T>(selector);
+function requireElement(selector: string): HTMLElement {
+  const element = document.querySelector<HTMLElement>(selector);
   if (element === null) {
     throw new Error(`Required element not found: ${selector}`);
   }
@@ -9,12 +9,15 @@ function requireElement<T extends HTMLElement>(selector: string): T {
 }
 
 export async function bootstrap(): Promise<void> {
-  const canvas = requireElement<HTMLCanvasElement>('#game-canvas');
-  const loadingScreen = requireElement<HTMLElement>('#loading-screen');
-  const loadingMessage = requireElement<HTMLElement>('#loading-message');
-  const prototypeHud = requireElement<HTMLElement>('#prototype-hud');
+  const canvasElement = requireElement('#game-canvas');
+  if (!(canvasElement instanceof HTMLCanvasElement)) {
+    throw new Error('Required canvas element has the wrong type: #game-canvas');
+  }
 
-  const app = new GameApp(canvas);
+  const loadingScreen = requireElement('#loading-screen');
+  const loadingMessage = requireElement('#loading-message');
+  const prototypeHud = requireElement('#prototype-hud');
+  const app = new GameApp(canvasElement);
 
   try {
     await app.start();

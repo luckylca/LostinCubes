@@ -8,12 +8,14 @@ export class LocalGameSession implements GameSession {
     this.#worldState = { tick: 0, worldSeed };
   }
 
-  public async start(): Promise<void> {
+  public start(): Promise<void> {
     this.#worldState = { ...this.#worldState, tick: 0 };
+    return Promise.resolve();
   }
 
-  public async stop(): Promise<void> {
+  public stop(): Promise<void> {
     this.#commandQueue.length = 0;
+    return Promise.resolve();
   }
 
   public submitCommand(command: GameCommand): void {
