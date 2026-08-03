@@ -63,6 +63,13 @@ function getLocalStorage(): Storage | null {
   }
 }
 
+function formatDayTime(dayTime: number): string {
+  const totalMinutes = Math.floor((((dayTime % 1) + 1) % 1) * 24 * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+}
+
 export class GameApp {
   readonly #engineHost: BabylonEngine;
   readonly #canvas: HTMLCanvasElement;
@@ -94,7 +101,7 @@ export class GameApp {
   }
 
   public async start(): Promise<void> {
-    const { scene } = this.#engineHost.createWorldScene();
+    const { scene, updateLighting } = this.#engineHost.createWorldScene();
     const worldData = new VoxelWorldData(WORLD_SEED);
     this.#worldData = worldData;
     await worldData.initialize();
@@ -214,10 +221,16 @@ export class GameApp {
     this.#localStorage = localStorage;
 
     await session.start();
-    const initialPlayer = session.getWorldState().player;
+    const initialWorldState = session.getWorldState();
+    const initialPlayer = initialWorldState.player;
     await worldRenderer.initialize(initialPlayer.position.x, initialPlayer.position.z);
 
-    const applyPlayerState = (player: PlayerState, frameSeconds: number): void => {
+    const applyWorldState = (
+      player: PlayerState,
+      dayTime: number,
+      frameSeconds: number,
+    ): void => {
+      updateLighting(dayTime);
       const worldStats = worldRenderer.update(player.position.x, player.position.z);
       interaction.update(
         player,
@@ -237,9 +250,10 @@ export class GameApp {
         heldItem: inventory.selectedItem,
       });
       this.#syncCameraMode(player.cameraMode);
-      this.#syncPresentationDiagnostics(player, inventory.selectedItem, interaction.hasTarget);
+      this.#syncPresentationDiagnostics(player, dayTime, inventory.selectedItem, interaction.hasTarget);
       this.#updateHud(
         player,
+        dayTime,
         worldStats,
         inventory.selectedItem,
         interaction.breakProgress,
@@ -256,7 +270,7 @@ export class GameApp {
       }
     };
 
-    applyPlayerState(initialPlayer, 1 / 60);
+    applyWorldState(initialPlayer, initialWorldState.dayTime, 1 / 60);
     scene.render();
 
     this.#renderLoop = new RenderLoop(this.#engineHost.engine, scene, {
@@ -280,18 +294,24 @@ export class GameApp {
         session.submitCommand(command);
       },
       fixedUpdate: (stepSeconds) => session.step(stepSeconds),
-      renderUpdate: (frameSeconds) => applyPlayerState(session.getWorldState().player, frameSeconds),
+      renderUpdate: (frameSeconds) => {
+        const worldState = session.getWorldState();
+        applyWorldState(worldState.player, worldState.dayTime, frameSeconds);
+      },
     });
     this.#renderLoop.start();
   }
 
   public dispose(): void {
-    document.body.classList.remove('camera-third-person', 'inventory-open');
+    document.body.classList.remove('camera-third-person', 'inventory-open', 'player-damaged');
     this.#canvas.removeAttribute('data-camera-mode');
     this.#canvas.removeAttribute('data-held-item');
     this.#canvas.removeAttribute('data-player-pitch');
     this.#canvas.removeAttribute('data-has-target');
     this.#canvas.removeAttribute('data-inventory-open');
+    this.#canvas.removeAttribute('data-player-health');
+    this.#canvas.removeAttribute('data-day-time');
+    this.#canvas.removeAttribute('data-death-count');
     this.#lastCameraMode = null;
     this.#lastHeldItem = undefined;
     this.#inventoryView?.dispose();
@@ -347,11 +367,16 @@ export class GameApp {
 
   #syncPresentationDiagnostics(
     player: PlayerState,
+    dayTime: number,
     heldItem: ItemType | null,
     hasTarget: boolean,
   ): void {
     this.#canvas.dataset.playerPitch = player.pitch.toFixed(4);
     this.#canvas.dataset.hasTarget = String(hasTarget);
+    this.#canvas.dataset.playerHealth = String(player.health);
+    this.#canvas.dataset.dayTime = dayTime.toFixed(4);
+    this.#canvas.dataset.deathCount = String(player.deathCount);
+    document.body.classList.toggle('player-damaged', player.damageTaken > 0);
     if (heldItem !== this.#lastHeldItem) {
       this.#lastHeldItem = heldItem;
       this.#canvas.dataset.heldItem = heldItem ?? 'empty';
@@ -360,6 +385,7 @@ export class GameApp {
 
   #updateHud(
     player: PlayerState,
+    dayTime: number,
     world: VoxelWorldStats,
     selectedItem: ItemType | null,
     breakProgress: number,
@@ -376,21 +402,24 @@ export class GameApp {
     const queueLabel = world.pendingChunks > 0 ? ` · 队列 ${String(world.pendingChunks)}` : '';
     const dropLabel = activeDrops > 0 ? ` · 掉落 ${String(activeDrops)}` : '';
     const breakLabel = breakProgress > 0 ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%` : '';
+    const survivalLabel = `生命 ${String(player.health)}/${String(player.maximumHealth)} · ${formatDayTime(dayTime)}`;
     if (inventoryOpen) {
-      this.#ui.status.textContent = '背包已打开 · E 或 Esc 关闭';
+      this.#ui.status.textContent = `${inventoryOpen ? '界面已打开' : '背包'} · ${survivalLabel} · E 或 Esc 关闭`;
     } else if (awaitingPointerLock) {
-      this.#ui.status.textContent = player.paused ? '已暂停 · 点击画面继续' : '点击锁定鼠标，或按住画面拖动观察';
+      this.#ui.status.textContent = player.paused
+        ? `已暂停 · ${survivalLabel} · 点击画面继续`
+        : `${survivalLabel} · 点击锁定鼠标，或按住画面拖动观察`;
     } else {
       this.#ui.status.textContent = player.paused
-        ? '已暂停'
+        ? `已暂停 · ${survivalLabel}`
         : [
-            '探索中',
+            survivalLabel,
             `${worldProgress} 区块${queueLabel}`,
             `${formatCount(world.visibleQuads)} 四边形${dropLabel}`,
             `${Math.round(this.#smoothedFps).toString()} FPS${breakLabel}`,
           ].join(' · ');
     }
-    this.#ui.viewMode.textContent = `${player.cameraMode === 'first-person' ? '第一人称' : '第三人称'} · ${getItemLabel(selectedItem)}`;
+    this.#ui.viewMode.textContent = `${player.cameraMode === 'first-person' ? '第一人称' : '第三人称'} · ${getItemLabel(selectedItem)}${player.deathCount > 0 ? ` · 重生 ${String(player.deathCount)}` : ''}`;
     this.#ui.position.textContent = [
       player.position.x.toFixed(1),
       player.position.y.toFixed(1),
