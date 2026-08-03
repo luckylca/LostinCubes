@@ -6,6 +6,7 @@ import type {
 import { executeChunkBuild } from './ChunkBuildTask';
 
 type ChunkBuildInput = Omit<ChunkBuildRequest, 'type' | 'requestId'>;
+type WorkerFactory = () => Worker;
 
 export interface ChunkBuildOptions {
   readonly jobKey: string;
@@ -40,6 +41,12 @@ function getDefaultWorkerCount(): number {
   return Math.min(2, Math.max(1, Math.floor(hardwareThreads / 2)));
 }
 
+function createChunkWorker(): Worker {
+  return new Worker(new URL('./ChunkBuildWorker.ts', import.meta.url), {
+    type: 'module',
+  });
+}
+
 function compareBuilds(left: QueuedBuild, right: QueuedBuild): number {
   return left.priority - right.priority || left.sequence - right.sequence;
 }
@@ -49,18 +56,23 @@ export class ChunkWorkerPool {
   readonly #slots: WorkerSlot[] = [];
   readonly #queue: QueuedBuild[] = [];
   readonly #fallbackPending = new Map<string, QueuedBuild>();
+  readonly #workerFactory: WorkerFactory;
   #nextRequestId = 1;
   #nextSequence = 1;
   #disposed = false;
   #fallback = false;
   #cancelledCount = 0;
 
-  public constructor(workerCount = getDefaultWorkerCount()) {
+  public constructor(
+    workerCount = getDefaultWorkerCount(),
+    workerFactory: WorkerFactory = createChunkWorker,
+  ) {
     if (!Number.isInteger(workerCount) || workerCount < 1) {
       throw new RangeError('workerCount must be a positive integer.');
     }
+    this.#workerFactory = workerFactory;
 
-    if (typeof Worker === 'undefined') {
+    if (typeof Worker === 'undefined' && workerFactory === createChunkWorker) {
       this.#fallback = true;
       return;
     }
@@ -113,8 +125,7 @@ export class ChunkWorkerPool {
       this.#nextSequence += 1;
 
       if (this.#fallback) {
-        this.#fallbackPending.set(build.jobKey, build);
-        queueMicrotask(() => this.#runFallback(build));
+        this.#enqueueFallback(build);
         return;
       }
 
@@ -154,7 +165,11 @@ export class ChunkWorkerPool {
       slot.current = null;
       current.reject(cancellation);
       slot.worker.terminate();
-      this.#slots[index] = this.#createSlot();
+      try {
+        this.#slots[index] = this.#createSlot();
+      } catch (error: unknown) {
+        this.#activateFallback(error);
+      }
       cancelled += 1;
     }
 
@@ -202,6 +217,10 @@ export class ChunkWorkerPool {
     return this.#cancelledCount;
   }
 
+  public get usesSynchronousFallback(): boolean {
+    return this.#fallback;
+  }
+
   public dispose(): void {
     if (this.#disposed) {
       return;
@@ -224,18 +243,35 @@ export class ChunkWorkerPool {
   }
 
   #createSlot(): WorkerSlot {
-    const worker = new Worker(new URL('./ChunkBuildWorker.ts', import.meta.url), {
-      type: 'module',
-    });
+    const worker = this.#workerFactory();
     const slot: WorkerSlot = { worker, current: null };
     worker.addEventListener('message', (event: MessageEvent<ChunkBuildResponse>) => {
       this.#handleMessage(slot, event.data);
     });
     worker.addEventListener('error', (event: ErrorEvent) => {
       event.preventDefault();
-      this.#handleWorkerError(slot, new Error(event.message));
+      const message = event.message.trim();
+      this.#handleWorkerError(
+        slot,
+        new Error(
+          message.length > 0
+            ? message
+            : 'Chunk worker failed without an error message.',
+        ),
+      );
+    });
+    worker.addEventListener('messageerror', () => {
+      this.#handleWorkerError(
+        slot,
+        new Error('Chunk worker returned an unreadable message.'),
+      );
     });
     return slot;
+  }
+
+  #enqueueFallback(build: QueuedBuild): void {
+    this.#fallbackPending.set(build.jobKey, build);
+    queueMicrotask(() => this.#runFallback(build));
   }
 
   #runFallback(build: QueuedBuild): void {
@@ -265,21 +301,41 @@ export class ChunkWorkerPool {
   }
 
   #handleWorkerError(slot: WorkerSlot, error: Error): void {
-    const index = this.#slots.indexOf(slot);
-    if (index < 0) {
+    if (!this.#slots.includes(slot) || this.#disposed) {
       return;
     }
-    slot.current?.reject(error);
-    slot.current = null;
-    slot.worker.terminate();
-    if (!this.#disposed) {
-      this.#slots[index] = this.#createSlot();
+    this.#activateFallback(error);
+  }
+
+  #activateFallback(error: unknown): void {
+    if (this.#fallback || this.#disposed) {
+      return;
     }
-    this.#pump();
+    console.warn(
+      'Chunk worker failed at runtime; continuing with synchronous generation.',
+      error,
+    );
+    this.#fallback = true;
+
+    const pending: QueuedBuild[] = [];
+    for (const slot of this.#slots) {
+      if (slot.current !== null) {
+        pending.push(slot.current);
+        slot.current = null;
+      }
+      slot.worker.terminate();
+    }
+    this.#slots.length = 0;
+    pending.push(...this.#queue.splice(0));
+    pending.sort(compareBuilds);
+
+    for (const build of pending) {
+      this.#enqueueFallback(build);
+    }
   }
 
   #pump(): void {
-    if (this.#disposed) {
+    if (this.#disposed || this.#fallback) {
       return;
     }
     for (const slot of this.#slots) {

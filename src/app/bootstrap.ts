@@ -9,10 +9,18 @@ function requireElement(selector: string): HTMLElement {
 }
 
 function describeError(error: unknown): string {
-  if (error instanceof Error && error.message.length > 0) {
-    return error.message;
+  if (error instanceof Error) {
+    const name = error.name.trim() || 'Error';
+    const message = error.message.trim();
+    if (message.length > 0 && message !== name) {
+      return `${name}: ${message}`;
+    }
+    return `${name}（浏览器未提供详细原因）`;
   }
-  return String(error);
+  const description = String(error).trim();
+  return description.length > 0
+    ? description
+    : '未知错误（浏览器未提供详细原因）';
 }
 
 export async function bootstrap(): Promise<void> {

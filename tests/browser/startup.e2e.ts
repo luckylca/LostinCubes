@@ -105,3 +105,60 @@ test('boots the forest, crafts in inventory, and preserves camera controls', asy
 
   expect(runtimeErrors).toEqual([]);
 });
+
+test('falls back to synchronous terrain when module workers fail', async ({
+  page,
+}) => {
+  const runtimeErrors: string[] = [];
+  const runtimeWarnings: string[] = [];
+  page.on('pageerror', (error) => runtimeErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      runtimeErrors.push(message.text());
+    }
+    if (message.type() === 'warning') {
+      runtimeWarnings.push(message.text());
+    }
+  });
+
+  await page.addInitScript(() => {
+    class RuntimeFailingWorker extends EventTarget {
+      public postMessage(): void {
+        queueMicrotask(() => {
+          this.dispatchEvent(
+            new ErrorEvent('error', {
+              cancelable: true,
+              message: 'Error',
+            }),
+          );
+        });
+      }
+
+      public terminate(): void {
+        // The fake worker has no external process to terminate.
+      }
+    }
+
+    Object.defineProperty(window, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: RuntimeFailingWorker,
+    });
+  });
+
+  await page.goto('./', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('html')).toHaveAttribute('data-game-state', 'ready', {
+    timeout: 45_000,
+  });
+  await expect(page.locator('#game-hud')).toBeVisible();
+  await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
+  await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
+  expect(
+    runtimeWarnings.some((message) =>
+      message.includes(
+        'Chunk worker failed at runtime; continuing with synchronous generation.',
+      ),
+    ),
+  ).toBe(true);
+  expect(runtimeErrors).toEqual([]);
+});

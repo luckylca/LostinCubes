@@ -11,6 +11,39 @@ const BUILD_INPUT = {
   modifications: [],
 } as const;
 
+class RuntimeFailingWorker {
+  readonly #listeners = new Map<string, EventListenerOrEventListenerObject[]>();
+
+  public addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+  ): void {
+    const listeners = this.#listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.#listeners.set(type, listeners);
+  }
+
+  public postMessage(): void {
+    queueMicrotask(() => {
+      const event = {
+        message: 'Error',
+        preventDefault: () => undefined,
+      } as ErrorEvent;
+      for (const listener of this.#listeners.get('error') ?? []) {
+        if (typeof listener === 'function') {
+          listener(event);
+        } else {
+          listener.handleEvent(event);
+        }
+      }
+    });
+  }
+
+  public terminate(): void {
+    // The fake worker has no external resources to release.
+  }
+}
+
 describe('ChunkWorkerPool', () => {
   it('replaces an older build with the same stable job key', async () => {
     const pool = new ChunkWorkerPool(1);
@@ -45,6 +78,23 @@ describe('ChunkWorkerPool', () => {
     expect(pool.cancelExcept(new Set(['keep']))).toBe(1);
     expect(await removedResult).toBeInstanceOf(ChunkBuildCancelledError);
     await expect(retained).resolves.toMatchObject({ chunkX: 1 });
+    pool.dispose();
+  });
+
+  it('continues synchronously when a runtime worker error occurs', async () => {
+    const pool = new ChunkWorkerPool(
+      1,
+      () => new RuntimeFailingWorker() as unknown as Worker,
+    );
+
+    await expect(
+      pool.buildChunk(BUILD_INPUT, { jobKey: 'runtime-failure', priority: 0 }),
+    ).resolves.toMatchObject({
+      type: 'chunk-built',
+      chunkX: 0,
+      chunkZ: 0,
+    });
+    expect(pool.usesSynchronousFallback).toBe(true);
     pool.dispose();
   });
 });
