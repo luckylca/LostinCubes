@@ -1,10 +1,6 @@
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
-import {
-  CHUNK_HEIGHT,
-  CHUNK_SIZE,
-  VoxelChunk,
-} from './VoxelChunk';
+import { CHUNK_HEIGHT, CHUNK_SIZE, VoxelChunk } from './VoxelChunk';
 
 const UINT32_MAX = 4_294_967_295;
 const PLAYER_FOOT_OFFSET = 0.9;
@@ -13,6 +9,7 @@ const TREE_CHANCE = 0.52;
 const TREE_STRUCTURE_HEIGHT = 8;
 const SPAWN_CLEAR_RADIUS = 6.5;
 const MAXIMUM_CANOPY_RADIUS = 2;
+const CAVE_SURFACE_BUFFER = 4;
 
 interface TreeAnchor {
   readonly x: number;
@@ -38,6 +35,15 @@ function hashCoordinate(x: number, z: number, seed: number): number {
   return ((hash ^ (hash >>> 16)) >>> 0) / UINT32_MAX;
 }
 
+function hashCoordinate3d(x: number, y: number, z: number, seed: number): number {
+  let hash = seed;
+  hash ^= Math.imul(x, 374_761_393);
+  hash ^= Math.imul(y, 1_274_126_177);
+  hash ^= Math.imul(z, 668_265_263);
+  hash = Math.imul(hash ^ (hash >>> 15), 2_246_822_519);
+  return ((hash ^ (hash >>> 16)) >>> 0) / UINT32_MAX;
+}
+
 function smoothStep(value: number): number {
   return value * value * (3 - 2 * value);
 }
@@ -46,19 +52,13 @@ function interpolate(start: number, end: number, amount: number): number {
   return start + (end - start) * amount;
 }
 
-function sampleValueNoise(
-  worldX: number,
-  worldZ: number,
-  scale: number,
-  seed: number,
-): number {
+function sampleValueNoise(worldX: number, worldZ: number, scale: number, seed: number): number {
   const scaledX = worldX / scale;
   const scaledZ = worldZ / scale;
   const minimumX = Math.floor(scaledX);
   const minimumZ = Math.floor(scaledZ);
   const blendX = smoothStep(scaledX - minimumX);
   const blendZ = smoothStep(scaledZ - minimumZ);
-
   const near = interpolate(
     hashCoordinate(minimumX, minimumZ, seed),
     hashCoordinate(minimumX + 1, minimumZ, seed),
@@ -72,6 +72,38 @@ function sampleValueNoise(
   return interpolate(near, far, blendZ);
 }
 
+function sampleValueNoise3d(
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+  scale: number,
+  seed: number,
+): number {
+  const scaledX = worldX / scale;
+  const scaledY = worldY / scale;
+  const scaledZ = worldZ / scale;
+  const x0 = Math.floor(scaledX);
+  const y0 = Math.floor(scaledY);
+  const z0 = Math.floor(scaledZ);
+  const tx = smoothStep(scaledX - x0);
+  const ty = smoothStep(scaledY - y0);
+  const tz = smoothStep(scaledZ - z0);
+  const layer = (y: number): number => {
+    const near = interpolate(
+      hashCoordinate3d(x0, y, z0, seed),
+      hashCoordinate3d(x0 + 1, y, z0, seed),
+      tx,
+    );
+    const far = interpolate(
+      hashCoordinate3d(x0, y, z0 + 1, seed),
+      hashCoordinate3d(x0 + 1, y, z0 + 1, seed),
+      tx,
+    );
+    return interpolate(near, far, tz);
+  };
+  return interpolate(layer(y0), layer(y0 + 1), ty);
+}
+
 export class TerrainGenerator {
   readonly #seed: number;
 
@@ -81,31 +113,16 @@ export class TerrainGenerator {
 
   public sampleSurfaceHeight(worldX: number, worldZ: number): number {
     const continent = sampleValueNoise(worldX, worldZ, 48, this.#seed);
-    const hills = sampleValueNoise(
-      worldX,
-      worldZ,
-      18,
-      this.#seed ^ 0x9e3779b9,
-    );
-    const detail = sampleValueNoise(
-      worldX,
-      worldZ,
-      7,
-      this.#seed ^ 0x85ebca6b,
-    );
+    const hills = sampleValueNoise(worldX, worldZ, 18, this.#seed ^ 0x9e3779b9);
+    const detail = sampleValueNoise(worldX, worldZ, 7, this.#seed ^ 0x85ebca6b);
     const height = Math.floor(4 + continent * 5 + hills * 3 + detail * 1.5);
     return Math.min(Math.max(height, 2), CHUNK_HEIGHT - TREE_STRUCTURE_HEIGHT);
   }
 
-  public sampleBlock(
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ): BlockTypeValue {
+  public sampleBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue {
     if (worldY < 0 || worldY >= CHUNK_HEIGHT) {
       return BlockType.Air;
     }
-
     const terrainBlock = this.#sampleTerrainBlock(worldX, worldY, worldZ);
     if (terrainBlock !== BlockType.Air) {
       return terrainBlock;
@@ -116,26 +133,17 @@ export class TerrainGenerator {
   public sampleStandingY(worldX: number, worldZ: number): number {
     const blockX = Math.floor(worldX);
     const blockZ = Math.floor(worldZ);
-    return (
-      this.sampleSurfaceHeight(blockX, blockZ) +
-      0.5 +
-      PLAYER_FOOT_OFFSET
-    );
+    return this.sampleSurfaceHeight(blockX, blockZ) + 0.5 + PLAYER_FOOT_OFFSET;
   }
 
   public generateChunk(chunkX: number, chunkZ: number): VoxelChunk {
     const chunk = new VoxelChunk(chunkX, chunkZ);
-
     for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
       for (let localZ = 0; localZ < CHUNK_SIZE; localZ += 1) {
         const worldX = chunkX * CHUNK_SIZE + localX;
         const worldZ = chunkZ * CHUNK_SIZE + localZ;
         const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
-        const maximumY = Math.min(
-          CHUNK_HEIGHT - 1,
-          surfaceHeight + TREE_STRUCTURE_HEIGHT,
-        );
-
+        const maximumY = Math.min(CHUNK_HEIGHT - 1, surfaceHeight + TREE_STRUCTURE_HEIGHT);
         for (let localY = 0; localY <= maximumY; localY += 1) {
           const block = this.sampleBlock(worldX, localY, worldZ);
           if (block !== BlockType.Air) {
@@ -144,24 +152,23 @@ export class TerrainGenerator {
         }
       }
     }
-
     return chunk;
   }
 
-  #sampleTerrainBlock(
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ): BlockTypeValue {
+  #sampleTerrainBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue {
     const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
-    if (worldY > surfaceHeight) {
-      return BlockType.Air;
+    if (worldY > surfaceHeight) return BlockType.Air;
+    if (worldY === surfaceHeight) return BlockType.Grass;
+    if (worldY >= surfaceHeight - 2) return BlockType.Dirt;
+    if (this.#isCave(worldX, worldY, worldZ, surfaceHeight)) return BlockType.Air;
+
+    const oreNoise = sampleValueNoise3d(worldX, worldY, worldZ, 2.4, this.#seed ^ 0x52dce729);
+    const oreDetail = hashCoordinate3d(worldX, worldY, worldZ, this.#seed ^ 0x38495ab5);
+    if (worldY <= 12 && oreNoise > 0.69 && oreDetail > 0.34) {
+      return BlockType.IronOre;
     }
-    if (worldY === surfaceHeight) {
-      return BlockType.Grass;
-    }
-    if (worldY >= surfaceHeight - 2) {
-      return BlockType.Dirt;
+    if (worldY <= 22 && oreNoise < 0.31 && oreDetail > 0.25) {
+      return BlockType.CoalOre;
     }
 
     const runeChance = hashCoordinate(
@@ -172,38 +179,32 @@ export class TerrainGenerator {
     return runeChance > 0.997 ? BlockType.RuneStone : BlockType.Stone;
   }
 
-  #sampleTreeBlock(
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ): BlockTypeValue {
+  #isCave(worldX: number, worldY: number, worldZ: number, surfaceHeight: number): boolean {
+    if (worldY <= 1 || worldY > surfaceHeight - CAVE_SURFACE_BUFFER) {
+      return false;
+    }
+    const broad = sampleValueNoise3d(worldX, worldY * 1.35, worldZ, 9, this.#seed ^ 0x7f4a7c15);
+    const detail = sampleValueNoise3d(worldX, worldY, worldZ, 4.2, this.#seed ^ 0x94d049bb);
+    const depthBias = Math.min(Math.max((surfaceHeight - worldY) / 18, 0), 1) * 0.045;
+    return broad * 0.72 + detail * 0.28 > 0.72 - depthBias;
+  }
+
+  #sampleTreeBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue {
     const cellX = Math.floor(worldX / TREE_CELL_SIZE);
     const cellZ = Math.floor(worldZ / TREE_CELL_SIZE);
     let leafCandidate = false;
-
     for (let offsetZ = -1; offsetZ <= 1; offsetZ += 1) {
       for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
         const anchor = this.#getTreeAnchor(cellX + offsetX, cellZ + offsetZ);
-        if (anchor === null) {
-          continue;
-        }
+        if (anchor === null) continue;
         const deltaX = worldX - anchor.x;
         const deltaZ = worldZ - anchor.z;
         const trunkTop = anchor.baseY + anchor.trunkHeight - 1;
-
-        if (
-          deltaX === 0 &&
-          deltaZ === 0 &&
-          worldY >= anchor.baseY &&
-          worldY <= trunkTop
-        ) {
+        if (deltaX === 0 && deltaZ === 0 && worldY >= anchor.baseY && worldY <= trunkTop) {
           return BlockType.OakLog;
         }
-
         const vertical = worldY - trunkTop;
-        if (vertical < -2 || vertical > 1) {
-          continue;
-        }
+        if (vertical < -2 || vertical > 1) continue;
         const radius = vertical === 1 || vertical === -2 ? 1 : 2;
         if (
           Math.abs(deltaX) <= radius &&
@@ -219,35 +220,14 @@ export class TerrainGenerator {
 
   #getTreeAnchor(cellX: number, cellZ: number): TreeAnchor | null {
     const chance = hashCoordinate(cellX, cellZ, this.#seed ^ 0x1b873593);
-    if (chance > TREE_CHANCE) {
-      return null;
-    }
-    const xOffset = Math.floor(
-      hashCoordinate(cellX, cellZ, this.#seed ^ 0x27d4eb2d) * TREE_CELL_SIZE,
-    );
-    const zOffset = Math.floor(
-      hashCoordinate(cellX, cellZ, this.#seed ^ 0x165667b1) * TREE_CELL_SIZE,
-    );
+    if (chance > TREE_CHANCE) return null;
+    const xOffset = Math.floor(hashCoordinate(cellX, cellZ, this.#seed ^ 0x27d4eb2d) * TREE_CELL_SIZE);
+    const zOffset = Math.floor(hashCoordinate(cellX, cellZ, this.#seed ^ 0x165667b1) * TREE_CELL_SIZE);
     const x = cellX * TREE_CELL_SIZE + xOffset;
     const z = cellZ * TREE_CELL_SIZE + zOffset;
-
-    // Reserve the full spawn clearing plus the widest two-block leaf canopy.
-    if (
-      Math.hypot(x, z - 3.5) <
-      SPAWN_CLEAR_RADIUS + MAXIMUM_CANOPY_RADIUS
-    ) {
-      return null;
-    }
-
+    if (Math.hypot(x, z - 3.5) < SPAWN_CLEAR_RADIUS + MAXIMUM_CANOPY_RADIUS) return null;
     const surfaceY = this.sampleSurfaceHeight(x, z);
-    const trunkHeight =
-      4 +
-      Math.floor(hashCoordinate(cellX, cellZ, this.#seed ^ 0x85ebca77) * 2);
-    return {
-      x,
-      z,
-      baseY: surfaceY + 1,
-      trunkHeight,
-    };
+    const trunkHeight = 4 + Math.floor(hashCoordinate(cellX, cellZ, this.#seed ^ 0x85ebca77) * 2);
+    return { x, z, baseY: surfaceY + 1, trunkHeight };
   }
 }
