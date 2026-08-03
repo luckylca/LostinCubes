@@ -1,0 +1,128 @@
+body::after {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  content: "";
+  opacity: 0;
+  background: radial-gradient(circle, transparent 30%, rgb(190 24 24 / 48%));
+  transition: opacity 160ms ease-out;
+}
+
+body.player-damaged::after {
+  opacity: 1;
+  transition-duration: 20ms;
+}
+
+.item-coal-ore {
+  background:
+    radial-gradient(circle at 30% 34%, #111 0 12%, transparent 14%),
+    radial-gradient(circle at 68% 64%, #202020 0 14%, transparent 16%),
+    #737775;
+}
+
+.item-iron-ore {
+  background:
+    radial-gradient(circle at 28% 32%, #ae7658 0 13%, transparent 15%),
+    radial-gradient(circle at 69% 66%, #c58a67 0 14%, transparent 16%),
+    #777a78;
+}
+
+.item-furnace {
+  background:
+    linear-gradient(#777b79 0 18%, transparent 20%),
+    radial-gradient(ellipse at 50% 72%, #191b1a 0 27%, #555957 29% 38%, transparent 40%),
+    #686c6a;
+}
+
+.item-coal,
+.item-raw-iron,
+.item-iron-ingot {
+  border: 0;
+  box-shadow: none;
+}
+
+.item-coal {
+  border-radius: 45% 52% 40% 55%;
+  background: linear-gradient(145deg, #333, #080909 70%);
+}
+
+.item-raw-iron {
+  border-radius: 38% 52% 44% 47%;
+  background:
+    radial-gradient(circle at 32% 30%, #d19a76 0 14%, transparent 16%),
+    linear-gradient(145deg, #96644d, #4f3b32);
+}
+
+.item-iron-ingot {
+  height: 0.82rem;
+  margin-top: 0.38rem;
+  transform: skewX(-12deg);
+  border-radius: 0.12rem;
+  background: linear-gradient(#eef1ef, #979d99 72%, #686d6a);
+}
+
+.item-iron-shovel,
+.item-iron-pickaxe,
+.item-iron-axe {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  rotate: -38deg;
+}
+
+.item-iron-shovel::before,
+.item-iron-pickaxe::before,
+.item-iron-axe::before {
+  position: absolute;
+  top: 0.14rem;
+  left: 0.76rem;
+  width: 0.22rem;
+  height: 1.48rem;
+  border-radius: 0.1rem;
+  content: "";
+  background: #8b5a32;
+  box-shadow: inset -0.06rem 0 0 rgb(0 0 0 / 22%);
+}
+
+.item-iron-pickaxe::after {
+  position: absolute;
+  top: 0.05rem;
+  left: 0.12rem;
+  width: 1.5rem;
+  height: 0.34rem;
+  border-radius: 50% 50% 0.1rem 0.1rem;
+  content: "";
+  background: linear-gradient(#f3f5f4, #a7adaa);
+}
+
+.item-iron-shovel::after {
+  position: absolute;
+  right: 0.06rem;
+  bottom: 0.02rem;
+  width: 0.78rem;
+  height: 0.66rem;
+  border-radius: 0.16rem 0.16rem 0.34rem 0.34rem;
+  content: "";
+  background: linear-gradient(#f3f5f4, #a7adaa);
+}
+
+.item-iron-axe::after {
+  position: absolute;
+  top: 0.08rem;
+  left: 0.7rem;
+  width: 0.82rem;
+  height: 0.62rem;
+  border-radius: 0.12rem 0.35rem 0.12rem 0.12rem;
+  content: "";
+  background: linear-gradient(#f3f5f4, #a7adaa);
+}
+
+.inventory-screen[data-station="furnace"] .inventory-panel {
+  box-shadow: 0 0 0 1px rgb(255 151 63 / 24%), 0 1.5rem 4rem rgb(0 0 0 / 55%);
+}
+
+.inventory-screen[data-station="furnace"] .recipe-card:not(:disabled) {
+  border-color: rgb(255 153 72 / 55%);
+  background: linear-gradient(145deg, rgb(91 48 26 / 82%), rgb(35 30 27 / 94%));
+}

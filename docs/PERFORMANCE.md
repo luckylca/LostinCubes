@@ -8,16 +8,16 @@
 
 ## Voxel and structure pipeline
 
-Each visible 16×32×16 chunk is one Babylon mesh:
+Each visible 16×32×16 chunk remains one Babylon mesh:
 
-1. Reconstruct deterministic terrain and oak tree structures from the world seed.
+1. Reconstruct deterministic surface terrain, protected underground shell, caves, ore veins, and oak structures from the world seed.
 2. Overlay sparse player-authored modifications.
 3. Sample same-chunk and neighboring voxels for hidden-face removal.
 4. Greedily merge coplanar faces with the same block type and normal.
 5. Build typed position, normal, color, and index buffers in a Worker.
 6. Transfer buffers without copying and upload at most two chunk meshes per frame.
 
-Trees remain ordinary log and leaf voxels. They do not create individual Babylon meshes, physics bodies, or persistent structure records. Tree sampling is skipped for all voxels at or below the local terrain surface, avoiding the structure-neighborhood search in most underground generation work.
+Caves and ores are sampled directly from deterministic 3D value noise. They do not create cave objects, ore entities, physics bodies, or persistent generation records. Trees remain ordinary log and leaf voxels and also introduce no per-tree meshes.
 
 ## Streaming and Worker budgets
 
@@ -26,29 +26,43 @@ Trees remain ordinary log and leaf voxels. They do not create individual Babylon
 - Scheduling: stable nearest-first Manhattan priority.
 - Newer builds replace older builds for the same chunk key.
 - Moving the desired window removes queued obsolete jobs and terminates active obsolete jobs.
-- Terminated Worker slots are replaced immediately.
+- Runtime Worker errors migrate active and queued work to deterministic synchronous generation instead of aborting startup.
 - Revision checks reject any result that races an edit or view change.
 - Cancellation is expected control flow and is excluded from error logs.
 
-## Collision and targeting budgets
+## Collision, targeting, and survival budgets
 
 - Player collision samples only integer voxels overlapped by the compact body.
 - Typical overlap checks inspect roughly a 2×3×2 neighborhood.
 - Movement substeps are at most 0.2 block.
 - X and Z resolve independently for sliding.
 - Vertical binary search runs only after blocked movement.
-- Trees, crafting tables, caves, and player structures automatically participate in collision.
+- Trees, ores, furnaces, caves, and player structures use the same voxel collision query.
 - Interaction uses voxel DDA from the player eye rather than triangle picking.
+- Fall damage stores only the maximum downward speed during the current airborne interval and resolves once on landing.
+- Health, respawn, and the three-minute day clock advance in the existing fixed-step session without separate timers.
 
-## Inventory and crafting budgets
+## Lighting budget
+
+Day/night uses the existing scene lights rather than creating dynamic lights:
+
+- one hemispheric light
+- one directional sun
+- one sky/fog color update per rendered frame
+- no shadow maps, skybox textures, volumetric lighting, or post-processing pipeline
+
+The update mutates existing colors, intensity, and direction values. It does not allocate a new light or material every frame.
+
+## Inventory, crafting, and furnace budgets
 
 The inventory is a fixed 36-slot array: 27 storage slots and nine hotbar slots.
 
-- Normal gameplay frames compare a monotonically increasing inventory revision.
+- Normal frames compare a monotonically increasing inventory revision.
 - Hotbar DOM, inventory DOM, and local-storage serialization update only after a real mutation.
-- The inventory overlay creates at most 36 slot buttons and nine recipe buttons while open.
-- Closing the overlay performs a bounded 36-slot cursor-return scan.
-- Recipe availability scans at most 36 slots per ingredient; current recipes contain small ingredient lists.
+- The overlay creates at most 36 slot buttons plus the currently visible recipe cards.
+- Closing performs a bounded 36-slot cursor-return scan.
+- Recipe availability scans at most 36 slots per ingredient.
+- Furnace smelting uses the same atomic ingredient aggregation as crafting; it does not run a background furnace simulation.
 - Legacy saves are normalized once and written back as version 3.
 
 ## Drop, particle, and audio budgets
@@ -56,12 +70,13 @@ The inventory is a fixed 36-slot array: 27 storage slots and nine hotbar slots.
 ### Ground drops
 
 - Maximum visible entities: 96.
-- Maximum items represented per entity: 64.
-- Same-block entities merge within 1.25 blocks before another mesh activates.
+- Maximum items represented per entity follows the item definition: 64 for blocks/materials and one for tools.
+- Nearby identical items merge within 1.25 blocks before another mesh activates.
 - Physics clamps frame time and subdivides vertical movement.
 - Pickup attraction only runs within 2.5 blocks.
 - Drop snapshots save at most 96 records every two seconds and on page exit.
-- Each snapshot stores only block, count, position, and grounded state.
+- Each snapshot stores only item identity, count, position, and grounded state.
+- Materials are created lazily per encountered item and shared by all drops of that item.
 
 ### Break particles
 
@@ -72,20 +87,22 @@ The inventory is a fixed 36-slot array: 27 storage slots and nine hotbar slots.
 
 ### Audio
 
-Break, placement, pickup, and crafting sounds use short Web Audio oscillator envelopes. There are no downloaded sound assets, decode queues, or long-lived source nodes. Audio creation is lazy after a user gesture and safely becomes a no-op when unsupported.
+Break, placement, pickup, and crafting/smelting sounds use short Web Audio oscillator envelopes. There are no downloaded sound assets, decode queues, or long-lived source nodes. Audio creation is lazy after a user gesture and safely becomes a no-op when unsupported.
 
 ## Persistence and memory
 
-- Generated terrain and trees are never stored.
+- Generated terrain, caves, ore veins, and trees are never stored.
 - IndexedDB stores only sparse voxel differences from deterministic generation.
 - Inventory and drop snapshots are small world-scoped local-storage values.
-- Invalid persisted items and drops are clamped or ignored.
+- Ground-drop persistence migrated from numeric block IDs to item identities while retaining legacy restore support.
+- Invalid persisted item, block, voxel, and drop identifiers are ignored.
 - Modifications matching generated terrain are deleted from the sparse delta layer.
+- Health, day time, and death count are session-only and do not add storage writes yet.
 
 ## Frame and allocation rules
 
 - Simulation uses a fixed step with bounded catch-up.
-- Chunk generation and meshing do not run in the render callback.
+- Chunk generation and meshing do not normally run in the render callback.
 - Shared block, player, held-item, drop, and particle materials are frozen.
 - Chunk world matrices are frozen after placement.
 - Held-item geometry rebuilds only when selection changes.
@@ -97,14 +114,14 @@ Break, placement, pickup, and crafting sounds use short Web Audio oscillator env
 CI performs:
 
 1. Strict TypeScript and ESLint.
-2. Vitest coverage for terrain, deterministic forests, greedy meshing, collision, targeting, inventory migration and manipulation, crafting, drops, persistence, held items, and Worker cancellation.
+2. Vitest coverage for deterministic terrain/caves/ores, surface protection, greedy meshing, collision, targeting, inventory and drop migration, crafting/smelting, harvest tiers, held items, fall damage, respawn, day time, and Worker cancellation/fallback.
 3. A Vite production build including the terrain Worker.
-4. A Playwright Chromium run with software WebGL that boots the production page, restores a 36-slot inventory, opens the inventory with E, crafts and stores an output, closes the menu, verifies downward targeting, switches camera mode, and rejects page or console errors.
+4. Playwright Chromium runs with software WebGL that restore a 36-slot survival inventory, verify iron-tool rendering and health/time diagnostics, craft and store an output, preserve downward targeting/camera switching, and force Worker runtime failure without preventing startup.
 
 ## Next performance work
 
-- Profile deterministic tree sampling and mesh size on representative Android hardware.
+- Profile 3D cave/ore sampling and mesh size on representative Android hardware.
 - Add distance-tiered foliage or chunk LOD before increasing view radius.
 - Record main-thread frame-time percentiles while rapidly crossing chunk boundaries.
-- Measure local-storage write cost after large drop populations.
-- Add quality settings for particles, fog distance, render scale, and view radius.
+- Measure local-storage write cost after large mixed-item drop populations.
+- Add quality settings for particles, fog distance, render scale, view radius, and day/night updates.

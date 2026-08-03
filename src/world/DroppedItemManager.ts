@@ -1,17 +1,15 @@
-import {
-  Color3,
-  MeshBuilder,
-  StandardMaterial,
-} from '@babylonjs/core';
+import { Color3, MeshBuilder, StandardMaterial } from '@babylonjs/core';
 import type { Mesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
-import { BlockType } from './BlockType';
-import type { BlockType as BlockTypeValue } from './BlockType';
-import { getBlockItemColor } from './BlockVisuals';
+import {
+  getItemColor,
+  getItemDefinition,
+  isItemType,
+} from '../inventory/ItemDefinitions';
+import type { ItemType } from '../inventory/ItemDefinitions';
 import type { VoxelWorldData } from './VoxelWorldData';
 
 const MAXIMUM_DROPS = 96;
-const MAXIMUM_DROP_STACK = 64;
 const DROP_SIZE = 0.28;
 const DROP_HALF_SIZE = DROP_SIZE / 2;
 const GRAVITY = -18;
@@ -20,21 +18,11 @@ const ATTRACTION_RADIUS = 2.5;
 const PICKUP_RADIUS = 0.58;
 const MERGE_RADIUS = 1.25;
 const MAXIMUM_LIFETIME_SECONDS = 300;
-const DROP_BLOCKS: readonly BlockTypeValue[] = [
-  BlockType.Grass,
-  BlockType.Dirt,
-  BlockType.Stone,
-  BlockType.RuneStone,
-  BlockType.OakLog,
-  BlockType.OakLeaves,
-  BlockType.OakPlanks,
-  BlockType.CraftingTable,
-];
 
 interface DropEntity {
   readonly mesh: Mesh;
   active: boolean;
-  block: BlockTypeValue;
+  item: ItemType;
   count: number;
   x: number;
   y: number;
@@ -46,7 +34,7 @@ interface DropEntity {
 }
 
 export interface DroppedItemSnapshot {
-  readonly block: BlockTypeValue;
+  readonly item: ItemType;
   readonly count: number;
   readonly x: number;
   readonly y: number;
@@ -55,35 +43,18 @@ export interface DroppedItemSnapshot {
 }
 
 export interface DroppedItemCallbacks {
-  readonly onPickup: (block: BlockTypeValue, count: number) => number;
-  readonly onPickupSucceeded?: (block: BlockTypeValue, count: number) => void;
+  readonly onPickup: (item: ItemType, count: number) => number;
+  readonly onPickupSucceeded?: (item: ItemType, count: number) => void;
 }
 
-function createMaterial(
-  name: string,
-  color: Color3,
-  scene: Scene,
-): StandardMaterial {
-  const material = new StandardMaterial(name, scene);
+function createMaterial(item: ItemType, scene: Scene): StandardMaterial {
+  const colorTuple = getItemColor(item);
+  const color = new Color3(colorTuple[0], colorTuple[1], colorTuple[2]);
+  const material = new StandardMaterial(`drop-${item}`, scene);
   material.diffuseColor = color;
   material.emissiveColor = color.scale(0.08);
   material.specularColor = Color3.Black();
   material.freeze();
-  return material;
-}
-
-function colorFromTuple(color: readonly [number, number, number]): Color3 {
-  return new Color3(color[0], color[1], color[2]);
-}
-
-function getMaterialForBlock(
-  block: BlockTypeValue,
-  materials: ReadonlyMap<BlockTypeValue, StandardMaterial>,
-): StandardMaterial {
-  const material = materials.get(block);
-  if (material === undefined) {
-    throw new Error(`No dropped-item material for block ${String(block)}.`);
-  }
   return material;
 }
 
@@ -101,47 +72,29 @@ function distanceSquared(
   return deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ;
 }
 
-/**
- * Fixed-capacity dropped-item pool. Meshes are reused, same-block drops merge,
- * and pickup returns any inventory overflow to the world instead of deleting it.
- */
 export class DroppedItemManager {
   readonly #scene: Scene;
   readonly #world: VoxelWorldData;
   readonly #callbacks: DroppedItemCallbacks;
-  readonly #materials: ReadonlyMap<BlockTypeValue, StandardMaterial>;
+  readonly #materials = new Map<ItemType, StandardMaterial>();
   readonly #drops: DropEntity[] = [];
   #nextPhase = 0;
 
-  public constructor(
-    scene: Scene,
-    world: VoxelWorldData,
-    callbacks: DroppedItemCallbacks,
-  ) {
+  public constructor(scene: Scene, world: VoxelWorldData, callbacks: DroppedItemCallbacks) {
     this.#scene = scene;
     this.#world = world;
     this.#callbacks = callbacks;
-    this.#materials = new Map<BlockTypeValue, StandardMaterial>(
-      DROP_BLOCKS.map((block) => [
-        block,
-        createMaterial(
-          `drop-${String(block)}`,
-          colorFromTuple(getBlockItemColor(block)),
-          scene,
-        ),
-      ]),
-    );
   }
 
   public spawn(
-    block: BlockTypeValue,
+    item: ItemType,
     worldX: number,
     worldY: number,
     worldZ: number,
     count = 1,
   ): number {
     if (
-      block === BlockType.Air ||
+      !isItemType(item) ||
       !Number.isInteger(count) ||
       count <= 0 ||
       !Number.isFinite(worldX) ||
@@ -151,37 +104,33 @@ export class DroppedItemManager {
       return count;
     }
 
+    const maximumStack = getItemDefinition(item).maximumStack;
     let remaining = count;
     for (const drop of this.#drops) {
       if (
         !drop.active ||
-        drop.block !== block ||
-        drop.count >= MAXIMUM_DROP_STACK ||
-        distanceSquared(drop.x, drop.y, drop.z, worldX, worldY, worldZ) >
-          MERGE_RADIUS * MERGE_RADIUS
+        drop.item !== item ||
+        drop.count >= maximumStack ||
+        distanceSquared(drop.x, drop.y, drop.z, worldX, worldY, worldZ) > MERGE_RADIUS * MERGE_RADIUS
       ) {
         continue;
       }
-      const accepted = Math.min(MAXIMUM_DROP_STACK - drop.count, remaining);
+      const accepted = Math.min(maximumStack - drop.count, remaining);
       drop.count += accepted;
       remaining -= accepted;
       drop.ageSeconds = Math.min(drop.ageSeconds, PICKUP_DELAY_SECONDS);
-      if (remaining === 0) {
-        return 0;
-      }
+      if (remaining === 0) return 0;
     }
 
     while (remaining > 0) {
-      const drop = this.#acquireDrop(block);
-      if (drop === null) {
-        return remaining;
-      }
-      const stackCount = Math.min(MAXIMUM_DROP_STACK, remaining);
+      const drop = this.#acquireDrop(item);
+      if (drop === null) return remaining;
+      const stackCount = Math.min(maximumStack, remaining);
       remaining -= stackCount;
       const phase = this.#nextPhase;
       this.#nextPhase += 1;
       this.#activateDrop(drop, {
-        block,
+        item,
         count: stackCount,
         x: worldX + Math.sin(phase * 2.31) * 0.12,
         y: worldY + 0.18,
@@ -198,7 +147,7 @@ export class DroppedItemManager {
   public restore(snapshots: readonly DroppedItemSnapshot[]): void {
     for (const snapshot of snapshots.slice(0, MAXIMUM_DROPS)) {
       if (
-        snapshot.block === BlockType.Air ||
+        !isItemType(snapshot.item) ||
         snapshot.count <= 0 ||
         !Number.isFinite(snapshot.x) ||
         !Number.isFinite(snapshot.y) ||
@@ -206,13 +155,11 @@ export class DroppedItemManager {
       ) {
         continue;
       }
-      const drop = this.#acquireDrop(snapshot.block);
-      if (drop === null) {
-        return;
-      }
+      const drop = this.#acquireDrop(snapshot.item);
+      if (drop === null) return;
       this.#activateDrop(drop, {
         ...snapshot,
-        count: Math.min(snapshot.count, MAXIMUM_DROP_STACK),
+        count: Math.min(snapshot.count, getItemDefinition(snapshot.item).maximumStack),
       });
       drop.velocityY = 0;
       drop.ageSeconds = PICKUP_DELAY_SECONDS;
@@ -222,54 +169,35 @@ export class DroppedItemManager {
   }
 
   public update(player: PlayerState, frameSeconds: number): void {
-    if (!Number.isFinite(frameSeconds) || frameSeconds <= 0) {
-      return;
-    }
+    if (!Number.isFinite(frameSeconds) || frameSeconds <= 0) return;
     const seconds = Math.min(frameSeconds, 0.1);
-
     for (const drop of this.#drops) {
-      if (!drop.active) {
-        continue;
-      }
+      if (!drop.active) continue;
       drop.ageSeconds += seconds;
       if (drop.ageSeconds >= MAXIMUM_LIFETIME_SECONDS || drop.y < -64) {
         this.#deactivate(drop);
         continue;
       }
-
-      if (
-        drop.ageSeconds >= PICKUP_DELAY_SECONDS &&
-        this.#attractAndPickup(drop, player, seconds)
-      ) {
+      if (drop.ageSeconds >= PICKUP_DELAY_SECONDS && this.#attractAndPickup(drop, player, seconds)) {
         continue;
       }
-
-      if (!drop.grounded) {
-        this.#advanceVertical(drop, seconds);
-      }
+      if (!drop.grounded) this.#advanceVertical(drop, seconds);
       drop.mesh.rotation.y += seconds * 1.8;
-      drop.mesh.rotation.x =
-        Math.sin(drop.ageSeconds * 1.4 + drop.phase) * 0.12;
-      const bob = drop.grounded
-        ? Math.sin(drop.ageSeconds * 3.2 + drop.phase) * 0.045
-        : 0;
+      drop.mesh.rotation.x = Math.sin(drop.ageSeconds * 1.4 + drop.phase) * 0.12;
+      const bob = drop.grounded ? Math.sin(drop.ageSeconds * 3.2 + drop.phase) * 0.045 : 0;
       this.#syncMesh(drop, bob);
     }
   }
 
   public get activeCount(): number {
-    let count = 0;
-    for (const drop of this.#drops) {
-      count += drop.active ? 1 : 0;
-    }
-    return count;
+    return this.#drops.reduce((count, drop) => count + (drop.active ? 1 : 0), 0);
   }
 
   public get snapshots(): readonly DroppedItemSnapshot[] {
     return this.#drops
       .filter((drop) => drop.active)
       .map((drop) => ({
-        block: drop.block,
+        item: drop.item,
         count: drop.count,
         x: drop.x,
         y: drop.y,
@@ -279,50 +207,57 @@ export class DroppedItemManager {
   }
 
   public dispose(): void {
-    for (const drop of this.#drops) {
-      drop.mesh.dispose(false, false);
-    }
+    for (const drop of this.#drops) drop.mesh.dispose(false, false);
     this.#drops.length = 0;
-    for (const material of this.#materials.values()) {
-      material.dispose();
-    }
+    for (const material of this.#materials.values()) material.dispose();
+    this.#materials.clear();
+  }
+
+  #materialFor(item: ItemType): StandardMaterial {
+    const existing = this.#materials.get(item);
+    if (existing !== undefined) return existing;
+    const material = createMaterial(item, this.#scene);
+    this.#materials.set(item, material);
+    return material;
   }
 
   #activateDrop(drop: DropEntity, snapshot: DroppedItemSnapshot): void {
     drop.active = true;
-    drop.block = snapshot.block;
+    drop.item = snapshot.item;
     drop.count = snapshot.count;
     drop.x = snapshot.x;
     drop.y = snapshot.y;
     drop.z = snapshot.z;
     drop.grounded = snapshot.grounded;
-    drop.mesh.material = getMaterialForBlock(snapshot.block, this.#materials);
-    drop.mesh.scaling.setAll(1);
+    drop.mesh.material = this.#materialFor(snapshot.item);
+    const definition = getItemDefinition(snapshot.item);
+    if (definition.kind === 'tool') {
+      drop.mesh.scaling.set(0.55, 1.35, 0.42);
+    } else if (definition.kind === 'material') {
+      drop.mesh.scaling.set(0.78, 0.5, 0.78);
+    } else {
+      drop.mesh.scaling.setAll(1);
+    }
     drop.mesh.setEnabled(true);
     this.#syncMesh(drop, 0);
   }
 
-  #acquireDrop(block: BlockTypeValue): DropEntity | null {
+  #acquireDrop(item: ItemType): DropEntity | null {
     const inactive = this.#drops.find((drop) => !drop.active);
-    if (inactive !== undefined) {
-      return inactive;
-    }
-    if (this.#drops.length >= MAXIMUM_DROPS) {
-      return null;
-    }
-
+    if (inactive !== undefined) return inactive;
+    if (this.#drops.length >= MAXIMUM_DROPS) return null;
     const mesh = MeshBuilder.CreateBox(
       `dropped-item-${String(this.#drops.length)}`,
       { size: DROP_SIZE },
       this.#scene,
     );
     mesh.isPickable = false;
-    mesh.material = getMaterialForBlock(block, this.#materials);
+    mesh.material = this.#materialFor(item);
     mesh.setEnabled(false);
     const drop: DropEntity = {
       mesh,
       active: false,
-      block,
+      item,
       count: 0,
       x: 0,
       y: 0,
@@ -346,7 +281,6 @@ export class DroppedItemManager {
         drop.y = nextY;
         continue;
       }
-
       const cellX = Math.floor(drop.x + 0.5);
       const cellZ = Math.floor(drop.z + 0.5);
       const nextBottom = nextY - DROP_HALF_SIZE;
@@ -367,48 +301,29 @@ export class DroppedItemManager {
     }
   }
 
-  #attractAndPickup(
-    drop: DropEntity,
-    player: PlayerState,
-    seconds: number,
-  ): boolean {
+  #attractAndPickup(drop: DropEntity, player: PlayerState, seconds: number): boolean {
     const targetY = player.position.y - 0.15;
     const deltaX = player.position.x - drop.x;
     const deltaY = targetY - drop.y;
     const deltaZ = player.position.z - drop.z;
     const distance = Math.hypot(deltaX, deltaY, deltaZ);
-    if (distance > ATTRACTION_RADIUS) {
-      return false;
-    }
-    if (distance <= PICKUP_RADIUS) {
-      return this.#attemptPickup(drop);
-    }
-    if (distance <= Number.EPSILON) {
-      return false;
-    }
-
-    const moveDistance = Math.min(
-      distance,
-      (3.5 + (ATTRACTION_RADIUS - distance) * 3) * seconds,
-    );
+    if (distance > ATTRACTION_RADIUS) return false;
+    if (distance <= PICKUP_RADIUS) return this.#attemptPickup(drop);
+    if (distance <= Number.EPSILON) return false;
+    const moveDistance = Math.min(distance, (3.5 + (ATTRACTION_RADIUS - distance) * 3) * seconds);
     drop.x += (deltaX / distance) * moveDistance;
     drop.y += (deltaY / distance) * moveDistance;
     drop.z += (deltaZ / distance) * moveDistance;
     drop.velocityY = 0;
     drop.grounded = false;
-
-    return distance - moveDistance <= PICKUP_RADIUS
-      ? this.#attemptPickup(drop)
-      : false;
+    return distance - moveDistance <= PICKUP_RADIUS ? this.#attemptPickup(drop) : false;
   }
 
   #attemptPickup(drop: DropEntity): boolean {
     const originalCount = drop.count;
-    const remaining = this.#callbacks.onPickup(drop.block, drop.count);
+    const remaining = this.#callbacks.onPickup(drop.item, drop.count);
     const pickedUp = originalCount - Math.max(remaining, 0);
-    if (pickedUp > 0) {
-      this.#callbacks.onPickupSucceeded?.(drop.block, pickedUp);
-    }
+    if (pickedUp > 0) this.#callbacks.onPickupSucceeded?.(drop.item, pickedUp);
     if (remaining <= 0) {
       this.#deactivate(drop);
       return true;
@@ -421,7 +336,14 @@ export class DroppedItemManager {
   #syncMesh(drop: DropEntity, verticalOffset: number): void {
     drop.mesh.position.set(drop.x, drop.y + verticalOffset, drop.z);
     const stackScale = 1 + Math.min(drop.count - 1, 15) * 0.006;
-    drop.mesh.scaling.setAll(stackScale);
+    const definition = getItemDefinition(drop.item);
+    if (definition.kind === 'tool') {
+      drop.mesh.scaling.set(0.55 * stackScale, 1.35 * stackScale, 0.42 * stackScale);
+    } else if (definition.kind === 'material') {
+      drop.mesh.scaling.set(0.78 * stackScale, 0.5 * stackScale, 0.78 * stackScale);
+    } else {
+      drop.mesh.scaling.setAll(stackScale);
+    }
   }
 
   #deactivate(drop: DropEntity): void {

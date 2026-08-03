@@ -1,5 +1,6 @@
-import { BlockType } from './BlockType';
-import type { BlockType as BlockTypeValue } from './BlockType';
+import { isItemType, itemFromBlock } from '../inventory/ItemDefinitions';
+import type { ItemType } from '../inventory/ItemDefinitions';
+import type { BlockType } from './BlockType';
 import type { DroppedItemSnapshot } from './DroppedItemManager';
 
 export interface DropStorage {
@@ -13,24 +14,16 @@ function createDropKey(worldSeed: string): string {
   return `lost-in-cubes:drops:${worldSeed}`;
 }
 
-function isPersistableBlock(value: unknown): value is BlockTypeValue {
-  return (
-    value === BlockType.Grass ||
-    value === BlockType.Dirt ||
-    value === BlockType.Stone ||
-    value === BlockType.RuneStone ||
-    value === BlockType.OakLog ||
-    value === BlockType.OakLeaves ||
-    value === BlockType.OakPlanks ||
-    value === BlockType.CraftingTable
-  );
+function normalizeItem(item: unknown, legacyBlock: unknown): ItemType | null {
+  if (isItemType(item)) return item;
+  if (typeof legacyBlock !== 'number') return null;
+  return itemFromBlock(legacyBlock as BlockType);
 }
 
 function normalizeSnapshot(value: unknown): DroppedItemSnapshot | null {
-  if (typeof value !== 'object' || value === null) {
-    return null;
-  }
+  if (typeof value !== 'object' || value === null) return null;
   const candidate = value as {
+    item?: unknown;
     block?: unknown;
     count?: unknown;
     x?: unknown;
@@ -38,8 +31,9 @@ function normalizeSnapshot(value: unknown): DroppedItemSnapshot | null {
     z?: unknown;
     grounded?: unknown;
   };
+  const item = normalizeItem(candidate.item, candidate.block);
   if (
-    !isPersistableBlock(candidate.block) ||
+    item === null ||
     typeof candidate.count !== 'number' ||
     !Number.isInteger(candidate.count) ||
     candidate.count <= 0 ||
@@ -53,7 +47,7 @@ function normalizeSnapshot(value: unknown): DroppedItemSnapshot | null {
     return null;
   }
   return {
-    block: candidate.block,
+    item,
     count: Math.min(candidate.count, 64),
     x: candidate.x,
     y: candidate.y,
@@ -66,18 +60,12 @@ export function loadDroppedItems(
   worldSeed: string,
   storage: DropStorage | null,
 ): readonly DroppedItemSnapshot[] {
-  if (storage === null) {
-    return [];
-  }
+  if (storage === null) return [];
   try {
     const serialized = storage.getItem(createDropKey(worldSeed));
-    if (serialized === null) {
-      return [];
-    }
+    if (serialized === null) return [];
     const parsed = JSON.parse(serialized) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
+    if (!Array.isArray(parsed)) return [];
     return parsed
       .slice(0, MAXIMUM_SAVED_DROPS)
       .map(normalizeSnapshot)
@@ -93,9 +81,7 @@ export function saveDroppedItems(
   snapshots: readonly DroppedItemSnapshot[],
   storage: DropStorage | null,
 ): void {
-  if (storage === null) {
-    return;
-  }
+  if (storage === null) return;
   try {
     storage.setItem(
       createDropKey(worldSeed),

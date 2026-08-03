@@ -5,7 +5,9 @@ import {
   TransformNode,
 } from '@babylonjs/core';
 import type { Mesh, Scene } from '@babylonjs/core';
+import type { PlayerState } from '../game/session/GameSession';
 import {
+  getItemColor,
   getItemDefinition,
   itemToBlock,
   ItemType,
@@ -13,7 +15,6 @@ import {
 import type { ItemType as ItemTypeValue } from '../inventory/ItemDefinitions';
 import { BlockType } from '../world/BlockType';
 import { getBlockItemColor } from '../world/BlockVisuals';
-import type { PlayerState } from '../game/session/GameSession';
 
 export interface HeldItemAction {
   readonly breaking: boolean;
@@ -67,7 +68,6 @@ function colorFromTuple(color: readonly [number, number, number]): Color3 {
   return new Color3(color[0], color[1], color[2]);
 }
 
-/** Shared held-item presentation for third-person and first-person views. */
 export class HeldItemModel {
   readonly #scene: Scene;
   readonly #thirdPersonRoot: TransformNode;
@@ -81,13 +81,11 @@ export class HeldItemModel {
 
   public constructor(scene: Scene, rightHandParent: TransformNode) {
     this.#scene = scene;
-
     this.#thirdPersonRoot = new TransformNode('third-person-held-item', scene);
     this.#thirdPersonRoot.parent = rightHandParent;
     this.#thirdPersonRoot.position.set(0, -0.77, 0.035);
     this.#thirdPersonRoot.rotation.set(0.18, 0, -0.12);
     this.#thirdPersonRoot.setEnabled(false);
-
     this.#firstPersonRoot = new TransformNode('first-person-held-item', scene);
     this.#firstPersonRoot.parent = scene.activeCamera;
     this.#firstPersonRoot.position.set(0.48, -0.42, 0.82);
@@ -101,20 +99,11 @@ export class HeldItemModel {
     item: ItemTypeValue | null,
     action: HeldItemAction,
   ): void {
-    if (item !== this.#selectedItem) {
-      this.#setItem(item);
-    }
-
+    if (item !== this.#selectedItem) this.#setItem(item);
     const hasItem = this.#selectedItem !== null;
-    this.#thirdPersonRoot.setEnabled(
-      hasItem && player.cameraMode === 'third-person',
-    );
-    this.#firstPersonRoot.setEnabled(
-      hasItem && player.cameraMode === 'first-person',
-    );
-    if (!hasItem) {
-      return;
-    }
+    this.#thirdPersonRoot.setEnabled(hasItem && player.cameraMode === 'third-person');
+    this.#firstPersonRoot.setEnabled(hasItem && player.cameraMode === 'first-person');
+    if (!hasItem) return;
 
     const seconds = Math.min(Math.max(frameSeconds, 0), 0.1);
     this.#elapsedSeconds += seconds;
@@ -123,19 +112,10 @@ export class HeldItemModel {
     } else {
       this.#actionPhase = 0;
     }
-
-    const movementAmount =
-      player.grounded && !player.paused
-        ? Math.min(player.horizontalSpeed / 5.5, 1)
-        : 0;
+    const movementAmount = player.grounded && !player.paused ? Math.min(player.horizontalSpeed / 5.5, 1) : 0;
     const walkBob = Math.sin(this.#elapsedSeconds * 9) * 0.018 * movementAmount;
-    const strike = action.breaking
-      ? Math.sin(Math.min(Math.PI, this.#actionPhase % Math.PI))
-      : 0;
-    const placePush = action.placing
-      ? Math.sin(Math.min(Math.PI, this.#actionPhase % Math.PI))
-      : 0;
-
+    const strike = action.breaking ? Math.sin(Math.min(Math.PI, this.#actionPhase % Math.PI)) : 0;
+    const placePush = action.placing ? Math.sin(Math.min(Math.PI, this.#actionPhase % Math.PI)) : 0;
     this.#firstPersonRoot.position.set(
       0.48 + walkBob,
       -0.42 - Math.abs(walkBob) - strike * 0.08,
@@ -153,9 +133,7 @@ export class HeldItemModel {
     this.#disposeMeshes(this.#firstPersonMeshes);
     this.#thirdPersonRoot.dispose(false, false);
     this.#firstPersonRoot.dispose(false, false);
-    for (const material of this.#materials.values()) {
-      material.dispose();
-    }
+    for (const material of this.#materials.values()) material.dispose();
     this.#materials.clear();
   }
 
@@ -163,10 +141,7 @@ export class HeldItemModel {
     this.#selectedItem = item;
     this.#disposeMeshes(this.#thirdPersonMeshes);
     this.#disposeMeshes(this.#firstPersonMeshes);
-    if (item === null) {
-      return;
-    }
-
+    if (item === null) return;
     this.#buildItem(item, this.#thirdPersonRoot, 0.72, 1, this.#thirdPersonMeshes);
     this.#buildItem(item, this.#firstPersonRoot, 1.08, 2, this.#firstPersonMeshes);
   }
@@ -183,36 +158,53 @@ export class HeldItemModel {
       this.#buildBlock(block, parent, scale, renderingGroupId, output);
       return;
     }
-    if (item === ItemType.Stick) {
-      output.push(
-        createBox(
-          'held-stick',
-          parent,
-          [0.09 * scale, 0.72 * scale, 0.09 * scale],
-          [0, -0.08 * scale, 0],
-          this.#woodMaterial(),
-          this.#scene,
-          renderingGroupId,
-        ),
-      );
-      return;
-    }
-
     const definition = getItemDefinition(item);
-    if (definition.kind !== 'tool' || definition.toolKind === null) {
+    if (definition.kind === 'material') {
+      this.#buildMaterial(item, parent, scale, renderingGroupId, output);
       return;
     }
-    const head =
-      definition.toolTier === 'stone'
+    if (definition.kind !== 'tool' || definition.toolKind === null) return;
+    const head = definition.toolTier === 'iron'
+      ? this.#getMaterial('held-tool-iron-head', new Color3(0.78, 0.81, 0.8))
+      : definition.toolTier === 'stone'
         ? this.#getMaterial('held-tool-stone-head', new Color3(0.44, 0.47, 0.46))
         : this.#getMaterial('held-tool-wood-head', new Color3(0.64, 0.4, 0.19));
-    if (definition.toolKind === 'pickaxe') {
-      this.#buildPickaxe(parent, scale, renderingGroupId, output, head);
-    } else if (definition.toolKind === 'shovel') {
-      this.#buildShovel(parent, scale, renderingGroupId, output, head);
-    } else {
-      this.#buildAxe(parent, scale, renderingGroupId, output, head);
+    this.#buildTool(definition.toolKind, parent, scale, renderingGroupId, output, head);
+  }
+
+  #buildMaterial(
+    item: ItemTypeValue,
+    parent: TransformNode,
+    scale: number,
+    renderingGroupId: number,
+    output: Mesh[],
+  ): void {
+    if (item === ItemType.Stick) {
+      output.push(createBox(
+        'held-stick',
+        parent,
+        [0.09 * scale, 0.72 * scale, 0.09 * scale],
+        [0, -0.08 * scale, 0],
+        this.#woodMaterial(),
+        this.#scene,
+        renderingGroupId,
+      ));
+      return;
     }
+    const color = colorFromTuple(getItemColor(item));
+    const material = this.#getMaterial(`held-material-${item}`, color);
+    const size: VectorTuple = item === ItemType.IronIngot
+      ? [0.42 * scale, 0.15 * scale, 0.24 * scale]
+      : [0.3 * scale, 0.24 * scale, 0.28 * scale];
+    output.push(createBox(
+      `held-${item}`,
+      parent,
+      size,
+      [0, -0.05 * scale, 0],
+      material,
+      this.#scene,
+      renderingGroupId,
+    ));
   }
 
   #buildBlock(
@@ -224,207 +216,99 @@ export class HeldItemModel {
   ): void {
     const size = 0.34 * scale;
     const baseColor = colorFromTuple(getBlockItemColor(block));
-    output.push(
-      createBox(
-        'held-block-body',
+    output.push(createBox(
+      'held-block-body',
+      parent,
+      [size, size, size],
+      [0, -0.05 * scale, 0],
+      this.#getMaterial(
+        `held-block-${String(block)}`,
+        baseColor,
+        block === BlockType.RuneStone ? new Color3(0.025, 0.11, 0.07) : Color3.Black(),
+      ),
+      this.#scene,
+      renderingGroupId,
+    ));
+    if (block === BlockType.Grass) {
+      output.push(createBox(
+        'held-grass-cap',
         parent,
-        [size, size, size],
-        [0, -0.05 * scale, 0],
-        this.#getMaterial(
-          `held-block-${String(block)}`,
-          baseColor,
-          block === BlockType.RuneStone
-            ? new Color3(0.025, 0.11, 0.07)
-            : Color3.Black(),
-        ),
+        [size * 1.015, size * 0.12, size * 1.015],
+        [0, size * 0.46, 0],
+        this.#getMaterial('held-grass-cap-material', new Color3(0.4, 0.68, 0.25)),
         this.#scene,
         renderingGroupId,
-      ),
-    );
-
-    if (block === BlockType.Grass) {
-      output.push(
-        createBox(
-          'held-grass-cap',
-          parent,
-          [size * 1.015, size * 0.12, size * 1.015],
-          [0, size * 0.46, 0],
-          this.#getMaterial(
-            'held-grass-cap-material',
-            new Color3(0.4, 0.68, 0.25),
-          ),
-          this.#scene,
-          renderingGroupId,
-        ),
-      );
+      ));
     } else if (block === BlockType.OakLog) {
-      output.push(
-        createBox(
-          'held-log-cap',
-          parent,
-          [size * 1.02, size * 0.08, size * 1.02],
-          [0, size * 0.48, 0],
-          this.#getMaterial('held-log-ring', new Color3(0.66, 0.46, 0.24)),
-          this.#scene,
-          renderingGroupId,
-        ),
-      );
+      output.push(createBox(
+        'held-log-cap',
+        parent,
+        [size * 1.02, size * 0.08, size * 1.02],
+        [0, size * 0.48, 0],
+        this.#getMaterial('held-log-ring', new Color3(0.66, 0.46, 0.24)),
+        this.#scene,
+        renderingGroupId,
+      ));
     } else if (block === BlockType.RuneStone) {
-      const runeMaterial = this.#getMaterial(
-        'held-rune-accent',
-        new Color3(0.15, 0.72, 0.4),
-        new Color3(0.04, 0.28, 0.14),
-      );
-      output.push(
-        createBox(
-          'held-rune-vertical',
-          parent,
-          [size * 0.12, size * 0.7, size * 1.03],
-          [0, -0.05 * scale, 0],
-          runeMaterial,
-          this.#scene,
-          renderingGroupId,
-        ),
-      );
+      output.push(createBox(
+        'held-rune-vertical',
+        parent,
+        [size * 0.12, size * 0.7, size * 1.03],
+        [0, -0.05 * scale, 0],
+        this.#getMaterial('held-rune-accent', new Color3(0.15, 0.72, 0.4), new Color3(0.04, 0.28, 0.14)),
+        this.#scene,
+        renderingGroupId,
+      ));
     }
   }
 
-  #buildPickaxe(
+  #buildTool(
+    kind: 'pickaxe' | 'shovel' | 'axe',
     parent: TransformNode,
     scale: number,
     renderingGroupId: number,
     output: Mesh[],
     head: StandardMaterial,
   ): void {
-    output.push(
-      createBox(
-        'held-pickaxe-handle',
-        parent,
-        [0.1 * scale, 0.72 * scale, 0.1 * scale],
-        [0, -0.12 * scale, 0],
-        this.#woodMaterial(),
-        this.#scene,
-        renderingGroupId,
-      ),
-      createBox(
-        'held-pickaxe-head',
-        parent,
-        [0.62 * scale, 0.13 * scale, 0.14 * scale],
-        [0, 0.26 * scale, 0],
-        head,
-        this.#scene,
-        renderingGroupId,
-      ),
-      createBox(
-        'held-pickaxe-left-tip',
-        parent,
-        [0.12 * scale, 0.22 * scale, 0.14 * scale],
-        [-0.27 * scale, 0.18 * scale, 0],
-        head,
-        this.#scene,
-        renderingGroupId,
-      ),
-      createBox(
-        'held-pickaxe-right-tip',
-        parent,
-        [0.12 * scale, 0.22 * scale, 0.14 * scale],
-        [0.27 * scale, 0.18 * scale, 0],
-        head,
-        this.#scene,
-        renderingGroupId,
-      ),
-    );
-  }
-
-  #buildShovel(
-    parent: TransformNode,
-    scale: number,
-    renderingGroupId: number,
-    output: Mesh[],
-    head: StandardMaterial,
-  ): void {
-    output.push(
-      createBox(
-        'held-shovel-handle',
-        parent,
-        [0.1 * scale, 0.72 * scale, 0.1 * scale],
-        [0, -0.13 * scale, 0],
-        this.#woodMaterial(),
-        this.#scene,
-        renderingGroupId,
-      ),
-      createBox(
-        'held-shovel-blade',
-        parent,
-        [0.34 * scale, 0.32 * scale, 0.12 * scale],
-        [0, 0.27 * scale, 0],
-        head,
-        this.#scene,
-        renderingGroupId,
-      ),
-    );
-  }
-
-  #buildAxe(
-    parent: TransformNode,
-    scale: number,
-    renderingGroupId: number,
-    output: Mesh[],
-    head: StandardMaterial,
-  ): void {
-    output.push(
-      createBox(
-        'held-axe-handle',
-        parent,
-        [0.1 * scale, 0.72 * scale, 0.1 * scale],
-        [0, -0.13 * scale, 0],
-        this.#woodMaterial(),
-        this.#scene,
-        renderingGroupId,
-      ),
-      createBox(
-        'held-axe-head',
-        parent,
-        [0.38 * scale, 0.33 * scale, 0.14 * scale],
-        [0.13 * scale, 0.22 * scale, 0],
-        head,
-        this.#scene,
-        renderingGroupId,
-      ),
-      createBox(
-        'held-axe-edge',
-        parent,
-        [0.13 * scale, 0.46 * scale, 0.15 * scale],
-        [0.29 * scale, 0.18 * scale, 0],
-        head,
-        this.#scene,
-        renderingGroupId,
-      ),
-    );
+    output.push(createBox(
+      `held-${kind}-handle`,
+      parent,
+      [0.1 * scale, 0.72 * scale, 0.1 * scale],
+      [0, -0.13 * scale, 0],
+      this.#woodMaterial(),
+      this.#scene,
+      renderingGroupId,
+    ));
+    if (kind === 'pickaxe') {
+      output.push(
+        createBox('held-pickaxe-head', parent, [0.62 * scale, 0.13 * scale, 0.14 * scale], [0, 0.26 * scale, 0], head, this.#scene, renderingGroupId),
+        createBox('held-pickaxe-left-tip', parent, [0.12 * scale, 0.22 * scale, 0.14 * scale], [-0.27 * scale, 0.18 * scale, 0], head, this.#scene, renderingGroupId),
+        createBox('held-pickaxe-right-tip', parent, [0.12 * scale, 0.22 * scale, 0.14 * scale], [0.27 * scale, 0.18 * scale, 0], head, this.#scene, renderingGroupId),
+      );
+    } else if (kind === 'shovel') {
+      output.push(createBox('held-shovel-blade', parent, [0.34 * scale, 0.32 * scale, 0.12 * scale], [0, 0.27 * scale, 0], head, this.#scene, renderingGroupId));
+    } else {
+      output.push(
+        createBox('held-axe-head', parent, [0.38 * scale, 0.33 * scale, 0.14 * scale], [0.13 * scale, 0.22 * scale, 0], head, this.#scene, renderingGroupId),
+        createBox('held-axe-edge', parent, [0.13 * scale, 0.46 * scale, 0.15 * scale], [0.29 * scale, 0.18 * scale, 0], head, this.#scene, renderingGroupId),
+      );
+    }
   }
 
   #woodMaterial(): StandardMaterial {
     return this.#getMaterial('held-tool-handle', new Color3(0.48, 0.29, 0.13));
   }
 
-  #getMaterial(
-    key: string,
-    diffuse: Color3,
-    emissive = Color3.Black(),
-  ): StandardMaterial {
+  #getMaterial(key: string, diffuse: Color3, emissive = Color3.Black()): StandardMaterial {
     const existing = this.#materials.get(key);
-    if (existing !== undefined) {
-      return existing;
-    }
+    if (existing !== undefined) return existing;
     const material = createMaterial(key, diffuse, this.#scene, emissive);
     this.#materials.set(key, material);
     return material;
   }
 
   #disposeMeshes(meshes: Mesh[]): void {
-    for (const mesh of meshes) {
-      mesh.dispose(false, false);
-    }
+    for (const mesh of meshes) mesh.dispose(false, false);
     meshes.length = 0;
   }
 }

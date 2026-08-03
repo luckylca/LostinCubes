@@ -22,47 +22,32 @@ export interface BlockInteractionTimingResult {
 
 export function getBlockBreakDuration(block: BlockTypeValue): number {
   switch (block) {
-    case BlockType.Grass:
-      return 0.45;
-    case BlockType.Dirt:
-      return 0.5;
-    case BlockType.OakLeaves:
-      return 0.22;
-    case BlockType.OakLog:
-      return 1.15;
-    case BlockType.OakPlanks:
-      return 0.85;
-    case BlockType.CraftingTable:
-      return 1;
-    case BlockType.Stone:
-      return 1.35;
-    case BlockType.RuneStone:
-      return 2.1;
-    case BlockType.Air:
-      return Number.POSITIVE_INFINITY;
+    case BlockType.Grass: return 0.45;
+    case BlockType.Dirt: return 0.5;
+    case BlockType.OakLeaves: return 0.22;
+    case BlockType.OakLog: return 1.15;
+    case BlockType.OakPlanks: return 0.85;
+    case BlockType.CraftingTable: return 1;
+    case BlockType.Stone: return 1.35;
+    case BlockType.CoalOre: return 1.7;
+    case BlockType.IronOre: return 2.2;
+    case BlockType.Furnace: return 1.8;
+    case BlockType.RuneStone: return 2.1;
+    case BlockType.Air: return Number.POSITIVE_INFINITY;
   }
 }
 
-/**
- * Minecraft-like interaction timing: mining accumulates only while the same
- * block remains targeted, while placement fires immediately and then repeats.
- */
 export class BlockInteractionState {
   #breakTargetKey: string | null = null;
   #breakProgress = 0;
   #placeWasHeld = false;
   #placeRepeatSeconds = 0;
 
-  public update(
-    input: BlockInteractionTimingInput,
-  ): BlockInteractionTimingResult {
+  public update(input: BlockInteractionTimingInput): BlockInteractionTimingResult {
     if (!Number.isFinite(input.frameSeconds) || input.frameSeconds < 0) {
       throw new RangeError('frameSeconds must be a finite non-negative value.');
     }
-    if (
-      !Number.isFinite(input.breakSpeedMultiplier) ||
-      input.breakSpeedMultiplier <= 0
-    ) {
+    if (!Number.isFinite(input.breakSpeedMultiplier) || input.breakSpeedMultiplier <= 0) {
       throw new RangeError('breakSpeedMultiplier must be positive and finite.');
     }
 
@@ -80,10 +65,8 @@ export class BlockInteractionState {
         this.#breakTargetKey = input.targetKey;
         this.#breakProgress = 0;
       }
-
       const duration = getBlockBreakDuration(input.targetBlock);
-      this.#breakProgress +=
-        (frameSeconds * input.breakSpeedMultiplier) / duration;
+      this.#breakProgress += (frameSeconds * input.breakSpeedMultiplier) / duration;
       if (this.#breakProgress >= 1) {
         breakNow = true;
         this.#breakTargetKey = null;
@@ -111,11 +94,7 @@ export class BlockInteractionState {
       this.#resetPlacement();
     }
 
-    return {
-      breakNow,
-      placeNow,
-      breakProgress: this.#breakProgress,
-    };
+    return { breakNow, placeNow, breakProgress: this.#breakProgress };
   }
 
   public reset(): void {

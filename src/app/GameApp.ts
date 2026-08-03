@@ -1,5 +1,6 @@
 import type { Engine } from '@babylonjs/core';
 import { GameAudio } from '../audio/GameAudio';
+import type { CraftingStation } from '../crafting/CraftingRecipes';
 import { BabylonEngine } from '../engine/BabylonEngine';
 import { RenderLoop } from '../engine/RenderLoop';
 import { LocalGameSession } from '../game/session/LocalGameSession';
@@ -9,7 +10,10 @@ import {
   loadPlayerInventory,
   savePlayerInventory,
 } from '../inventory/InventoryPersistence';
-import { getItemLabel } from '../inventory/ItemDefinitions';
+import {
+  getBlockDropItem,
+  getItemLabel,
+} from '../inventory/ItemDefinitions';
 import type { ItemType } from '../inventory/ItemDefinitions';
 import type { PlayerInventory } from '../inventory/PlayerInventory';
 import { PlayerCameraController } from '../player/PlayerCameraController';
@@ -47,9 +51,7 @@ export interface GameUiElements {
 }
 
 function formatCount(value: number): string {
-  if (value < 1_000) {
-    return String(value);
-  }
+  if (value < 1_000) return String(value);
   return `${(value / 1_000).toFixed(1)}k`;
 }
 
@@ -59,6 +61,13 @@ function getLocalStorage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+function formatDayTime(dayTime: number): string {
+  const totalMinutes = Math.floor((((dayTime % 1) + 1) % 1) * 24 * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
 export class GameApp {
@@ -92,14 +101,13 @@ export class GameApp {
   }
 
   public async start(): Promise<void> {
-    const { scene } = this.#engineHost.createWorldScene();
+    const { scene, updateLighting } = this.#engineHost.createWorldScene();
     const worldData = new VoxelWorldData(WORLD_SEED);
     this.#worldData = worldData;
     await worldData.initialize();
 
     const session = new LocalGameSession(WORLD_SEED, {
-      isSolidAt: (worldX, worldY, worldZ) =>
-        worldData.isSolidAt(worldX, worldY, worldZ),
+      isSolidAt: (worldX, worldY, worldZ) => worldData.isSolidAt(worldX, worldY, worldZ),
       spawnPosition: {
         x: SPAWN_X,
         y: worldData.sampleStandingY(SPAWN_X, SPAWN_Z),
@@ -110,18 +118,12 @@ export class GameApp {
     const localStorage = getLocalStorage();
     const inventory = loadPlayerInventory(WORLD_SEED, localStorage);
     input.selectHotbarSlot(inventory.selectedSlot);
-    const hotbar = new HotbarView(this.#ui.hotbar, (slot) => {
-      input.selectHotbarSlot(slot);
-    });
+    const hotbar = new HotbarView(this.#ui.hotbar, (slot) => input.selectHotbarSlot(slot));
     const audio = new GameAudio();
-    const inventoryViewHolder: { current: InventoryView | null } = {
-      current: null,
-    };
+    const inventoryViewHolder: { current: InventoryView | null } = { current: null };
     let renderedInventoryRevision = -1;
     const syncInventory = (): void => {
-      if (inventory.revision === renderedInventoryRevision) {
-        return;
-      }
+      if (inventory.revision === renderedInventoryRevision) return;
       hotbar.render(inventory.snapshot);
       inventoryViewHolder.current?.render();
       savePlayerInventory(WORLD_SEED, inventory, localStorage);
@@ -135,20 +137,16 @@ export class GameApp {
       session.setMenuOpen(false);
       this.#canvas.dataset.inventoryOpen = 'false';
     };
-    const inventoryView = new InventoryView(
-      this.#ui.inventoryRoot,
-      inventory,
-      {
-        onChanged: syncInventory,
-        onClose: closeMenuState,
-        onCrafted: () => audio.playCraft(),
-      },
-    );
+    const inventoryView = new InventoryView(this.#ui.inventoryRoot, inventory, {
+      onChanged: syncInventory,
+      onClose: closeMenuState,
+      onCrafted: () => audio.playCraft(),
+    });
     inventoryViewHolder.current = inventoryView;
-    const openInventory = (usingCraftingTable: boolean): void => {
+    const openInventory = (station: CraftingStation): void => {
       breakHeld = false;
       placeHeld = false;
-      inventoryView.open(usingCraftingTable);
+      inventoryView.open(station);
       input.setUiOpen(true);
       session.setMenuOpen(true);
       this.#canvas.dataset.inventoryOpen = 'true';
@@ -158,16 +156,12 @@ export class GameApp {
 
     const cameraController = new PlayerCameraController(scene);
     const playerModel = new VoxelPlayerModel(scene);
-    const targetView = new ThirdPersonTargetView(
-      this.#ui.targetReticle,
-      this.#canvas,
-      scene,
-    );
+    const targetView = new ThirdPersonTargetView(this.#ui.targetReticle, this.#canvas, scene);
     const worldRenderer = new VoxelWorldRenderer(scene, worldData, 2);
     const effects = new VoxelBreakEffects(scene);
     const drops = new DroppedItemManager(scene, worldData, {
-      onPickup: (block, count) => {
-        const remaining = inventory.addBlock(block, count);
+      onPickup: (item, count) => {
+        const remaining = inventory.addItem(item, count);
         syncInventory();
         return remaining;
       },
@@ -176,20 +170,15 @@ export class GameApp {
     drops.restore(loadDroppedItems(WORLD_SEED, localStorage));
 
     const interaction = new VoxelInteractionController(scene, worldData, {
-      onBlockChanged: (worldX, worldY, worldZ) =>
-        worldRenderer.invalidateBlock(worldX, worldY, worldZ),
+      onBlockChanged: (worldX, worldY, worldZ) => worldRenderer.invalidateBlock(worldX, worldY, worldZ),
       onBlockBroken: (block, position) => {
         effects.spawn(block, position.x, position.y, position.z);
         audio.playBreak(block);
-        const remaining = drops.spawn(
-          block,
-          position.x,
-          position.y,
-          position.z,
-          1,
-        );
+        const dropItem = getBlockDropItem(block, inventory.selectedItem);
+        if (dropItem === null) return;
+        const remaining = drops.spawn(dropItem, position.x, position.y, position.z, 1);
         if (remaining > 0) {
-          inventory.addBlock(block, remaining);
+          inventory.addItem(dropItem, remaining);
           syncInventory();
         }
       },
@@ -204,11 +193,15 @@ export class GameApp {
         syncInventory();
       },
       onUseBlock: (block) => {
-        if (block !== BlockType.CraftingTable) {
-          return false;
+        if (block === BlockType.CraftingTable) {
+          openInventory('crafting-table');
+          return true;
         }
-        openInventory(true);
-        return true;
+        if (block === BlockType.Furnace) {
+          openInventory('furnace');
+          return true;
+        }
+        return false;
       },
     });
     interaction.setHeldItem(inventory.selectedItem);
@@ -228,20 +221,17 @@ export class GameApp {
     this.#localStorage = localStorage;
 
     await session.start();
-    const initialPlayer = session.getWorldState().player;
-    await worldRenderer.initialize(
-      initialPlayer.position.x,
-      initialPlayer.position.z,
-    );
+    const initialWorldState = session.getWorldState();
+    const initialPlayer = initialWorldState.player;
+    await worldRenderer.initialize(initialPlayer.position.x, initialPlayer.position.z);
 
-    const applyPlayerState = (
+    const applyWorldState = (
       player: PlayerState,
+      dayTime: number,
       frameSeconds: number,
     ): void => {
-      const worldStats = worldRenderer.update(
-        player.position.x,
-        player.position.z,
-      );
+      updateLighting(dayTime);
+      const worldStats = worldRenderer.update(player.position.x, player.position.z);
       interaction.update(
         player,
         frameSeconds,
@@ -260,13 +250,10 @@ export class GameApp {
         heldItem: inventory.selectedItem,
       });
       this.#syncCameraMode(player.cameraMode);
-      this.#syncPresentationDiagnostics(
-        player,
-        inventory.selectedItem,
-        interaction.hasTarget,
-      );
+      this.#syncPresentationDiagnostics(player, dayTime, inventory.selectedItem, interaction.hasTarget);
       this.#updateHud(
         player,
+        dayTime,
         worldStats,
         inventory.selectedItem,
         interaction.breakProgress,
@@ -283,7 +270,7 @@ export class GameApp {
       }
     };
 
-    applyPlayerState(initialPlayer, 1 / 60);
+    applyWorldState(initialPlayer, initialWorldState.dayTime, 1 / 60);
     scene.render();
 
     this.#renderLoop = new RenderLoop(this.#engineHost.engine, scene, {
@@ -291,11 +278,8 @@ export class GameApp {
         const worldState = session.getWorldState();
         const command = input.poll(worldState.tick);
         if (command.toggleInventory) {
-          if (inventoryView.isOpen) {
-            inventoryView.close();
-          } else {
-            openInventory(false);
-          }
+          if (inventoryView.isOpen) inventoryView.close();
+          else openInventory('inventory');
         }
         if (!inventoryView.isOpen) {
           inventory.selectSlot(command.selectedHotbarSlot);
@@ -311,68 +295,59 @@ export class GameApp {
       },
       fixedUpdate: (stepSeconds) => session.step(stepSeconds),
       renderUpdate: (frameSeconds) => {
-        applyPlayerState(session.getWorldState().player, frameSeconds);
+        const worldState = session.getWorldState();
+        applyWorldState(worldState.player, worldState.dayTime, frameSeconds);
       },
     });
     this.#renderLoop.start();
   }
 
   public dispose(): void {
-    document.body.classList.remove('camera-third-person', 'inventory-open');
+    document.body.classList.remove('camera-third-person', 'inventory-open', 'player-damaged');
     this.#canvas.removeAttribute('data-camera-mode');
     this.#canvas.removeAttribute('data-held-item');
     this.#canvas.removeAttribute('data-player-pitch');
     this.#canvas.removeAttribute('data-has-target');
     this.#canvas.removeAttribute('data-inventory-open');
+    this.#canvas.removeAttribute('data-player-health');
+    this.#canvas.removeAttribute('data-day-time');
+    this.#canvas.removeAttribute('data-death-count');
     this.#lastCameraMode = null;
     this.#lastHeldItem = undefined;
-
     this.#inventoryView?.dispose();
     this.#inventoryView = null;
-
     this.#targetView?.dispose();
     this.#targetView = null;
-
     if (this.#drops !== null) {
       saveDroppedItems(WORLD_SEED, this.#drops.snapshots, this.#localStorage);
       this.#drops.dispose();
       this.#drops = null;
     }
-
     this.#effects?.dispose();
     this.#effects = null;
     this.#audio?.dispose();
     this.#audio = null;
-
     if (this.#inventory !== null) {
       savePlayerInventory(WORLD_SEED, this.#inventory, this.#localStorage);
       this.#inventory = null;
     }
     this.#localStorage = null;
-
     this.#hotbar?.dispose();
     this.#hotbar = null;
-
     this.#input?.dispose();
     this.#input = null;
-
     if (this.#session !== null) {
       void this.#session.stop();
       this.#session = null;
     }
-
     this.#interaction?.dispose();
     this.#interaction = null;
-
     this.#playerModel?.dispose();
     this.#playerModel = null;
-
     this.#worldRenderer?.dispose();
     this.#worldRenderer = null;
-
     this.#worldData?.dispose();
     this.#worldData = null;
-
     this.#renderLoop?.stop();
     this.#renderLoop = null;
     this.#engineHost.dispose();
@@ -383,9 +358,7 @@ export class GameApp {
   }
 
   #syncCameraMode(cameraMode: CameraMode): void {
-    if (cameraMode === this.#lastCameraMode) {
-      return;
-    }
+    if (cameraMode === this.#lastCameraMode) return;
     this.#lastCameraMode = cameraMode;
     const thirdPerson = cameraMode === 'third-person';
     document.body.classList.toggle('camera-third-person', thirdPerson);
@@ -394,11 +367,16 @@ export class GameApp {
 
   #syncPresentationDiagnostics(
     player: PlayerState,
+    dayTime: number,
     heldItem: ItemType | null,
     hasTarget: boolean,
   ): void {
     this.#canvas.dataset.playerPitch = player.pitch.toFixed(4);
     this.#canvas.dataset.hasTarget = String(hasTarget);
+    this.#canvas.dataset.playerHealth = String(player.health);
+    this.#canvas.dataset.dayTime = dayTime.toFixed(4);
+    this.#canvas.dataset.deathCount = String(player.deathCount);
+    document.body.classList.toggle('player-damaged', player.damageTaken > 0);
     if (heldItem !== this.#lastHeldItem) {
       this.#lastHeldItem = heldItem;
       this.#canvas.dataset.heldItem = heldItem ?? 'empty';
@@ -407,6 +385,7 @@ export class GameApp {
 
   #updateHud(
     player: PlayerState,
+    dayTime: number,
     world: VoxelWorldStats,
     selectedItem: ItemType | null,
     breakProgress: number,
@@ -419,36 +398,28 @@ export class GameApp {
       const instantaneousFps = Math.min(240, 1 / frameSeconds);
       this.#smoothedFps += (instantaneousFps - this.#smoothedFps) * 0.08;
     }
-
     const worldProgress = `${String(world.loadedChunks)}/${String(world.desiredChunks)}`;
-    const queueLabel =
-      world.pendingChunks > 0 ? ` · 队列 ${String(world.pendingChunks)}` : '';
+    const queueLabel = world.pendingChunks > 0 ? ` · 队列 ${String(world.pendingChunks)}` : '';
     const dropLabel = activeDrops > 0 ? ` · 掉落 ${String(activeDrops)}` : '';
-    const breakLabel =
-      breakProgress > 0
-        ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%`
-        : '';
-
+    const breakLabel = breakProgress > 0 ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%` : '';
+    const survivalLabel = `生命 ${String(player.health)}/${String(player.maximumHealth)} · ${formatDayTime(dayTime)}`;
     if (inventoryOpen) {
-      this.#ui.status.textContent = '背包已打开 · E 或 Esc 关闭';
+      this.#ui.status.textContent = `界面已打开 · ${survivalLabel} · E 或 Esc 关闭`;
     } else if (awaitingPointerLock) {
       this.#ui.status.textContent = player.paused
-        ? '已暂停 · 点击画面继续'
-        : '点击锁定鼠标，或按住画面拖动观察';
+        ? `已暂停 · ${survivalLabel} · 点击画面继续`
+        : `${survivalLabel} · 点击锁定鼠标，或按住画面拖动观察`;
     } else {
       this.#ui.status.textContent = player.paused
-        ? '已暂停'
+        ? `已暂停 · ${survivalLabel}`
         : [
-            '探索中',
+            survivalLabel,
             `${worldProgress} 区块${queueLabel}`,
             `${formatCount(world.visibleQuads)} 四边形${dropLabel}`,
             `${Math.round(this.#smoothedFps).toString()} FPS${breakLabel}`,
           ].join(' · ');
     }
-
-    this.#ui.viewMode.textContent = `${
-      player.cameraMode === 'first-person' ? '第一人称' : '第三人称'
-    } · ${getItemLabel(selectedItem)}`;
+    this.#ui.viewMode.textContent = `${player.cameraMode === 'first-person' ? '第一人称' : '第三人称'} · ${getItemLabel(selectedItem)}${player.deathCount > 0 ? ` · 重生 ${String(player.deathCount)}` : ''}`;
     this.#ui.position.textContent = [
       player.position.x.toFixed(1),
       player.position.y.toFixed(1),
