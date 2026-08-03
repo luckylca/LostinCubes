@@ -1,10 +1,4 @@
-import {
-  FreeCamera,
-  NullEngine,
-  Scene,
-  TransformNode,
-  Vector3,
-} from '@babylonjs/core';
+import { FreeCamera, NullEngine, Scene, TransformNode, Vector3 } from '@babylonjs/core';
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../src/game/session/GameSession';
 import { ItemType } from '../src/inventory/ItemDefinitions';
@@ -21,135 +15,53 @@ function createPlayer(cameraMode: PlayerState['cameraMode']): PlayerState {
     pitch: 0,
     cameraMode,
     paused: false,
+    health: 20,
+    maximumHealth: 20,
+    damageTaken: 0,
+    deathCount: 0,
   };
 }
 
-const IDLE_ACTION = {
-  breaking: false,
-  placing: false,
-  breakProgress: 0,
-} as const;
+const IDLE_ACTION = { breaking: false, placing: false, breakProgress: 0 } as const;
+
+function createModel(): { engine: NullEngine; scene: Scene; model: HeldItemModel } {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  scene.activeCamera = new FreeCamera('test-camera', Vector3.Zero(), scene);
+  const model = new HeldItemModel(scene, new TransformNode('test-hand', scene));
+  return { engine, scene, model };
+}
 
 describe('HeldItemModel', () => {
   it('builds a visible held tool for both camera modes', () => {
-    const engine = new NullEngine();
-    const scene = new Scene(engine);
-    scene.activeCamera = new FreeCamera(
-      'test-camera',
-      Vector3.Zero(),
-      scene,
-    );
-    const hand = new TransformNode('test-hand', scene);
-    const model = new HeldItemModel(scene, hand);
-
-    model.update(
-      createPlayer('third-person'),
-      1 / 60,
-      ItemType.StonePickaxe,
-      IDLE_ACTION,
-    );
-
-    expect(
-      scene.meshes.filter((mesh) => mesh.name === 'held-pickaxe-handle'),
-    ).toHaveLength(2);
-    expect(
-      scene.transformNodes.find(
-        (node) => node.name === 'third-person-held-item',
-      )?.isEnabled(),
-    ).toBe(true);
-    expect(
-      scene.transformNodes.find(
-        (node) => node.name === 'first-person-held-item',
-      )?.isEnabled(),
-    ).toBe(false);
-
-    model.update(
-      createPlayer('first-person'),
-      1 / 60,
-      ItemType.StonePickaxe,
-      IDLE_ACTION,
-    );
-
-    expect(
-      scene.transformNodes.find(
-        (node) => node.name === 'third-person-held-item',
-      )?.isEnabled(),
-    ).toBe(false);
-    expect(
-      scene.transformNodes.find(
-        (node) => node.name === 'first-person-held-item',
-      )?.isEnabled(),
-    ).toBe(true);
-
-    model.dispose();
-    scene.dispose();
-    engine.dispose();
+    const { engine, scene, model } = createModel();
+    model.update(createPlayer('third-person'), 1 / 60, ItemType.StonePickaxe, IDLE_ACTION);
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-pickaxe-handle')).toHaveLength(2);
+    expect(scene.transformNodes.find((node) => node.name === 'third-person-held-item')?.isEnabled()).toBe(true);
+    expect(scene.transformNodes.find((node) => node.name === 'first-person-held-item')?.isEnabled()).toBe(false);
+    model.update(createPlayer('first-person'), 1 / 60, ItemType.StonePickaxe, IDLE_ACTION);
+    expect(scene.transformNodes.find((node) => node.name === 'third-person-held-item')?.isEnabled()).toBe(false);
+    expect(scene.transformNodes.find((node) => node.name === 'first-person-held-item')?.isEnabled()).toBe(true);
+    model.dispose(); scene.dispose(); engine.dispose();
   });
 
-  it('replaces tool geometry when the selected slot changes', () => {
-    const engine = new NullEngine();
-    const scene = new Scene(engine);
-    scene.activeCamera = new FreeCamera(
-      'test-camera',
-      Vector3.Zero(),
-      scene,
-    );
-    const model = new HeldItemModel(
-      scene,
-      new TransformNode('test-hand', scene),
-    );
-
-    model.update(
-      createPlayer('third-person'),
-      1 / 60,
-      ItemType.WoodenPickaxe,
-      IDLE_ACTION,
-    );
-    model.update(
-      createPlayer('third-person'),
-      1 / 60,
-      ItemType.StoneAxe,
-      IDLE_ACTION,
-    );
-
-    expect(
-      scene.meshes.filter((mesh) => mesh.name === 'held-pickaxe-handle'),
-    ).toHaveLength(0);
-    expect(scene.meshes.filter((mesh) => mesh.name === 'held-axe-handle')).toHaveLength(
-      2,
-    );
-    expect(scene.meshes.filter((mesh) => mesh.name === 'held-axe-edge')).toHaveLength(
-      2,
-    );
-
-    model.dispose();
-    scene.dispose();
-    engine.dispose();
+  it('replaces tool geometry and renders iron tool heads', () => {
+    const { engine, scene, model } = createModel();
+    model.update(createPlayer('third-person'), 1 / 60, ItemType.WoodenPickaxe, IDLE_ACTION);
+    model.update(createPlayer('third-person'), 1 / 60, ItemType.IronAxe, IDLE_ACTION);
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-pickaxe-handle')).toHaveLength(0);
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-axe-handle')).toHaveLength(2);
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-axe-edge')).toHaveLength(2);
+    expect(scene.materials.some((material) => material.name === 'held-tool-iron-head')).toBe(true);
+    model.dispose(); scene.dispose(); engine.dispose();
   });
 
-  it('renders sticks as held crafting materials', () => {
-    const engine = new NullEngine();
-    const scene = new Scene(engine);
-    scene.activeCamera = new FreeCamera(
-      'test-camera',
-      Vector3.Zero(),
-      scene,
-    );
-    const model = new HeldItemModel(
-      scene,
-      new TransformNode('test-hand', scene),
-    );
-
-    model.update(
-      createPlayer('third-person'),
-      1 / 60,
-      ItemType.Stick,
-      IDLE_ACTION,
-    );
+  it('renders sticks and iron ingots as held materials', () => {
+    const { engine, scene, model } = createModel();
+    model.update(createPlayer('third-person'), 1 / 60, ItemType.Stick, IDLE_ACTION);
     expect(scene.meshes.filter((mesh) => mesh.name === 'held-stick')).toHaveLength(2);
-
-    model.dispose();
-    scene.dispose();
-    engine.dispose();
+    model.update(createPlayer('third-person'), 1 / 60, ItemType.IronIngot, IDLE_ACTION);
+    expect(scene.meshes.filter((mesh) => mesh.name === 'held-iron-ingot')).toHaveLength(2);
+    model.dispose(); scene.dispose(); engine.dispose();
   });
 });
