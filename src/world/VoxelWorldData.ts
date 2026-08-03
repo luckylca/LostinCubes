@@ -56,22 +56,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function isInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value);
+}
+
 function isPersistedBlockModification(
   value: unknown,
 ): value is PersistedBlockModification {
   if (!isRecord(value)) {
     return false;
   }
+  const { id, worldSeed, worldX, worldY, worldZ, block } = value;
   return (
-    typeof value.id === 'string' &&
-    typeof value.worldSeed === 'string' &&
-    Number.isInteger(value.worldX) &&
-    Number.isInteger(value.worldY) &&
-    Number.isInteger(value.worldZ) &&
-    typeof value.block === 'number' &&
-    VALID_BLOCK_TYPES.has(value.block) &&
-    (value.worldY as number) >= 0 &&
-    (value.worldY as number) < CHUNK_HEIGHT
+    typeof id === 'string' &&
+    typeof worldSeed === 'string' &&
+    isInteger(worldX) &&
+    isInteger(worldY) &&
+    isInteger(worldZ) &&
+    typeof block === 'number' &&
+    VALID_BLOCK_TYPES.has(block) &&
+    worldY >= 0 &&
+    worldY < CHUNK_HEIGHT
   );
 }
 
