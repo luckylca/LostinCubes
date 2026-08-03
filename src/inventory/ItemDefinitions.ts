@@ -2,30 +2,13 @@ import { BlockType } from '../world/BlockType';
 import type { BlockType as BlockTypeValue } from '../world/BlockType';
 
 export const ItemType = {
-  GrassBlock: 'grass-block',
-  DirtBlock: 'dirt-block',
-  StoneBlock: 'stone-block',
-  RuneStoneBlock: 'rune-stone-block',
-  OakLogBlock: 'oak-log-block',
-  OakLeavesBlock: 'oak-leaves-block',
-  OakPlanksBlock: 'oak-planks-block',
-  CraftingTableBlock: 'crafting-table-block',
-  CoalOreBlock: 'coal-ore-block',
-  IronOreBlock: 'iron-ore-block',
-  FurnaceBlock: 'furnace-block',
-  Stick: 'stick',
-  Coal: 'coal',
-  RawIron: 'raw-iron',
-  IronIngot: 'iron-ingot',
-  WoodenShovel: 'wooden-shovel',
-  WoodenPickaxe: 'wooden-pickaxe',
-  WoodenAxe: 'wooden-axe',
-  StoneShovel: 'stone-shovel',
-  StonePickaxe: 'stone-pickaxe',
-  StoneAxe: 'stone-axe',
-  IronShovel: 'iron-shovel',
-  IronPickaxe: 'iron-pickaxe',
-  IronAxe: 'iron-axe',
+  GrassBlock: 'grass-block', DirtBlock: 'dirt-block', StoneBlock: 'stone-block', RuneStoneBlock: 'rune-stone-block',
+  OakLogBlock: 'oak-log-block', OakLeavesBlock: 'oak-leaves-block', OakPlanksBlock: 'oak-planks-block', CraftingTableBlock: 'crafting-table-block',
+  CoalOreBlock: 'coal-ore-block', IronOreBlock: 'iron-ore-block', FurnaceBlock: 'furnace-block',
+  Stick: 'stick', Coal: 'coal', RawIron: 'raw-iron', IronIngot: 'iron-ingot',
+  WoodenShovel: 'wooden-shovel', WoodenPickaxe: 'wooden-pickaxe', WoodenAxe: 'wooden-axe',
+  StoneShovel: 'stone-shovel', StonePickaxe: 'stone-pickaxe', StoneAxe: 'stone-axe',
+  IronShovel: 'iron-shovel', IronPickaxe: 'iron-pickaxe', IronAxe: 'iron-axe',
 } as const;
 
 export type ItemType = (typeof ItemType)[keyof typeof ItemType];
@@ -45,62 +28,14 @@ export interface ItemDefinition {
   readonly color: ItemRgb;
 }
 
-function blockDefinition(
-  label: string,
-  cssClass: string,
-  block: BlockTypeValue,
-  color: ItemRgb,
-): ItemDefinition {
-  return {
-    label,
-    kind: 'block',
-    cssClass,
-    maximumStack: 64,
-    block,
-    maximumDurability: null,
-    toolKind: null,
-    toolTier: null,
-    color,
-  };
+function blockDefinition(label: string, cssClass: string, block: BlockTypeValue, color: ItemRgb): ItemDefinition {
+  return { label, kind: 'block', cssClass, maximumStack: 64, block, maximumDurability: null, toolKind: null, toolTier: null, color };
 }
-
-function materialDefinition(
-  label: string,
-  cssClass: string,
-  color: ItemRgb,
-): ItemDefinition {
-  return {
-    label,
-    kind: 'material',
-    cssClass,
-    maximumStack: 64,
-    block: null,
-    maximumDurability: null,
-    toolKind: null,
-    toolTier: null,
-    color,
-  };
+function materialDefinition(label: string, cssClass: string, color: ItemRgb): ItemDefinition {
+  return { label, kind: 'material', cssClass, maximumStack: 64, block: null, maximumDurability: null, toolKind: null, toolTier: null, color };
 }
-
-function toolDefinition(
-  label: string,
-  cssClass: string,
-  toolKind: ToolKind,
-  toolTier: ToolTier,
-  maximumDurability: number,
-  color: ItemRgb,
-): ItemDefinition {
-  return {
-    label,
-    kind: 'tool',
-    cssClass,
-    maximumStack: 1,
-    block: null,
-    maximumDurability,
-    toolKind,
-    toolTier,
-    color,
-  };
+function toolDefinition(label: string, cssClass: string, toolKind: ToolKind, toolTier: ToolTier, maximumDurability: number, color: ItemRgb): ItemDefinition {
+  return { label, kind: 'tool', cssClass, maximumStack: 1, block: null, maximumDurability, toolKind, toolTier, color };
 }
 
 const DEFINITIONS: Readonly<Record<ItemType, ItemDefinition>> = {
@@ -133,18 +68,9 @@ const DEFINITIONS: Readonly<Record<ItemType, ItemDefinition>> = {
 export function isItemType(value: unknown): value is ItemType {
   return typeof value === 'string' && Object.hasOwn(DEFINITIONS, value);
 }
-
-export function getItemDefinition(item: ItemType): ItemDefinition {
-  return DEFINITIONS[item];
-}
-
-export function getItemLabel(item: ItemType | null): string {
-  return item === null ? '空手' : getItemDefinition(item).label;
-}
-
-export function getItemColor(item: ItemType): ItemRgb {
-  return getItemDefinition(item).color;
-}
+export function getItemDefinition(item: ItemType): ItemDefinition { return DEFINITIONS[item]; }
+export function getItemLabel(item: ItemType | null): string { return item === null ? '空手' : getItemDefinition(item).label; }
+export function getItemColor(item: ItemType): ItemRgb { return getItemDefinition(item).color; }
 
 export function itemFromBlock(block: BlockTypeValue): ItemType | null {
   switch (block) {
@@ -160,6 +86,7 @@ export function itemFromBlock(block: BlockTypeValue): ItemType | null {
     case BlockType.IronOre: return ItemType.IronOreBlock;
     case BlockType.Furnace: return ItemType.FurnaceBlock;
     case BlockType.Air: return null;
+    default: return null;
   }
 }
 
@@ -170,58 +97,39 @@ export function itemToBlock(item: ItemType | null): BlockTypeValue | null {
 function efficientToolForBlock(block: BlockTypeValue): ToolKind | null {
   switch (block) {
     case BlockType.Grass:
-    case BlockType.Dirt:
-      return 'shovel';
+    case BlockType.Dirt: return 'shovel';
     case BlockType.Stone:
     case BlockType.RuneStone:
     case BlockType.CoalOre:
     case BlockType.IronOre:
-    case BlockType.Furnace:
-      return 'pickaxe';
+    case BlockType.Furnace: return 'pickaxe';
     case BlockType.OakLog:
     case BlockType.OakPlanks:
-    case BlockType.CraftingTable:
-      return 'axe';
+    case BlockType.CraftingTable: return 'axe';
     case BlockType.OakLeaves:
-    case BlockType.Air:
-      return null;
+    case BlockType.Air: return null;
   }
 }
 
 export function getToolTierRank(item: ItemType | null): number {
-  if (item === null) {
-    return 0;
-  }
+  if (item === null) return 0;
   const tier = getItemDefinition(item).toolTier;
   return tier === 'iron' ? 3 : tier === 'stone' ? 2 : tier === 'wood' ? 1 : 0;
 }
-
 export function getMiningSpeedMultiplier(item: ItemType | null, block: BlockTypeValue): number {
-  if (block === BlockType.OakLeaves) {
-    return 2.4;
-  }
-  if (item === null) {
-    return 1;
-  }
+  if (block === BlockType.OakLeaves) return 2.4;
+  if (item === null) return 1;
   const definition = getItemDefinition(item);
-  if (definition.kind !== 'tool' || definition.toolKind !== efficientToolForBlock(block)) {
-    return 1;
-  }
+  if (definition.kind !== 'tool' || definition.toolKind !== efficientToolForBlock(block)) return 1;
   return definition.toolTier === 'iron' ? 7.2 : definition.toolTier === 'stone' ? 5.2 : 3.4;
 }
-
 export function getBlockDropItem(block: BlockTypeValue, heldItem: ItemType | null): ItemType | null {
   const heldDefinition = heldItem === null ? null : getItemDefinition(heldItem);
   const usingPickaxe = heldDefinition?.kind === 'tool' && heldDefinition.toolKind === 'pickaxe';
-  if (block === BlockType.CoalOre) {
-    return usingPickaxe && getToolTierRank(heldItem) >= 1 ? ItemType.Coal : null;
-  }
-  if (block === BlockType.IronOre) {
-    return usingPickaxe && getToolTierRank(heldItem) >= 2 ? ItemType.RawIron : null;
-  }
+  if (block === BlockType.CoalOre) return usingPickaxe && getToolTierRank(heldItem) >= 1 ? ItemType.Coal : null;
+  if (block === BlockType.IronOre) return usingPickaxe && getToolTierRank(heldItem) >= 2 ? ItemType.RawIron : null;
   return itemFromBlock(block);
 }
-
 export function isToolItem(item: ItemType | null): boolean {
   return item !== null && getItemDefinition(item).kind === 'tool';
 }
