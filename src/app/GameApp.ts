@@ -404,7 +404,7 @@ export class GameApp {
     const breakLabel = breakProgress > 0 ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%` : '';
     const survivalLabel = `生命 ${String(player.health)}/${String(player.maximumHealth)} · ${formatDayTime(dayTime)}`;
     if (inventoryOpen) {
-      this.#ui.status.textContent = `${inventoryOpen ? '界面已打开' : '背包'} · ${survivalLabel} · E 或 Esc 关闭`;
+      this.#ui.status.textContent = `界面已打开 · ${survivalLabel} · E 或 Esc 关闭`;
     } else if (awaitingPointerLock) {
       this.#ui.status.textContent = player.paused
         ? `已暂停 · ${survivalLabel} · 点击画面继续`
