@@ -14,6 +14,7 @@ const PLAYER_FOOT_OFFSET = 0.9;
 const DATABASE_NAME = 'lost-in-cubes-worlds';
 const DATABASE_VERSION = 1;
 const BLOCK_STORE = 'blocks';
+const VALID_BLOCK_TYPES = new Set<number>(Object.values(BlockType));
 
 interface PersistedBlockModification {
   readonly id: string;
@@ -51,6 +52,29 @@ function validateCoordinate(value: number, label: string): void {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isPersistedBlockModification(
+  value: unknown,
+): value is PersistedBlockModification {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.id === 'string' &&
+    typeof value.worldSeed === 'string' &&
+    Number.isInteger(value.worldX) &&
+    Number.isInteger(value.worldY) &&
+    Number.isInteger(value.worldZ) &&
+    typeof value.block === 'number' &&
+    VALID_BLOCK_TYPES.has(value.block) &&
+    (value.worldY as number) >= 0 &&
+    (value.worldY as number) < CHUNK_HEIGHT
+  );
+}
+
 /**
  * Owns deterministic terrain plus the sparse player-authored delta layer.
  * Generated terrain is never copied into memory; only changed blocks are kept.
@@ -85,17 +109,30 @@ export class VoxelWorldData {
         },
       );
       this.#database = database;
-      const records = await database.getAllFromIndex(
+      const records: unknown[] = await database.getAllFromIndex(
         BLOCK_STORE,
         'by-world',
         this.worldSeed,
       );
+      let ignoredRecords = 0;
       for (const record of records) {
+        if (
+          !isPersistedBlockModification(record) ||
+          record.worldSeed !== this.worldSeed
+        ) {
+          ignoredRecords += 1;
+          continue;
+        }
         this.#setMemoryModification(
           record.worldX,
           record.worldY,
           record.worldZ,
           record.block,
+        );
+      }
+      if (ignoredRecords > 0) {
+        console.warn(
+          `Ignored ${String(ignoredRecords)} invalid persisted voxel record(s).`,
         );
       }
     } catch (error: unknown) {
