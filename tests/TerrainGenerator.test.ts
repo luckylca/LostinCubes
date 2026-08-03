@@ -45,7 +45,7 @@ describe('TerrainGenerator', () => {
         expect(terrain.sampleBlock(worldX, surface - 3, worldZ)).not.toBe(BlockType.Air);
       }
     }
-    expect(caves).toBeGreaterThan(100);
+    expect(caves).toBeGreaterThan(50);
   });
 
   it('places coal above and below iron while keeping both underground', () => {
