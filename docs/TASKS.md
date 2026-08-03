@@ -22,7 +22,7 @@
 - [x] Stream a 5×5 chunk window
 - [x] Implement cross-chunk culling and six-axis greedy meshing
 - [x] Move generation and meshing into a bounded Worker pool
-- [x] Add nearest-first jobs, stable keys, revision rejection, and active cancellation
+- [x] Add nearest-first jobs, stable keys, revision rejection, active cancellation, and runtime fallback
 - [x] Add full voxel body collision, wall sliding, ceilings, step candidates, and depenetration
 - [x] Add deterministic eye-origin voxel targeting
 - [x] Add held mining, bounded placement, projected third-person targeting, and placement safety
@@ -49,11 +49,16 @@
 - [x] Add placed crafting-table interaction and tool recipes
 - [x] Add wooden axes and full stone tool tier
 - [x] Add tier- and material-aware mining speeds and durability
+- [x] Add deterministic underground caves with a protected surface shell
+- [x] Add coal and iron ore depth bands with tool-tier harvest rules
+- [x] Generalize pooled drops and save migration to block, material, and tool items
+- [x] Add furnaces, coal-fueled iron smelting, and full iron tools
+- [x] Add fixed-step health, fall damage, void death, and automatic respawn
+- [x] Add a fixed-step day/night cycle with dynamic sky, fog, and sunlight
 - [ ] Add save metadata and multiple world slots
 - [ ] Add additional biomes and structures
 - [ ] Add leaf decay, saplings, and tree regrowth
-- [ ] Add furnaces, ore progression, and smelting
 - [ ] Add full drag distribution and shift-click inventory shortcuts
 - [ ] Add distance-tiered chunk rendering or LOD
 - [ ] Capture representative desktop and Android performance profiles
-- [ ] Add hostile entities, combat, health, hunger, and recovery
+- [ ] Add hostile entities, combat, hunger, recovery items, and persistent player health
