@@ -17,11 +17,16 @@ export interface PlayerState {
   readonly pitch: number;
   readonly cameraMode: CameraMode;
   readonly paused: boolean;
+  readonly health: number;
+  readonly maximumHealth: number;
+  readonly damageTaken: number;
+  readonly deathCount: number;
 }
 
 export interface WorldState {
   readonly tick: number;
   readonly worldSeed: string;
+  readonly dayTime: number;
   readonly player: PlayerState;
 }
 
