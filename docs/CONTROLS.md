@@ -17,7 +17,7 @@
 | Use targeted block / place selected block | Right mouse button |
 | Select hotbar slot | 1–9 or mouse wheel |
 
-When the inventory is open, movement, looking, mining, placement, player physics, and drop physics are frozen. Pointer lock is released without also toggling the normal pause state. Pressing E or Escape closes the inventory.
+When an inventory, workbench, or furnace screen is open, movement, looking, mining, placement, player physics, ground-drop physics, damage, and world time are frozen. E or Escape closes the current screen.
 
 ## Camera and targeting
 
@@ -29,7 +29,7 @@ When the inventory is open, movement, looking, mining, placement, player physics
 - Camera obstruction shortens the third-person boom before a solid world mesh.
 - Block reach is 4.5 blocks.
 
-## Movement and collision
+## Movement, health, and time
 
 - X and Z movement resolve independently for wall sliding.
 - Movement uses bounded substeps to prevent tunneling.
@@ -37,37 +37,44 @@ When the inventory is open, movement, looking, mining, placement, player physics
 - A full one-block obstacle uses a real jump or auto-jump arc.
 - Two-block walls and low ceilings stop auto-jump.
 - Falling lands on the first solid voxel surface.
-- Spawn recovery searches upward for a collision-free position.
+- Safe falls cause no damage; dangerous landing speed removes health after contact with the floor.
+- Maximum health is 20. Lethal fall damage or falling below the world respawns the player at the original spawn point with full health.
+- The HUD shows health, the current 24-hour world time, and accumulated respawns.
+- One complete day/night cycle lasts three real-time minutes while gameplay is active.
 
-## Gathering and tools
+## Gathering and tool tiers
 
 The selected hotbar item controls mining and placement.
 
 - Empty hand and block items mine at base speed.
 - Shovels accelerate grass and dirt.
-- Pickaxes accelerate stone and rune stone.
+- Pickaxes accelerate stone, rune stone, ores, and furnaces.
 - Axes accelerate logs, planks, and crafting tables.
 - Wooden tools provide a 3.4× matching-tool multiplier and have 59 durability.
 - Stone tools provide a 5.2× matching-tool multiplier and have 131 durability.
+- Iron tools provide a 7.2× matching-tool multiplier and have 250 durability.
 - Leaves break quickly without requiring a special tool.
 - Mismatched tools receive no speed bonus but still lose durability after a successful break.
 - Tools lose one durability only when a block is actually removed.
-- Mining progress resets when the target changes, attack is released, the menu opens, or the target leaves reach.
+- Mining progress resets when the target changes, attack is released, a menu opens, or the target leaves reach.
 
-## Forest and wood progression
+## Forest, caves, and ore progression
 
-Oak trees are deterministic world structures made from solid log and leaf voxels. They participate in meshing, collision, targeting, persistence, and drops like terrain blocks.
+Oak trees and underground caves are deterministic parts of the seeded world. Caves are carved below a solid surface buffer, so buildings and spawn terrain remain supported.
 
-The initial progression is:
+The progression is:
 
-1. Break an oak log by hand.
-2. Open the inventory with E and craft four oak planks from one log.
-3. Craft sticks and a crafting table with personal recipes.
-4. Put the crafting table in the hotbar and place it.
-5. Right-click the placed table to open workbench recipes.
-6. Craft wooden tools, gather stone, then craft stone tools.
+1. Break an oak log and craft planks, sticks, and a crafting table.
+2. Place and use the crafting table to make wooden tools.
+3. Use a wooden pickaxe to collect stone and coal. Coal ore produces nothing without a pickaxe.
+4. Craft a stone pickaxe and dig deeper. Iron ore produces rough iron only with a stone- or iron-tier pickaxe.
+5. Craft and place a furnace from eight stone blocks.
+6. Right-click the furnace and combine one rough iron with one coal to produce one iron ingot.
+7. Use a crafting table to make iron pickaxes, shovels, and axes.
 
-## Inventory and crafting
+Coal can generate down to height 22. Iron is restricted to height 12 and below. The current HUD position readout can be used to judge depth.
+
+## Inventory, crafting, and furnace
 
 The inventory contains 27 storage slots plus nine hotbar slots.
 
@@ -75,25 +82,27 @@ The inventory contains 27 storage slots plus nine hotbar slots.
 - Right-click takes half a stack or places one item into a slot.
 - Block and material stacks are capped at 64.
 - Tools occupy one slot and display durability.
-- Closing the inventory attempts to return the cursor stack automatically.
-- Closing is blocked if every compatible and empty slot is full, preventing item loss.
+- Closing attempts to return the cursor stack automatically and is blocked if no valid slot remains.
 - Personal recipes include planks, sticks, and a crafting table.
-- Tool recipes require using a placed crafting table.
-- Recipe outputs go to the inventory cursor and obey stack limits.
+- Workbench recipes include wood, stone, and iron tools plus the furnace.
+- Furnace recipes are isolated from normal crafting and consume fuel and input atomically.
+- Recipe outputs go to the cursor and obey stack limits.
 
-New worlds start with an empty inventory. Legacy nine-slot saves migrate into the new hotbar at slots 28–36 without deleting existing items.
+New worlds start with an empty inventory. Legacy nine-slot saves migrate into the new hotbar without deleting existing items. Invalid old item or block identifiers are ignored instead of aborting startup.
 
 ## Drops, particles, and audio
 
-Breaking a block creates a pooled visible drop instead of writing directly into inventory.
+Breaking a block creates a pooled visible item drop instead of writing directly into inventory.
 
-- Nearby same-block drops merge up to 64.
+- Ground entities now support blocks, coal, rough iron, iron ingots, and tools.
+- Nearby identical items merge up to their normal maximum stack.
 - Drops fall onto solid voxels, rotate, bob, and attract toward the player.
 - Inventory overflow remains in the world.
-- Up to 96 visible drop entities are reused through a fixed pool.
-- Ground-drop snapshots are saved every two seconds and on page exit, then restored on the next load.
-- Block breaks activate up to 48 pooled cube fragments for short visual feedback.
-- Break, placement, pickup, and crafting sounds are synthesized with Web Audio and silently disable themselves when audio is unavailable.
+- Up to 96 visible entities are reused through a fixed pool.
+- Ground-drop snapshots are saved every two seconds and on page exit.
+- Legacy block-only drop snapshots migrate automatically to item identities.
+- Block breaks activate up to 48 pooled cube fragments.
+- Break, placement, pickup, and crafting sounds are synthesized with Web Audio and disable safely when unavailable.
 
 ## Mobile controls
 
@@ -102,10 +111,11 @@ Landscape and narrow-screen layouts provide movement, mining, use, inventory, sp
 ## Persistence
 
 - Sparse world edits are stored in IndexedDB by world seed.
-- Deterministic terrain and trees are regenerated rather than stored.
+- Deterministic terrain, caves, ores, and trees are regenerated rather than stored.
 - Inventory items, counts, durability, and selection use a versioned world-scoped local-storage snapshot.
 - Ground drops use a separate bounded world-scoped local-storage snapshot.
-- Invalid inventory and drop data is clamped or ignored during restore.
+- Invalid inventory, voxel, and drop data is clamped or ignored during restore.
+- Health, time of day, and respawn count currently reset when the page reloads.
 
 ## Accessibility goals
 
