@@ -59,24 +59,102 @@ export class GameAudio {
       type: block === BlockType.RuneStone ? 'triangle' : 'square',
     });
     window.setTimeout(() => {
-      this.#tone({ frequency: base * 0.78, duration: 0.055, volume: 0.026, type: 'square' });
+      this.#tone({
+        frequency: base * 0.78,
+        duration: 0.055,
+        volume: 0.026,
+        type: 'square',
+      });
     }, 28);
   }
 
   public playPlace(block: BlockTypeValue): void {
     const base = blockFrequency(block);
-    this.#tone({ frequency: base, frequencyEnd: base * 1.18, duration: 0.06, volume: 0.035, type: 'triangle' });
+    this.#tone({
+      frequency: base,
+      frequencyEnd: base * 1.18,
+      duration: 0.06,
+      volume: 0.035,
+      type: 'triangle',
+    });
   }
 
   public playPickup(): void {
-    this.#tone({ frequency: 520, frequencyEnd: 760, duration: 0.085, volume: 0.032, type: 'sine' });
+    this.#tone({
+      frequency: 520,
+      frequencyEnd: 760,
+      duration: 0.085,
+      volume: 0.032,
+      type: 'sine',
+    });
   }
 
   public playCraft(): void {
-    this.#tone({ frequency: 440, frequencyEnd: 660, duration: 0.11, volume: 0.04, type: 'triangle' });
+    this.#tone({
+      frequency: 440,
+      frequencyEnd: 660,
+      duration: 0.11,
+      volume: 0.04,
+      type: 'triangle',
+    });
     window.setTimeout(() => {
-      this.#tone({ frequency: 740, duration: 0.09, volume: 0.025, type: 'sine' });
+      this.#tone({
+        frequency: 740,
+        duration: 0.09,
+        volume: 0.025,
+        type: 'sine',
+      });
     }, 62);
+  }
+
+  public playEat(): void {
+    this.#tone({
+      frequency: 245,
+      frequencyEnd: 330,
+      duration: 0.08,
+      volume: 0.035,
+      type: 'triangle',
+    });
+    window.setTimeout(() => {
+      this.#tone({
+        frequency: 280,
+        frequencyEnd: 410,
+        duration: 0.075,
+        volume: 0.028,
+        type: 'triangle',
+      });
+    }, 72);
+  }
+
+  public playAttack(hit: boolean, killed = false): void {
+    this.#tone({
+      frequency: hit ? 165 : 120,
+      frequencyEnd: hit ? 82 : 95,
+      duration: hit ? 0.09 : 0.055,
+      volume: hit ? 0.055 : 0.024,
+      type: hit ? 'square' : 'triangle',
+    });
+    if (killed) {
+      window.setTimeout(() => {
+        this.#tone({
+          frequency: 95,
+          frequencyEnd: 42,
+          duration: 0.18,
+          volume: 0.04,
+          type: 'sawtooth',
+        });
+      }, 40);
+    }
+  }
+
+  public playPlayerHurt(): void {
+    this.#tone({
+      frequency: 140,
+      frequencyEnd: 68,
+      duration: 0.12,
+      volume: 0.045,
+      type: 'sawtooth',
+    });
   }
 
   public dispose(): void {
@@ -90,7 +168,8 @@ export class GameAudio {
     if (this.#disposed) return null;
     if (this.#context !== null) return this.#context;
     const constructors = globalThis as unknown as OptionalAudioConstructors;
-    const AudioContextConstructor = constructors.AudioContext ?? constructors.webkitAudioContext;
+    const AudioContextConstructor =
+      constructors.AudioContext ?? constructors.webkitAudioContext;
     if (AudioContextConstructor === undefined) return null;
     try {
       this.#context = new AudioContextConstructor();
@@ -109,7 +188,10 @@ export class GameAudio {
     oscillator.type = options.type;
     oscillator.frequency.setValueAtTime(options.frequency, now);
     if (options.frequencyEnd !== undefined) {
-      oscillator.frequency.exponentialRampToValueAtTime(Math.max(options.frequencyEnd, 1), now + options.duration);
+      oscillator.frequency.exponentialRampToValueAtTime(
+        Math.max(options.frequencyEnd, 1),
+        now + options.duration,
+      );
     }
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime(options.volume, now + 0.008);
