@@ -11,6 +11,10 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
+function normalizeDayTime(value: number): number {
+  return value >= 0 && value < 1 ? value : ((value % 1) + 1) % 1;
+}
+
 export function loadSurvivalSnapshot(
   worldSeed: string,
   storage: Storage | null,
@@ -36,7 +40,7 @@ export function loadSurvivalSnapshot(
     return {
       version: 1,
       health: Math.round(clamp(candidate.health, 1, maximumHealth)),
-      dayTime: ((candidate.dayTime % 1) + 1) % 1,
+      dayTime: normalizeDayTime(candidate.dayTime),
       deathCount: Math.max(candidate.deathCount, 0),
     };
   } catch (error: unknown) {
