@@ -1,7 +1,11 @@
 import {
   Color3,
+  Constants,
+  Material,
   MeshBuilder,
+  RawTexture,
   StandardMaterial,
+  Texture,
 } from '@babylonjs/core';
 import type { Mesh, Scene } from '@babylonjs/core';
 import type { PlayerState } from '../game/session/GameSession';
@@ -51,6 +55,9 @@ export interface InteractionTargetPoint {
   readonly z: number;
 }
 
+const CRACK_STAGE_COUNT = 8;
+const CRACK_TEXTURE_SIZE = 16;
+
 function blockIntersectsPlayer(
   worldX: number,
   worldY: number,
@@ -71,10 +78,77 @@ function createTargetKey(hit: VoxelRaycastHit): string {
   return `${String(x)},${String(y)},${String(z)}`;
 }
 
+function setCrackPixel(
+  pixels: Uint8Array,
+  x: number,
+  y: number,
+  alpha = 220,
+): void {
+  if (x < 0 || y < 0 || x >= CRACK_TEXTURE_SIZE || y >= CRACK_TEXTURE_SIZE) {
+    return;
+  }
+  const offset = (x + y * CRACK_TEXTURE_SIZE) * 4;
+  pixels[offset] = 15;
+  pixels[offset + 1] = 12;
+  pixels[offset + 2] = 10;
+  pixels[offset + 3] = alpha;
+}
+
+function createCrackTextures(scene: Scene): RawTexture[] {
+  const branches = [
+    [[8, 8], [7, 7], [6, 6], [5, 5], [4, 4], [3, 3]],
+    [[8, 8], [9, 7], [10, 6], [11, 5], [12, 4], [13, 3]],
+    [[8, 8], [7, 9], [6, 10], [5, 11], [4, 12], [3, 13]],
+    [[8, 8], [9, 9], [10, 10], [11, 11], [12, 12], [13, 13]],
+    [[6, 6], [6, 5], [7, 4], [7, 3], [8, 2]],
+    [[10, 10], [10, 11], [9, 12], [9, 13], [8, 14]],
+    [[5, 11], [4, 10], [3, 10], [2, 9]],
+    [[11, 5], [12, 6], [13, 6], [14, 7]],
+  ] as const;
+
+  return Array.from({ length: CRACK_STAGE_COUNT }, (_, stage) => {
+    const pixels = new Uint8Array(CRACK_TEXTURE_SIZE * CRACK_TEXTURE_SIZE * 4);
+    const branchCount = Math.min(stage + 1, branches.length);
+    for (let branchIndex = 0; branchIndex < branchCount; branchIndex += 1) {
+      const branch = branches[branchIndex] ?? [];
+      const pointCount = Math.max(
+        2,
+        Math.ceil((branch.length * (stage + 2)) / (CRACK_STAGE_COUNT + 1)),
+      );
+      for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+        const point = branch[pointIndex];
+        if (point === undefined) continue;
+        setCrackPixel(pixels, point[0], point[1]);
+        if (stage >= 4 && pointIndex % 2 === 0) {
+          setCrackPixel(pixels, point[0] + 1, point[1], 165);
+        }
+      }
+    }
+    const texture = RawTexture.CreateRGBATexture(
+      pixels,
+      CRACK_TEXTURE_SIZE,
+      CRACK_TEXTURE_SIZE,
+      scene,
+      false,
+      false,
+      Texture.NEAREST_NEAREST,
+      Constants.TEXTURETYPE_UNSIGNED_BYTE,
+    );
+    texture.name = `voxel-crack-stage-${String(stage + 1)}`;
+    texture.hasAlpha = true;
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    return texture;
+  });
+}
+
 export class VoxelInteractionController {
   readonly #world: VoxelWorldData;
   readonly #highlight: Mesh;
   readonly #highlightMaterial: StandardMaterial;
+  readonly #crackOverlay: Mesh;
+  readonly #crackMaterial: StandardMaterial;
+  readonly #crackTextures: RawTexture[];
   readonly #timing = new BlockInteractionState();
   readonly #callbacks: VoxelInteractionCallbacks;
   #target: VoxelRaycastHit | null = null;
@@ -109,8 +183,29 @@ export class VoxelInteractionController {
     );
     this.#highlight.material = this.#highlightMaterial;
     this.#highlight.isPickable = false;
-    this.#highlight.renderingGroupId = 1;
+    this.#highlight.renderingGroupId = 2;
     this.#highlight.setEnabled(false);
+
+    this.#crackTextures = createCrackTextures(scene);
+    this.#crackMaterial = new StandardMaterial('voxel-crack-material', scene);
+    this.#crackMaterial.diffuseColor = Color3.White();
+    this.#crackMaterial.specularColor = Color3.Black();
+    this.#crackMaterial.disableLighting = true;
+    this.#crackMaterial.backFaceCulling = false;
+    this.#crackMaterial.useAlphaFromDiffuseTexture = true;
+    this.#crackMaterial.transparencyMode = Material.MATERIAL_ALPHATEST;
+    this.#crackMaterial.alphaCutOff = 0.08;
+    this.#crackMaterial.diffuseTexture = this.#crackTextures[0] ?? null;
+
+    this.#crackOverlay = MeshBuilder.CreateBox(
+      'voxel-crack-overlay',
+      { size: 1.041 },
+      scene,
+    );
+    this.#crackOverlay.material = this.#crackMaterial;
+    this.#crackOverlay.isPickable = false;
+    this.#crackOverlay.renderingGroupId = 3;
+    this.#crackOverlay.setEnabled(false);
   }
 
   public update(
@@ -191,6 +286,9 @@ export class VoxelInteractionController {
   public dispose(): void {
     this.#highlightMaterial.dispose();
     this.#highlight.dispose(false, false);
+    this.#crackMaterial.dispose(false, false);
+    this.#crackOverlay.dispose(false, false);
+    for (const texture of this.#crackTextures) texture.dispose();
   }
 
   #updateTarget(player: PlayerState): void {
@@ -207,6 +305,7 @@ export class VoxelInteractionController {
     if (this.#target === null) {
       this.#targetPoint = null;
       this.#highlight.setEnabled(false);
+      this.#crackOverlay.setEnabled(false);
       return;
     }
 
@@ -217,23 +316,36 @@ export class VoxelInteractionController {
       z: eye.z + direction.z * distance + normal.z * 0.02,
     };
     this.#highlight.position.set(block.x, block.y, block.z);
+    this.#crackOverlay.position.set(block.x, block.y, block.z);
     this.#highlight.setEnabled(true);
   }
 
   #updateHighlightPresentation(): void {
     if (this.#target === null) {
+      this.#crackOverlay.setEnabled(false);
       return;
     }
 
     const progress = this.#breakProgress;
-    const scale = 1 + progress * 0.035;
+    const scale = 1 + progress * 0.025;
     this.#highlight.scaling.setAll(scale);
-    this.#highlightMaterial.alpha = 0.72 + progress * 0.2;
+    this.#highlightMaterial.alpha = 0.58 + progress * 0.2;
     this.#highlightMaterial.emissiveColor.set(
-      0.42 + progress * 0.35,
-      0.32 - progress * 0.12,
+      0.34 + progress * 0.24,
+      0.3 - progress * 0.1,
       0.04,
     );
+
+    if (progress <= 0) {
+      this.#crackOverlay.setEnabled(false);
+      return;
+    }
+    const stage = Math.min(
+      Math.floor(progress * CRACK_STAGE_COUNT),
+      CRACK_STAGE_COUNT - 1,
+    );
+    this.#crackMaterial.diffuseTexture = this.#crackTextures[stage] ?? null;
+    this.#crackOverlay.setEnabled(true);
   }
 
   #breakTarget(): boolean {
@@ -254,6 +366,7 @@ export class VoxelInteractionController {
     this.#target = null;
     this.#targetPoint = null;
     this.#highlight.setEnabled(false);
+    this.#crackOverlay.setEnabled(false);
     return true;
   }
 
