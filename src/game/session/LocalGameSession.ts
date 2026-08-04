@@ -107,9 +107,10 @@ export class LocalGameSession implements GameSession {
   public damagePlayer(amount: number): number {
     const before = this.#health;
     this.#applyDamage(amount);
+    const damageDealt = before - this.#health;
     if (this.#health <= 0) this.#respawn();
     this.#worldState = this.#createWorldState(this.#worldState.tick);
-    return before - this.#health;
+    return damageDealt;
   }
 
   public healPlayer(amount: number): number {
@@ -193,10 +194,8 @@ export class LocalGameSession implements GameSession {
   }
 
   #applyDamage(amount: number): void {
-    const damage = Math.min(
-      Math.max(Math.floor(amount), 0),
-      this.#health,
-    );
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const damage = Math.min(Math.floor(amount), this.#health);
     if (damage <= 0) return;
     this.#health -= damage;
     this.#damageTaken += damage;
