@@ -1,10 +1,20 @@
 import type { Engine } from '@babylonjs/core';
 import { GameAudio } from '../audio/GameAudio';
+import { FurnaceManager } from '../crafting/FurnaceManager';
+import type { FurnacePosition } from '../crafting/FurnaceManager';
 import type { CraftingStation } from '../crafting/CraftingRecipes';
 import { BabylonEngine } from '../engine/BabylonEngine';
+import { NightStalkerManager } from '../entities/NightStalkerManager';
 import { RenderLoop } from '../engine/RenderLoop';
-import { LocalGameSession } from '../game/session/LocalGameSession';
-import type { PlayerState } from '../game/session/GameSession';
+import {
+  LocalGameSession,
+  PLAYER_MAXIMUM_HEALTH,
+} from '../game/session/LocalGameSession';
+import type { PlayerState, WorldState } from '../game/session/GameSession';
+import {
+  loadSurvivalSnapshot,
+  saveSurvivalSnapshot,
+} from '../game/session/SurvivalPersistence';
 import { InputManager } from '../input/InputManager';
 import {
   loadPlayerInventory,
@@ -12,10 +22,15 @@ import {
 } from '../inventory/InventoryPersistence';
 import {
   getBlockDropItem,
+  getFoodHealing,
   getItemLabel,
+  ItemType,
 } from '../inventory/ItemDefinitions';
-import type { ItemType } from '../inventory/ItemDefinitions';
-import type { PlayerInventory } from '../inventory/PlayerInventory';
+import type { ItemType as ItemTypeValue } from '../inventory/ItemDefinitions';
+import type {
+  InventorySlotSnapshot,
+  PlayerInventory,
+} from '../inventory/PlayerInventory';
 import { PlayerCameraController } from '../player/PlayerCameraController';
 import { VoxelPlayerModel } from '../player/VoxelPlayerModel';
 import { HotbarView } from '../ui/HotbarView';
@@ -36,7 +51,8 @@ import type { VoxelWorldStats } from '../world/VoxelWorldRenderer';
 const WORLD_SEED = 'world-fragment-01';
 const SPAWN_X = 0;
 const SPAWN_Z = 3.5;
-const DROP_SAVE_INTERVAL_SECONDS = 2;
+const SAVE_INTERVAL_SECONDS = 2;
+const FURNACE_REFRESH_SECONDS = 0.12;
 
 type CameraMode = PlayerState['cameraMode'];
 
@@ -67,7 +83,17 @@ function formatDayTime(dayTime: number): string {
   const totalMinutes = Math.floor((((dayTime % 1) + 1) % 1) * 24 * 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  return `${hours.toString().padStart(2, '0')}:${minutes
+    .toString()
+    .padStart(2, '0')}`;
+}
+
+function shouldDropApple(x: number, y: number, z: number): boolean {
+  const hash =
+    Math.imul(x, 73_856_093) ^
+    Math.imul(y, 19_349_663) ^
+    Math.imul(z, 83_492_791);
+  return (hash >>> 0) % 8 === 0;
 }
 
 export class GameApp {
@@ -82,6 +108,8 @@ export class GameApp {
   #worldRenderer: VoxelWorldRenderer | null = null;
   #interaction: VoxelInteractionController | null = null;
   #drops: DroppedItemManager | null = null;
+  #enemies: NightStalkerManager | null = null;
+  #furnaces: FurnaceManager | null = null;
   #effects: VoxelBreakEffects | null = null;
   #audio: GameAudio | null = null;
   #inventory: PlayerInventory | null = null;
@@ -90,8 +118,9 @@ export class GameApp {
   #targetView: ThirdPersonTargetView | null = null;
   #localStorage: Storage | null = null;
   #lastCameraMode: CameraMode | null = null;
-  #lastHeldItem: ItemType | null | undefined;
-  #dropSaveElapsed = 0;
+  #lastHeldItem: ItemTypeValue | null | undefined;
+  #saveElapsed = 0;
+  #furnaceRefreshElapsed = 0;
   #smoothedFps = 60;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
@@ -107,7 +136,8 @@ export class GameApp {
     await worldData.initialize();
 
     const session = new LocalGameSession(WORLD_SEED, {
-      isSolidAt: (worldX, worldY, worldZ) => worldData.isSolidAt(worldX, worldY, worldZ),
+      isSolidAt: (worldX, worldY, worldZ) =>
+        worldData.isSolidAt(worldX, worldY, worldZ),
       spawnPosition: {
         x: SPAWN_X,
         y: worldData.sampleStandingY(SPAWN_X, SPAWN_Z),
@@ -117,10 +147,15 @@ export class GameApp {
     const input = new InputManager(this.#canvas, this.#ui.touchControls);
     const localStorage = getLocalStorage();
     const inventory = loadPlayerInventory(WORLD_SEED, localStorage);
+    const furnaces = new FurnaceManager(WORLD_SEED, localStorage);
     input.selectHotbarSlot(inventory.selectedSlot);
-    const hotbar = new HotbarView(this.#ui.hotbar, (slot) => input.selectHotbarSlot(slot));
+    const hotbar = new HotbarView(this.#ui.hotbar, (slot) =>
+      input.selectHotbarSlot(slot),
+    );
     const audio = new GameAudio();
-    const inventoryViewHolder: { current: InventoryView | null } = { current: null };
+    const inventoryViewHolder: { current: InventoryView | null } = {
+      current: null,
+    };
     let renderedInventoryRevision = -1;
     const syncInventory = (): void => {
       if (inventory.revision === renderedInventoryRevision) return;
@@ -132,20 +167,40 @@ export class GameApp {
 
     let breakHeld = false;
     let placeHeld = false;
+    let activeFurnace: FurnacePosition | null = null;
     const closeMenuState = (): void => {
       input.setUiOpen(false);
       session.setMenuOpen(false);
+      activeFurnace = null;
       this.#canvas.dataset.inventoryOpen = 'false';
     };
     const inventoryView = new InventoryView(this.#ui.inventoryRoot, inventory, {
       onChanged: syncInventory,
       onClose: closeMenuState,
       onCrafted: () => audio.playCraft(),
+      getFurnaceState: () =>
+        activeFurnace === null ? null : furnaces.getState(activeFurnace),
+      onFurnaceInsertInput: () =>
+        activeFurnace === null
+          ? 0
+          : furnaces.insertInput(activeFurnace, inventory),
+      onFurnaceInsertFuel: () =>
+        activeFurnace === null
+          ? 0
+          : furnaces.insertFuel(activeFurnace, inventory),
+      onFurnaceTakeOutput: () =>
+        activeFurnace === null
+          ? 0
+          : furnaces.takeOutput(activeFurnace, inventory),
     });
     inventoryViewHolder.current = inventoryView;
-    const openInventory = (station: CraftingStation): void => {
+    const openInventory = (
+      station: CraftingStation,
+      position: FurnacePosition | null = null,
+    ): void => {
       breakHeld = false;
       placeHeld = false;
+      activeFurnace = station === 'furnace' ? position : null;
       inventoryView.open(station);
       input.setUiOpen(true);
       session.setMenuOpen(true);
@@ -156,12 +211,16 @@ export class GameApp {
 
     const cameraController = new PlayerCameraController(scene);
     const playerModel = new VoxelPlayerModel(scene);
-    const targetView = new ThirdPersonTargetView(this.#ui.targetReticle, this.#canvas, scene);
+    const targetView = new ThirdPersonTargetView(
+      this.#ui.targetReticle,
+      this.#canvas,
+      scene,
+    );
     const worldRenderer = new VoxelWorldRenderer(scene, worldData, 2);
     const effects = new VoxelBreakEffects(scene);
     const drops = new DroppedItemManager(scene, worldData, {
-      onPickup: (item, count) => {
-        const remaining = inventory.addItem(item, count);
+      onPickup: (stack) => {
+        const remaining = inventory.addStack(stack);
         syncInventory();
         return remaining;
       },
@@ -169,17 +228,70 @@ export class GameApp {
     });
     drops.restore(loadDroppedItems(WORLD_SEED, localStorage));
 
+    const spawnStack = (
+      stack: InventorySlotSnapshot,
+      worldX: number,
+      worldY: number,
+      worldZ: number,
+    ): void => {
+      if (stack.item === null || stack.count <= 0) return;
+      const remainingCount = drops.spawn(
+        stack.item,
+        worldX,
+        worldY,
+        worldZ,
+        stack.count,
+        stack.durability,
+      );
+      if (remainingCount <= 0) return;
+      inventory.addStack({ ...stack, count: remainingCount });
+      syncInventory();
+    };
+
+    const enemies = new NightStalkerManager(scene, worldData, {
+      onPlayerDamage: (amount) => {
+        const beforeHealth = session.getWorldState().player.health;
+        session.damagePlayer(amount);
+        if (session.getWorldState().player.health !== beforeHealth) {
+          audio.playPlayerHurt();
+        }
+      },
+      onDrop: (item, count, x, y, z) => {
+        spawnStack({ item, count, durability: null }, x, y, z);
+      },
+      onEnemyHit: (_damage, killed) => audio.playAttack(true, killed),
+    });
+
     const interaction = new VoxelInteractionController(scene, worldData, {
-      onBlockChanged: (worldX, worldY, worldZ) => worldRenderer.invalidateBlock(worldX, worldY, worldZ),
+      onBlockChanged: (worldX, worldY, worldZ) =>
+        worldRenderer.invalidateBlock(worldX, worldY, worldZ),
       onBlockBroken: (block, position) => {
         effects.spawn(block, position.x, position.y, position.z);
         audio.playBreak(block);
+        if (block === BlockType.Furnace) {
+          for (const stack of furnaces.drain(position)) {
+            spawnStack(stack, position.x, position.y, position.z);
+          }
+        }
         const dropItem = getBlockDropItem(block, inventory.selectedItem);
-        if (dropItem === null) return;
-        const remaining = drops.spawn(dropItem, position.x, position.y, position.z, 1);
-        if (remaining > 0) {
-          inventory.addItem(dropItem, remaining);
-          syncInventory();
+        if (dropItem !== null) {
+          spawnStack(
+            { item: dropItem, count: 1, durability: null },
+            position.x,
+            position.y,
+            position.z,
+          );
+        }
+        if (
+          block === BlockType.OakLeaves &&
+          shouldDropApple(position.x, position.y, position.z)
+        ) {
+          spawnStack(
+            { item: ItemType.Apple, count: 1, durability: null },
+            position.x,
+            position.y + 0.15,
+            position.z,
+          );
         }
       },
       canPlaceBlock: (block) => inventory.canConsumeSelectedBlock(block),
@@ -192,13 +304,13 @@ export class GameApp {
         inventory.damageSelectedTool(1);
         syncInventory();
       },
-      onUseBlock: (block) => {
+      onUseBlock: (block, position) => {
         if (block === BlockType.CraftingTable) {
           openInventory('crafting-table');
           return true;
         }
         if (block === BlockType.Furnace) {
-          openInventory('furnace');
+          openInventory('furnace', position);
           return true;
         }
         return false;
@@ -212,6 +324,8 @@ export class GameApp {
     this.#worldRenderer = worldRenderer;
     this.#interaction = interaction;
     this.#drops = drops;
+    this.#enemies = enemies;
+    this.#furnaces = furnaces;
     this.#effects = effects;
     this.#audio = audio;
     this.#inventory = inventory;
@@ -221,9 +335,41 @@ export class GameApp {
     this.#localStorage = localStorage;
 
     await session.start();
+    session.restoreSurvival(
+      loadSurvivalSnapshot(
+        WORLD_SEED,
+        localStorage,
+        PLAYER_MAXIMUM_HEALTH,
+      ),
+    );
+    let observedDeathCount = session.getWorldState().player.deathCount;
     const initialWorldState = session.getWorldState();
     const initialPlayer = initialWorldState.player;
-    await worldRenderer.initialize(initialPlayer.position.x, initialPlayer.position.z);
+    await worldRenderer.initialize(
+      initialPlayer.position.x,
+      initialPlayer.position.z,
+    );
+
+    const handleDeath = (worldState: Readonly<WorldState>): void => {
+      if (worldState.player.deathCount <= observedDeathCount) return;
+      observedDeathCount = worldState.player.deathCount;
+      const position = worldState.lastDeathPosition ?? worldState.player.position;
+      for (const stack of inventory.drainAllItems()) {
+        spawnStack(stack, position.x, position.y, position.z);
+      }
+      interaction.setHeldItem(inventory.selectedItem);
+      syncInventory();
+    };
+
+    const saveWorldState = (): void => {
+      saveDroppedItems(WORLD_SEED, drops.snapshots, localStorage);
+      furnaces.save();
+      saveSurvivalSnapshot(
+        WORLD_SEED,
+        session.getSurvivalSnapshot(),
+        localStorage,
+      );
+    };
 
     const applyWorldState = (
       player: PlayerState,
@@ -231,7 +377,10 @@ export class GameApp {
       frameSeconds: number,
     ): void => {
       updateLighting(dayTime);
-      const worldStats = worldRenderer.update(player.position.x, player.position.z);
+      const worldStats = worldRenderer.update(
+        player.position.x,
+        player.position.z,
+      );
       interaction.update(
         player,
         frameSeconds,
@@ -244,13 +393,20 @@ export class GameApp {
       cameraController.update(player, frameSeconds);
       targetView.update(player, interaction.targetPoint);
       playerModel.update(player, frameSeconds, {
-        breaking: !player.paused && breakHeld && interaction.hasTarget,
-        placing: !player.paused && placeHeld && interaction.hasTarget,
+        breaking: !player.paused && breakHeld,
+        placing: !player.paused && placeHeld,
         breakProgress: interaction.breakProgress,
         heldItem: inventory.selectedItem,
       });
       this.#syncCameraMode(player.cameraMode);
-      this.#syncPresentationDiagnostics(player, dayTime, inventory.selectedItem, interaction.hasTarget);
+      this.#syncPresentationDiagnostics(
+        player,
+        dayTime,
+        inventory.selectedItem,
+        interaction.hasTarget,
+        enemies.activeCount,
+        furnaces.furnaceCount,
+      );
       this.#updateHud(
         player,
         dayTime,
@@ -258,15 +414,25 @@ export class GameApp {
         inventory.selectedItem,
         interaction.breakProgress,
         drops.activeCount,
+        enemies.activeCount,
         input.usesPointerLock && !input.pointerLocked,
         inventoryView.isOpen,
         frameSeconds,
       );
 
-      this.#dropSaveElapsed += frameSeconds;
-      if (this.#dropSaveElapsed >= DROP_SAVE_INTERVAL_SECONDS) {
-        this.#dropSaveElapsed = 0;
-        saveDroppedItems(WORLD_SEED, drops.snapshots, localStorage);
+      this.#saveElapsed += frameSeconds;
+      if (this.#saveElapsed >= SAVE_INTERVAL_SECONDS) {
+        this.#saveElapsed = 0;
+        saveWorldState();
+      }
+      if (inventoryView.isOpen && inventoryView.station === 'furnace') {
+        this.#furnaceRefreshElapsed += frameSeconds;
+        if (this.#furnaceRefreshElapsed >= FURNACE_REFRESH_SECONDS) {
+          this.#furnaceRefreshElapsed = 0;
+          inventoryView.refreshFurnace();
+        }
+      } else {
+        this.#furnaceRefreshElapsed = 0;
       }
     };
 
@@ -284,8 +450,38 @@ export class GameApp {
         if (!inventoryView.isOpen) {
           inventory.selectSlot(command.selectedHotbarSlot);
           interaction.setHeldItem(inventory.selectedItem);
+          const attackPressed = command.breakBlock && !breakHeld;
+          const usePressed = command.placeBlock && !placeHeld;
+          if (attackPressed && !interaction.hasTarget) {
+            const result = enemies.attack(
+              worldState.player,
+              inventory.selectedItem,
+            );
+            if (!result.hit) audio.playAttack(false);
+            if (result.hit) {
+              inventory.damageSelectedTool(1);
+              syncInventory();
+            }
+          }
+
+          let consumedFood = false;
+          const selectedItem = inventory.selectedItem;
+          const healing = getFoodHealing(selectedItem);
+          if (
+            usePressed &&
+            !interaction.hasTarget &&
+            selectedItem !== null &&
+            healing > 0 &&
+            worldState.player.health < worldState.player.maximumHealth &&
+            inventory.consumeSelectedItem(selectedItem, 1)
+          ) {
+            session.healPlayer(healing);
+            audio.playEat();
+            consumedFood = true;
+            syncInventory();
+          }
           breakHeld = command.breakBlock;
-          placeHeld = command.placeBlock;
+          placeHeld = consumedFood ? false : command.placeBlock;
         } else {
           breakHeld = false;
           placeHeld = false;
@@ -293,17 +489,34 @@ export class GameApp {
         syncInventory();
         session.submitCommand(command);
       },
-      fixedUpdate: (stepSeconds) => session.step(stepSeconds),
+      fixedUpdate: (stepSeconds) => {
+        session.step(stepSeconds);
+        let worldState = session.getWorldState();
+        if (!worldState.player.paused) {
+          furnaces.update(stepSeconds);
+          enemies.update(worldState.player, worldState.dayTime, stepSeconds);
+          worldState = session.getWorldState();
+        }
+        handleDeath(worldState);
+      },
       renderUpdate: (frameSeconds) => {
         const worldState = session.getWorldState();
-        applyWorldState(worldState.player, worldState.dayTime, frameSeconds);
+        applyWorldState(
+          worldState.player,
+          worldState.dayTime,
+          frameSeconds,
+        );
       },
     });
     this.#renderLoop.start();
   }
 
   public dispose(): void {
-    document.body.classList.remove('camera-third-person', 'inventory-open', 'player-damaged');
+    document.body.classList.remove(
+      'camera-third-person',
+      'inventory-open',
+      'player-damaged',
+    );
     this.#canvas.removeAttribute('data-camera-mode');
     this.#canvas.removeAttribute('data-held-item');
     this.#canvas.removeAttribute('data-player-pitch');
@@ -312,6 +525,8 @@ export class GameApp {
     this.#canvas.removeAttribute('data-player-health');
     this.#canvas.removeAttribute('data-day-time');
     this.#canvas.removeAttribute('data-death-count');
+    this.#canvas.removeAttribute('data-enemy-count');
+    this.#canvas.removeAttribute('data-furnace-count');
     this.#lastCameraMode = null;
     this.#lastHeldItem = undefined;
     this.#inventoryView?.dispose();
@@ -323,6 +538,10 @@ export class GameApp {
       this.#drops.dispose();
       this.#drops = null;
     }
+    this.#enemies?.dispose();
+    this.#enemies = null;
+    this.#furnaces?.save();
+    this.#furnaces = null;
     this.#effects?.dispose();
     this.#effects = null;
     this.#audio?.dispose();
@@ -330,6 +549,13 @@ export class GameApp {
     if (this.#inventory !== null) {
       savePlayerInventory(WORLD_SEED, this.#inventory, this.#localStorage);
       this.#inventory = null;
+    }
+    if (this.#session !== null) {
+      saveSurvivalSnapshot(
+        WORLD_SEED,
+        this.#session.getSurvivalSnapshot(),
+        this.#localStorage,
+      );
     }
     this.#localStorage = null;
     this.#hotbar?.dispose();
@@ -368,14 +594,18 @@ export class GameApp {
   #syncPresentationDiagnostics(
     player: PlayerState,
     dayTime: number,
-    heldItem: ItemType | null,
+    heldItem: ItemTypeValue | null,
     hasTarget: boolean,
+    enemyCount: number,
+    furnaceCount: number,
   ): void {
     this.#canvas.dataset.playerPitch = player.pitch.toFixed(4);
     this.#canvas.dataset.hasTarget = String(hasTarget);
     this.#canvas.dataset.playerHealth = String(player.health);
     this.#canvas.dataset.dayTime = dayTime.toFixed(4);
     this.#canvas.dataset.deathCount = String(player.deathCount);
+    this.#canvas.dataset.enemyCount = String(enemyCount);
+    this.#canvas.dataset.furnaceCount = String(furnaceCount);
     document.body.classList.toggle('player-damaged', player.damageTaken > 0);
     if (heldItem !== this.#lastHeldItem) {
       this.#lastHeldItem = heldItem;
@@ -387,39 +617,58 @@ export class GameApp {
     player: PlayerState,
     dayTime: number,
     world: VoxelWorldStats,
-    selectedItem: ItemType | null,
+    selectedItem: ItemTypeValue | null,
     breakProgress: number,
     activeDrops: number,
+    activeEnemies: number,
     awaitingPointerLock: boolean,
     inventoryOpen: boolean,
     frameSeconds: number,
   ): void {
     if (frameSeconds > 0) {
       const instantaneousFps = Math.min(240, 1 / frameSeconds);
-      this.#smoothedFps += (instantaneousFps - this.#smoothedFps) * 0.08;
+      this.#smoothedFps +=
+        (instantaneousFps - this.#smoothedFps) * 0.08;
     }
-    const worldProgress = `${String(world.loadedChunks)}/${String(world.desiredChunks)}`;
-    const queueLabel = world.pendingChunks > 0 ? ` · 队列 ${String(world.pendingChunks)}` : '';
-    const dropLabel = activeDrops > 0 ? ` · 掉落 ${String(activeDrops)}` : '';
-    const breakLabel = breakProgress > 0 ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%` : '';
-    const survivalLabel = `生命 ${String(player.health)}/${String(player.maximumHealth)} · ${formatDayTime(dayTime)}`;
+    const worldProgress = `${String(world.loadedChunks)}/${String(
+      world.desiredChunks,
+    )}`;
+    const queueLabel =
+      world.pendingChunks > 0
+        ? ` · 队列 ${String(world.pendingChunks)}`
+        : '';
+    const dropLabel =
+      activeDrops > 0 ? ` · 掉落 ${String(activeDrops)}` : '';
+    const enemyLabel =
+      activeEnemies > 0 ? ` · 夜行者 ${String(activeEnemies)}` : '';
+    const breakLabel =
+      breakProgress > 0
+        ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%`
+        : '';
+    const survivalLabel = `生命 ${String(player.health)}/${String(
+      player.maximumHealth,
+    )} · ${formatDayTime(dayTime)}`;
     if (inventoryOpen) {
       this.#ui.status.textContent = `界面已打开 · ${survivalLabel} · E 或 Esc 关闭`;
     } else if (awaitingPointerLock) {
       this.#ui.status.textContent = player.paused
         ? `已暂停 · ${survivalLabel} · 点击画面继续`
-        : `${survivalLabel} · 点击锁定鼠标，或按住画面拖动观察`;
+        : `${survivalLabel}${enemyLabel} · 点击锁定鼠标，或按住画面拖动观察`;
     } else {
       this.#ui.status.textContent = player.paused
         ? `已暂停 · ${survivalLabel}`
         : [
-            survivalLabel,
+            `${survivalLabel}${enemyLabel}`,
             `${worldProgress} 区块${queueLabel}`,
             `${formatCount(world.visibleQuads)} 四边形${dropLabel}`,
             `${Math.round(this.#smoothedFps).toString()} FPS${breakLabel}`,
           ].join(' · ');
     }
-    this.#ui.viewMode.textContent = `${player.cameraMode === 'first-person' ? '第一人称' : '第三人称'} · ${getItemLabel(selectedItem)}${player.deathCount > 0 ? ` · 重生 ${String(player.deathCount)}` : ''}`;
+    this.#ui.viewMode.textContent = `${
+      player.cameraMode === 'first-person' ? '第一人称' : '第三人称'
+    } · ${getItemLabel(selectedItem)}${
+      player.deathCount > 0 ? ` · 重生 ${String(player.deathCount)}` : ''
+    }`;
     this.#ui.position.textContent = [
       player.position.x.toFixed(1),
       player.position.y.toFixed(1),
