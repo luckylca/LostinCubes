@@ -1,0 +1,267 @@
+.survival-guide {
+  width: min(34rem, calc(100vw - 2rem));
+  border: 1px solid rgb(232 255 218 / 24%);
+  border-radius: 0.72rem;
+  color: #eaffed;
+  background: rgb(8 17 11 / 82%);
+  box-shadow: 0 0.8rem 2rem rgb(0 0 0 / 28%);
+  backdrop-filter: blur(8px);
+}
+
+.survival-guide summary {
+  padding: 0.62rem 0.8rem;
+  cursor: pointer;
+  color: #e6ffc5;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.survival-guide ol {
+  display: grid;
+  gap: 0.42rem;
+  margin: 0;
+  padding: 0.15rem 1rem 0.72rem 2rem;
+  color: #bed0c2;
+  font-size: 0.7rem;
+  line-height: 1.42;
+}
+
+.survival-guide strong {
+  color: #f2fff4;
+}
+
+.survival-guide .guide-warning {
+  margin: 0;
+  padding: 0.55rem 0.8rem 0.7rem;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+  color: #e8c991;
+  font-size: 0.66rem;
+}
+
+.recipe-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 6rem;
+}
+
+.recipe-copy {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.recipe-shape {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex: none;
+}
+
+.recipe-pattern {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.18rem;
+  border: 1px solid rgb(255 255 255 / 20%);
+  background: #171b18;
+  box-shadow:
+    inset 0.12rem 0.12rem 0 rgb(255 255 255 / 8%),
+    inset -0.12rem -0.12rem 0 rgb(0 0 0 / 42%);
+}
+
+.recipe-grid-2 {
+  grid-template-columns: repeat(2, 1.25rem);
+}
+
+.recipe-grid-3 {
+  grid-template-columns: repeat(3, 1.05rem);
+}
+
+.recipe-cell,
+.recipe-result {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid #59605a;
+  background: #252b27;
+  box-shadow:
+    inset 0.08rem 0.08rem 0 #101311,
+    inset -0.08rem -0.08rem 0 #3b423d;
+}
+
+.recipe-grid-3 .recipe-cell {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.recipe-cell.is-empty {
+  opacity: 0.52;
+}
+
+.recipe-cell .inventory-item,
+.recipe-result .inventory-item {
+  width: 0.88rem;
+  height: 0.88rem;
+  border-width: 0;
+  image-rendering: pixelated;
+}
+
+.recipe-grid-3 .recipe-cell .inventory-item {
+  width: 0.76rem;
+  height: 0.76rem;
+}
+
+.recipe-arrow {
+  color: #dce4dd;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.recipe-result {
+  width: 1.65rem;
+  height: 1.65rem;
+  border-color: #8d9b8f;
+}
+
+.recipe-result strong {
+  position: absolute;
+  right: 0.05rem;
+  bottom: -0.05rem;
+  color: white;
+  font-size: 0.55rem;
+  text-shadow: 0 1px 2px #000;
+}
+
+.furnace-machine {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 0.75rem;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 5%), transparent 40%),
+    #191e1b;
+}
+
+.furnace-column {
+  display: grid;
+  justify-items: center;
+  gap: 0.32rem;
+}
+
+.furnace-slot {
+  display: grid;
+  grid-template-columns: 2rem auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 0 0.48rem;
+  min-width: 8rem;
+  padding: 0.5rem 0.6rem;
+  border: 2px solid #5e665f;
+  border-radius: 0.18rem;
+  color: #f4fff5;
+  background: #2b312d;
+  box-shadow:
+    inset 0.14rem 0.14rem 0 #111512,
+    inset -0.14rem -0.14rem 0 #454d47;
+  cursor: pointer;
+}
+
+.furnace-slot:disabled {
+  filter: grayscale(0.7) brightness(0.68);
+  cursor: not-allowed;
+}
+
+.furnace-slot .inventory-item {
+  grid-row: 1 / span 2;
+}
+
+.furnace-slot strong {
+  font-size: 0.86rem;
+}
+
+.furnace-slot small {
+  color: #b9c6bc;
+  font-size: 0.63rem;
+}
+
+.furnace-output {
+  min-width: 8.6rem;
+}
+
+.furnace-flame {
+  color: #ffb54b;
+  font-size: 1.35rem;
+  text-shadow: 0 0 0.6rem rgb(255 120 33 / 65%);
+}
+
+.furnace-process-arrow {
+  font-size: 1.7rem;
+}
+
+.furnace-hint {
+  margin: 0.65rem 0 0;
+  color: #aebdb2;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.inventory-item {
+  image-rendering: pixelated;
+}
+
+.item-grass,
+.item-dirt,
+.item-stone,
+.item-rune-stone,
+.item-oak-log,
+.item-oak-leaves,
+.item-oak-planks,
+.item-crafting-table,
+.item-coal-ore,
+.item-iron-ore,
+.item-furnace {
+  border-radius: 0;
+  box-shadow:
+    inset -0.22rem -0.22rem 0 rgb(0 0 0 / 22%),
+    inset 0.18rem 0.18rem 0 rgb(255 255 255 / 12%),
+    0 0 0 1px rgb(0 0 0 / 35%);
+}
+
+@media (max-width: 850px) {
+  .survival-guide {
+    max-height: 10rem;
+    overflow: auto;
+  }
+
+  .recipe-card {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-shape {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 560px) {
+  .survival-guide {
+    width: calc(100vw - 1rem);
+  }
+
+  .survival-guide ol {
+    font-size: 0.64rem;
+  }
+
+  .furnace-machine {
+    gap: 0.5rem;
+    padding: 0.6rem;
+  }
+
+  .furnace-slot {
+    min-width: 6.6rem;
+  }
+}

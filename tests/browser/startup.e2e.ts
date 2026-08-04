@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('boots persisted survival, food, crafting, and camera controls', async ({
+test('boots persisted survival, shaped crafting, and camera controls', async ({
   page,
 }) => {
   const runtimeErrors: string[] = [];
@@ -53,6 +53,10 @@ test('boots persisted survival, food, crafting, and camera controls', async ({
   );
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
+  const guide = page.locator('#survival-guide');
+  await expect(guide).toBeVisible();
+  await expect(guide).toContainText('工作台与熔炉怎么做');
+  await expect(guide).toContainText('八块石头围一圈');
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
   await expect(page.locator('#hotbar .hotbar-slot').first()).toHaveAttribute(
     'aria-label',
@@ -86,6 +90,7 @@ test('boots persisted survival, food, crafting, and camera controls', async ({
   const inventory = page.locator('#inventory-screen');
   await expect(inventory).toBeVisible();
   await expect(canvas).toHaveAttribute('data-inventory-open', 'true');
+  await expect(page.locator('[data-inventory-title]')).toContainText('2×2');
   await expect(
     page.locator('[data-inventory-storage] .inventory-slot'),
   ).toHaveCount(27);
@@ -95,6 +100,11 @@ test('boots persisted survival, food, crafting, and camera controls', async ({
   await expect(page.locator('[data-crafting-recipes] .recipe-card')).toHaveCount(
     3,
   );
+  await expect(page.locator('.recipe-pattern')).toHaveCount(3);
+  const tableRecipe = page.locator('[data-recipe-id="crafting-table"]');
+  await expect(tableRecipe).toHaveAttribute('data-grid-size', '2');
+  await expect(tableRecipe.locator('.recipe-cell')).toHaveCount(4);
+  await expect(tableRecipe.locator('.recipe-cell:not(.is-empty)')).toHaveCount(4);
   await expect(page.locator('[data-inventory-index="4"]')).toHaveAttribute(
     'aria-label',
     /煤炭 × 3/,
@@ -199,6 +209,7 @@ test('falls back to synchronous terrain when module workers fail', async ({
     { timeout: 45_000 },
   );
   await expect(page.locator('#game-hud')).toBeVisible();
+  await expect(page.locator('#survival-guide')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
   await expect(page.locator('#game-canvas')).toHaveAttribute(

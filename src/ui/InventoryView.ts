@@ -54,6 +54,29 @@ function stackDescription(stack: InventorySlotSnapshot): string {
   return `${definition.label} × ${String(stack.count)}`;
 }
 
+function itemIconMarkup(item: ItemType | null): string {
+  if (item === null) return '<span class="recipe-cell is-empty"></span>';
+  const definition = getItemDefinition(item);
+  return `<span class="recipe-cell" title="${definition.label}"><span class="inventory-item item-${definition.cssClass}" aria-hidden="true"></span></span>`;
+}
+
+function recipePatternMarkup(recipe: CraftingRecipe): string {
+  const cells: string[] = [];
+  for (let row = 0; row < recipe.gridSize; row += 1) {
+    for (let column = 0; column < recipe.gridSize; column += 1) {
+      cells.push(itemIconMarkup(recipe.pattern[row]?.[column] ?? null));
+    }
+  }
+  const output = getItemDefinition(recipe.output.item);
+  return [
+    `<span class="recipe-pattern recipe-grid-${String(recipe.gridSize)}" aria-label="${String(recipe.gridSize)}乘${String(recipe.gridSize)}配方">`,
+    ...cells,
+    '</span>',
+    '<span class="recipe-arrow" aria-hidden="true">→</span>',
+    `<span class="recipe-result"><span class="inventory-item item-${output.cssClass}" aria-hidden="true"></span><strong>${recipe.output.count > 1 ? `×${String(recipe.output.count)}` : ''}</strong></span>`,
+  ].join('');
+}
+
 function setItemPresentation(
   button: HTMLButtonElement,
   stack: InventorySlotSnapshot,
@@ -124,10 +147,10 @@ function createSlotButton(
 
 function stationTitle(station: CraftingStation): string {
   return station === 'crafting-table'
-    ? '工作台'
+    ? '工作台 · 3×3 合成'
     : station === 'furnace'
-      ? '熔炉'
-      : '背包与合成';
+      ? '熔炉 · 冶炼'
+      : '背包 · 2×2 随身合成';
 }
 
 function percentage(value: number): string {
@@ -183,10 +206,10 @@ export class InventoryView {
     document.body.classList.add('inventory-open');
     this.#message.textContent =
       station === 'crafting-table'
-        ? '工作台已解锁木、石、铁工具和熔炉配方。'
+        ? '这是放置在世界中的工作台：使用 3×3 配方制作工具和熔炉。'
         : station === 'furnace'
-          ? '装入粗铁和煤炭；燃烧与冶炼会在世界运行时持续推进。'
-          : '随身合成可制作木板、木棍和工作台。';
+          ? '像经典熔炉一样：上格放粗铁、下格放煤炭、右格取铁锭；关闭界面后继续燃烧。'
+          : '这是随身 2×2 合成：先把原木做成木板，再用四块木板制作工作台。';
     this.render();
   }
 
@@ -287,11 +310,13 @@ export class InventoryView {
       button.type = 'button';
       button.className = 'recipe-card';
       button.dataset.recipeId = recipe.id;
+      button.dataset.gridSize = String(recipe.gridSize);
       const craftable =
         this.#inventory.hasItems(recipe.ingredients) &&
         this.#cursorCanAccept(recipe);
       button.disabled = !craftable;
       button.innerHTML = [
+        '<span class="recipe-copy">',
         `<strong>${recipe.label}</strong>`,
         `<span>${recipe.description}</span>`,
         `<small>${recipe.ingredients
@@ -300,6 +325,8 @@ export class InventoryView {
               `${getItemLabel(ingredient.item)} ×${String(ingredient.count)}`,
           )
           .join(' · ')}</small>`,
+        '</span>',
+        `<span class="recipe-shape">${recipePatternMarkup(recipe)}</span>`,
       ].join('');
       button.addEventListener('click', () => this.#craft(recipe));
       this.#recipes.append(button);
@@ -321,20 +348,18 @@ export class InventoryView {
     panel.className = 'furnace-panel';
     panel.dataset.furnaceActive = String(state.active);
     panel.innerHTML = [
-      '<div class="furnace-flow">',
-      `<div class="furnace-slot" data-furnace-input><span class="inventory-item item-raw-iron"></span><strong>${String(state.inputCount)}</strong><small>粗铁输入</small></div>`,
-      '<span class="furnace-arrow">＋</span>',
-      `<div class="furnace-slot" data-furnace-fuel><span class="inventory-item item-coal"></span><strong>${String(state.fuelCount)}</strong><small>煤炭燃料</small></div>`,
-      '<span class="furnace-arrow">→</span>',
-      `<div class="furnace-slot" data-furnace-output><span class="inventory-item item-iron-ingot"></span><strong>${String(state.outputCount)}</strong><small>铁锭输出</small></div>`,
+      '<div class="furnace-machine">',
+      '<div class="furnace-column">',
+      `<button type="button" class="furnace-slot" data-furnace-add-input><span class="inventory-item item-raw-iron"></span><strong>${String(state.inputCount)}</strong><small>上：粗铁</small></button>`,
+      '<span class="furnace-flame" aria-hidden="true">♨</span>',
+      `<button type="button" class="furnace-slot" data-furnace-add-fuel><span class="inventory-item item-coal"></span><strong>${String(state.fuelCount)}</strong><small>下：煤炭</small></button>`,
       '</div>',
-      '<div class="furnace-meter-row"><span>燃烧</span><div class="furnace-meter"><span data-furnace-burn></span></div><strong data-furnace-burn-label></strong></div>',
-      '<div class="furnace-meter-row"><span>冶炼</span><div class="furnace-meter"><span data-furnace-smelt></span></div><strong data-furnace-smelt-label></strong></div>',
-      '<div class="furnace-actions">',
-      '<button type="button" data-furnace-add-input>装入粗铁</button>',
-      '<button type="button" data-furnace-add-fuel>装入煤炭</button>',
-      '<button type="button" data-furnace-take-output>取出铁锭</button>',
+      '<span class="furnace-arrow furnace-process-arrow" aria-hidden="true">→</span>',
+      `<button type="button" class="furnace-slot furnace-output" data-furnace-take-output><span class="inventory-item item-iron-ingot"></span><strong>${String(state.outputCount)}</strong><small>右：铁锭</small></button>`,
       '</div>',
+      '<div class="furnace-meter-row"><span>燃料燃烧</span><div class="furnace-meter"><span data-furnace-burn></span></div><strong data-furnace-burn-label></strong></div>',
+      '<div class="furnace-meter-row"><span>铁锭进度</span><div class="furnace-meter"><span data-furnace-smelt></span></div><strong data-furnace-smelt-label></strong></div>',
+      '<p class="furnace-hint">1 个煤炭燃烧 12 秒；1 个铁锭需要 4 秒。关闭熔炉界面后世界继续运行。</p>',
     ].join('');
 
     const burnFill = panel.querySelector<HTMLElement>('[data-furnace-burn]');
@@ -355,7 +380,7 @@ export class InventoryView {
       inputButton.addEventListener('click', () => {
         const inserted = this.#callbacks.onFurnaceInsertInput?.() ?? 0;
         this.#message.textContent =
-          inserted > 0 ? `已装入粗铁 ×${String(inserted)}` : '没有可装入的粗铁。';
+          inserted > 0 ? `已装入粗铁 ×${String(inserted)}` : '背包里没有粗铁。';
         this.#callbacks.onChanged();
         this.render();
       });
@@ -366,7 +391,7 @@ export class InventoryView {
       fuelButton.addEventListener('click', () => {
         const inserted = this.#callbacks.onFurnaceInsertFuel?.() ?? 0;
         this.#message.textContent =
-          inserted > 0 ? `已装入煤炭 ×${String(inserted)}` : '没有可装入的煤炭。';
+          inserted > 0 ? `已装入煤炭 ×${String(inserted)}` : '背包里没有煤炭。';
         this.#callbacks.onChanged();
         this.render();
       });
@@ -376,7 +401,7 @@ export class InventoryView {
       outputButton.addEventListener('click', () => {
         const taken = this.#callbacks.onFurnaceTakeOutput?.() ?? 0;
         this.#message.textContent =
-          taken > 0 ? `已取出铁锭 ×${String(taken)}` : '背包没有空间或没有产物。';
+          taken > 0 ? `已取出铁锭 ×${String(taken)}` : '背包没有空间或还没有铁锭。';
         this.#callbacks.onChanged();
         this.render();
       });

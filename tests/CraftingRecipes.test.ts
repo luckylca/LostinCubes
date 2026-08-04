@@ -7,6 +7,13 @@ import { ItemType } from '../src/inventory/ItemDefinitions';
 import type { ItemType as ItemTypeValue } from '../src/inventory/ItemDefinitions';
 import { PlayerInventory } from '../src/inventory/PlayerInventory';
 
+function requireRecipe(id: string) {
+  const recipe = CRAFTING_RECIPES.find((candidate) => candidate.id === id);
+  expect(recipe).toBeDefined();
+  if (recipe === undefined) throw new Error(`Missing recipe: ${id}`);
+  return recipe;
+}
+
 describe('crafting recipes', () => {
   it('separates personal and workbench recipes from timed furnace state', () => {
     expect(getVisibleRecipes('inventory').map((recipe) => recipe.id)).toEqual([
@@ -30,29 +37,49 @@ describe('crafting recipes', () => {
     );
   });
 
+  it('uses Minecraft-style 2x2 workbench and 3x3 furnace shapes', () => {
+    const table = requireRecipe('crafting-table');
+    expect(table.gridSize).toBe(2);
+    expect(table.pattern).toEqual([
+      [ItemType.OakPlanksBlock, ItemType.OakPlanksBlock],
+      [ItemType.OakPlanksBlock, ItemType.OakPlanksBlock],
+    ]);
+
+    const furnace = requireRecipe('furnace');
+    expect(furnace.gridSize).toBe(3);
+    expect(furnace.pattern).toEqual([
+      [ItemType.StoneBlock, ItemType.StoneBlock, ItemType.StoneBlock],
+      [ItemType.StoneBlock, null, ItemType.StoneBlock],
+      [ItemType.StoneBlock, ItemType.StoneBlock, ItemType.StoneBlock],
+    ]);
+  });
+
+  it('uses classic shaped patterns for pickaxes, shovels, and axes', () => {
+    expect(requireRecipe('wooden-pickaxe').pattern).toEqual([
+      [ItemType.OakPlanksBlock, ItemType.OakPlanksBlock, ItemType.OakPlanksBlock],
+      [null, ItemType.Stick, null],
+      [null, ItemType.Stick, null],
+    ]);
+    expect(requireRecipe('stone-shovel').pattern).toEqual([
+      [null, ItemType.StoneBlock, null],
+      [null, ItemType.Stick, null],
+      [null, ItemType.Stick, null],
+    ]);
+    expect(requireRecipe('iron-axe').pattern).toEqual([
+      [ItemType.IronIngot, ItemType.IronIngot, null],
+      [ItemType.IronIngot, ItemType.Stick, null],
+      [null, ItemType.Stick, null],
+    ]);
+  });
+
   it('supports the log to stone-tool progression with inventory consumption', () => {
     const inventory = new PlayerInventory();
     inventory.addItem(ItemType.OakLogBlock, 3);
     inventory.addItem(ItemType.StoneBlock, 3);
-    const planks = CRAFTING_RECIPES.find(
-      (recipe) => recipe.id === 'oak-planks',
-    );
-    const sticks = CRAFTING_RECIPES.find(
-      (recipe) => recipe.id === 'sticks',
-    );
-    const stonePickaxe = CRAFTING_RECIPES.find(
-      (recipe) => recipe.id === 'stone-pickaxe',
-    );
-    expect(planks).toBeDefined();
-    expect(sticks).toBeDefined();
-    expect(stonePickaxe).toBeDefined();
-    if (
-      planks === undefined ||
-      sticks === undefined ||
-      stonePickaxe === undefined
-    ) {
-      return;
-    }
+    const planks = requireRecipe('oak-planks');
+    const sticks = requireRecipe('sticks');
+    const stonePickaxe = requireRecipe('stone-pickaxe');
+
     expect(inventory.consumeItems(planks.ingredients)).toBe(true);
     inventory.addItem(planks.output.item, planks.output.count);
     expect(inventory.consumeItems(sticks.ingredients)).toBe(true);
@@ -79,6 +106,7 @@ describe('crafting recipes', () => {
     for (const recipe of CRAFTING_RECIPES) {
       if (toolOutputs.has(recipe.output.item)) {
         expect(recipe.station).toBe('crafting-table');
+        expect(recipe.gridSize).toBe(3);
       }
     }
   });

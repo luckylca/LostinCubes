@@ -4,40 +4,70 @@ import {
   getBlockFaceColor,
   getBlockItemColor,
 } from '../src/world/BlockVisuals';
+import {
+  BLOCK_TEXTURE_SIZE,
+  BlockTexture,
+  getBlockFaceTexture,
+  getBlockTexturePixels,
+} from '../src/world/BlockTextureLibrary';
 
 describe('block visual palette', () => {
-  it('gives grass distinct top, side, and bottom faces', () => {
-    const top = getBlockFaceColor(BlockType.Grass, 1, true, 0, 0, 0);
-    const side = getBlockFaceColor(BlockType.Grass, 0, true, 0, 0, 0);
-    const bottom = getBlockFaceColor(BlockType.Grass, 1, false, 0, 0, 0);
-
-    expect(top[1]).toBeGreaterThan(top[0]);
-    expect(top).not.toEqual(side);
-    expect(side).not.toEqual(bottom);
-    expect(bottom[0]).toBeGreaterThan(bottom[1]);
+  it('uses separate grass top, side, and bottom textures', () => {
+    expect(getBlockFaceTexture(BlockType.Grass, 1, true)).toBe(
+      BlockTexture.GrassTop,
+    );
+    expect(getBlockFaceTexture(BlockType.Grass, 0, true)).toBe(
+      BlockTexture.GrassSide,
+    );
+    expect(getBlockFaceTexture(BlockType.Grass, 1, false)).toBe(
+      BlockTexture.Dirt,
+    );
   });
 
-  it('distinguishes log rings, bark, leaves, planks, and crafting tables', () => {
-    const logTop = getBlockFaceColor(BlockType.OakLog, 1, true, 5, 7, 9);
-    const logSide = getBlockFaceColor(BlockType.OakLog, 0, true, 5, 7, 9);
+  it('distinguishes log rings, bark, leaves, planks, and workbench faces', () => {
+    expect(getBlockFaceTexture(BlockType.OakLog, 1, true)).toBe(
+      BlockTexture.OakLogTop,
+    );
+    expect(getBlockFaceTexture(BlockType.OakLog, 0, true)).toBe(
+      BlockTexture.OakLogSide,
+    );
+    expect(getBlockFaceTexture(BlockType.CraftingTable, 1, true)).toBe(
+      BlockTexture.CraftingTableTop,
+    );
+    expect(getBlockFaceTexture(BlockType.CraftingTable, 2, true)).toBe(
+      BlockTexture.CraftingTableFront,
+    );
     const leaves = getBlockItemColor(BlockType.OakLeaves);
     const planks = getBlockItemColor(BlockType.OakPlanks);
     const table = getBlockItemColor(BlockType.CraftingTable);
-
-    expect(logTop).not.toEqual(logSide);
-    expect(logTop[0]).toBeGreaterThan(logSide[0]);
     expect(leaves[1]).toBeGreaterThan(leaves[0]);
     expect(planks).not.toEqual(table);
   });
 
-  it('keeps coordinate variation deterministic and bounded', () => {
-    const first = getBlockFaceColor(BlockType.Stone, 2, true, 3, 4, 5);
+  it('generates complete nearest-neighbor texture data with leaf cutouts', () => {
+    const stone = getBlockTexturePixels(BlockTexture.Stone);
+    const leaves = getBlockTexturePixels(BlockTexture.OakLeaves);
+    expect(stone.pixels).toHaveLength(BLOCK_TEXTURE_SIZE * BLOCK_TEXTURE_SIZE * 4);
+    expect(stone.hasAlpha).toBe(false);
+    expect(leaves.hasAlpha).toBe(true);
+    const alphaValues = Array.from(
+      { length: BLOCK_TEXTURE_SIZE * BLOCK_TEXTURE_SIZE },
+      (_, index) => leaves.pixels[index * 4 + 3] ?? 255,
+    );
+    expect(alphaValues.some((alpha) => alpha === 0)).toBe(true);
+    expect(alphaValues.some((alpha) => alpha === 255)).toBe(true);
+  });
+
+  it('keeps directional tint deterministic and bounded', () => {
+    const top = getBlockFaceColor(BlockType.Stone, 1, true, 3, 4, 5);
+    const side = getBlockFaceColor(BlockType.Stone, 2, true, 3, 4, 5);
     const repeated = getBlockFaceColor(BlockType.Stone, 2, true, 3, 4, 5);
     const neighbor = getBlockFaceColor(BlockType.Stone, 2, true, 4, 4, 5);
 
-    expect(repeated).toEqual(first);
-    expect(neighbor).not.toEqual(first);
-    for (const channel of [...first, ...neighbor]) {
+    expect(top[0]).toBeGreaterThan(side[0]);
+    expect(repeated).toEqual(side);
+    expect(neighbor).not.toEqual(side);
+    for (const channel of [...top, ...side, ...neighbor]) {
       expect(channel).toBeGreaterThanOrEqual(0);
       expect(channel).toBeLessThanOrEqual(1);
     }
