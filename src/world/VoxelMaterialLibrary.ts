@@ -39,8 +39,8 @@ export class VoxelMaterialLibrary {
         Constants.TEXTURETYPE_UNSIGNED_BYTE,
       );
       texture.name = `voxel-texture-${String(textureId)}`;
-      texture.wrapU = Texture.WRAP_ADDRESS;
-      texture.wrapV = Texture.WRAP_ADDRESS;
+      texture.wrapU = Texture.WRAP_ADDRESSMODE;
+      texture.wrapV = Texture.WRAP_ADDRESSMODE;
       texture.anisotropicFilteringLevel = 1;
       texture.hasAlpha = source.hasAlpha;
 
