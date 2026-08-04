@@ -1,6 +1,7 @@
 import { Mesh, VertexData } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
 import type { ChunkBuildSuccess } from './ChunkBuildProtocol';
+import { buildChunkMeshData } from './ChunkMeshBuilder';
 import {
   ChunkBuildCancelledError,
   ChunkWorkerPool,
@@ -122,7 +123,12 @@ export class VoxelWorldRenderer {
     const chunkZ = worldToChunkCoordinate(worldZ);
     const localX = worldToLocalCoordinate(worldX);
     const localZ = worldToLocalCoordinate(worldZ);
-    this.#invalidateChunk(chunkX, chunkZ);
+
+    // The owning chunk is rebuilt immediately on the main thread. This keeps
+    // removal/placement, particles, and audio in the same visible frame. Only
+    // boundary neighbors remain asynchronous because they are not the block's
+    // primary visible surface.
+    this.#rebuildChunkImmediately(chunkX, chunkZ);
     if (localX === 0) {
       this.#invalidateChunk(chunkX - 1, chunkZ);
     } else if (localX === CHUNK_SIZE - 1) {
@@ -135,7 +141,6 @@ export class VoxelWorldRenderer {
     }
   }
 
-  /** Runs after the owning chunk mesh containing this block is visibly replaced. */
   public afterNextBlockUpdate(
     worldX: number,
     worldZ: number,
@@ -252,6 +257,35 @@ export class VoxelWorldRenderer {
         this.#scheduleChunk(chunkX, chunkZ, priority);
       }
     }
+  }
+
+  #rebuildChunkImmediately(chunkX: number, chunkZ: number): void {
+    const key = createChunkKey(chunkX, chunkZ);
+    this.#workers.cancel(key);
+    this.#pendingRevisions.delete(key);
+    for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
+      if (this.#completed[index]?.key === key) this.#completed.splice(index, 1);
+    }
+
+    const revision = this.#getRevision(key) + 1;
+    this.#revisions.set(key, revision);
+    if (!this.#desiredKeys.has(key) || this.#disposed) return;
+
+    const startedAt = performance.now();
+    const meshData = buildChunkMeshData(
+      chunkX,
+      chunkZ,
+      (sampleX, sampleY, sampleZ) =>
+        this.#world.sampleBlock(sampleX, sampleY, sampleZ),
+    );
+    this.#applyChunk(key, revision, {
+      type: 'chunk-built',
+      requestId: 0,
+      chunkX,
+      chunkZ,
+      meshData,
+      buildMilliseconds: performance.now() - startedAt,
+    });
   }
 
   #invalidateChunk(chunkX: number, chunkZ: number): void {
