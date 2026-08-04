@@ -1,9 +1,4 @@
-import {
-  Color3,
-  Mesh,
-  StandardMaterial,
-  VertexData,
-} from '@babylonjs/core';
+import { Mesh, VertexData } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
 import type { ChunkBuildSuccess } from './ChunkBuildProtocol';
 import {
@@ -16,6 +11,7 @@ import {
   worldToChunkCoordinate,
   worldToLocalCoordinate,
 } from './VoxelChunk';
+import { VoxelMaterialLibrary } from './VoxelMaterialLibrary';
 import type { VoxelWorldData } from './VoxelWorldData';
 
 interface RenderedChunk {
@@ -50,13 +46,14 @@ export class VoxelWorldRenderer {
   readonly #scene: Scene;
   readonly #world: VoxelWorldData;
   readonly #renderRadius: number;
-  readonly #material: StandardMaterial;
+  readonly #materials: VoxelMaterialLibrary;
   readonly #workers = new ChunkWorkerPool();
   readonly #chunks = new Map<string, RenderedChunk>();
   readonly #desiredKeys = new Set<string>();
   readonly #revisions = new Map<string, number>();
   readonly #pendingRevisions = new Map<string, number>();
   readonly #completed: CompletedChunk[] = [];
+  readonly #afterUpdate = new Map<string, (() => void)[]>();
   #centerChunkX: number | null = null;
   #centerChunkZ: number | null = null;
   #disposed = false;
@@ -73,12 +70,7 @@ export class VoxelWorldRenderer {
     this.#scene = scene;
     this.#world = world;
     this.#renderRadius = renderRadius;
-    this.#material = new StandardMaterial('voxel-world-material', scene);
-    this.#material.diffuseColor = Color3.White();
-    this.#material.specularColor = Color3.Black();
-    this.#material.emissiveColor = new Color3(0.025, 0.035, 0.03);
-    this.#material.backFaceCulling = true;
-    this.#material.freeze();
+    this.#materials = new VoxelMaterialLibrary(scene);
   }
 
   public async initialize(playerX: number, playerZ: number): Promise<void> {
@@ -143,6 +135,21 @@ export class VoxelWorldRenderer {
     }
   }
 
+  /** Runs after the owning chunk mesh containing this block is visibly replaced. */
+  public afterNextBlockUpdate(
+    worldX: number,
+    worldZ: number,
+    callback: () => void,
+  ): void {
+    const key = createChunkKey(
+      worldToChunkCoordinate(worldX),
+      worldToChunkCoordinate(worldZ),
+    );
+    const callbacks = this.#afterUpdate.get(key) ?? [];
+    callbacks.push(callback);
+    this.#afterUpdate.set(key, callbacks);
+  }
+
   public invalidateAll(): void {
     for (const key of this.#desiredKeys) {
       const coordinates = this.#parseChunkKey(key);
@@ -175,9 +182,7 @@ export class VoxelWorldRenderer {
   }
 
   public dispose(): void {
-    if (this.#disposed) {
-      return;
-    }
+    if (this.#disposed) return;
     this.#disposed = true;
     this.#workers.dispose();
     for (const chunk of this.#chunks.values()) {
@@ -187,7 +192,8 @@ export class VoxelWorldRenderer {
     this.#desiredKeys.clear();
     this.#pendingRevisions.clear();
     this.#completed.length = 0;
-    this.#material.dispose();
+    this.#afterUpdate.clear();
+    this.#materials.dispose();
   }
 
   #updateDesiredKeys(centerChunkX: number, centerChunkZ: number): void {
@@ -210,9 +216,7 @@ export class VoxelWorldRenderer {
   #cancelUndesiredWork(): void {
     this.#workers.cancelExcept(this.#desiredKeys);
     for (const key of this.#pendingRevisions.keys()) {
-      if (!this.#desiredKeys.has(key)) {
-        this.#pendingRevisions.delete(key);
-      }
+      if (!this.#desiredKeys.has(key)) this.#pendingRevisions.delete(key);
     }
     for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
       const completed = this.#completed[index];
@@ -227,6 +231,7 @@ export class VoxelWorldRenderer {
       if (!this.#desiredKeys.has(key)) {
         chunk.mesh.dispose(false, false);
         this.#chunks.delete(key);
+        this.#afterUpdate.delete(key);
       }
     }
   }
@@ -260,21 +265,15 @@ export class VoxelWorldRenderer {
   }
 
   #scheduleChunk(chunkX: number, chunkZ: number, priority: number): void {
-    if (this.#disposed) {
-      return;
-    }
+    if (this.#disposed) return;
     const key = createChunkKey(chunkX, chunkZ);
     const revision = this.#getRevision(key);
-    if (this.#pendingRevisions.get(key) === revision) {
-      return;
-    }
+    if (this.#pendingRevisions.get(key) === revision) return;
     this.#pendingRevisions.set(key, revision);
 
     void this.#buildChunk(chunkX, chunkZ, key, priority)
       .then((response) => {
-        if (!this.#disposed) {
-          this.#completed.push({ key, revision, response });
-        }
+        if (!this.#disposed) this.#completed.push({ key, revision, response });
       })
       .catch((error: unknown) => {
         if (this.#pendingRevisions.get(key) === revision) {
@@ -310,9 +309,7 @@ export class VoxelWorldRenderer {
       this.#completed.length > 0
     ) {
       const completed = this.#completed.shift();
-      if (completed === undefined) {
-        break;
-      }
+      if (completed === undefined) break;
       if (this.#pendingRevisions.get(completed.key) === completed.revision) {
         this.#pendingRevisions.delete(completed.key);
       }
@@ -335,9 +332,7 @@ export class VoxelWorldRenderer {
     revision: number,
     response: ChunkBuildSuccess,
   ): void {
-    if (this.#getRevision(key) !== revision) {
-      return;
-    }
+    if (this.#getRevision(key) !== revision) return;
 
     const mesh = new Mesh(`voxel-chunk-${key}`, this.#scene);
     mesh.position.set(
@@ -345,7 +340,6 @@ export class VoxelWorldRenderer {
       0,
       response.chunkZ * CHUNK_SIZE,
     );
-    mesh.material = this.#material;
     mesh.useVertexColors = true;
     mesh.isPickable = true;
     mesh.metadata = { cameraBlocker: true, chunkKey: key };
@@ -355,7 +349,13 @@ export class VoxelWorldRenderer {
     vertexData.normals = response.meshData.normals;
     vertexData.indices = response.meshData.indices;
     vertexData.colors = response.meshData.colors;
+    vertexData.uvs = response.meshData.uvs;
     vertexData.applyToMesh(mesh, false);
+    this.#materials.applyToMesh(
+      mesh,
+      response.meshData.materialRanges,
+      response.meshData.positions.length / 3,
+    );
     mesh.freezeWorldMatrix();
     mesh.freezeNormals();
 
@@ -367,6 +367,12 @@ export class VoxelWorldRenderer {
       buildMilliseconds: response.buildMilliseconds,
     });
     previous?.mesh.dispose(false, false);
+
+    const callbacks = this.#afterUpdate.get(key);
+    if (callbacks !== undefined) {
+      this.#afterUpdate.delete(key);
+      for (const callback of callbacks) callback();
+    }
   }
 
   #getPriority(chunkX: number, chunkZ: number): number {
@@ -382,9 +388,7 @@ export class VoxelWorldRenderer {
 
   #parseChunkKey(key: string): readonly [number, number] {
     const separator = key.indexOf(',');
-    if (separator < 0) {
-      throw new Error(`Invalid chunk key: ${key}`);
-    }
+    if (separator < 0) throw new Error(`Invalid chunk key: ${key}`);
     const chunkX = Number(key.slice(0, separator));
     const chunkZ = Number(key.slice(separator + 1));
     if (!Number.isInteger(chunkX) || !Number.isInteger(chunkZ)) {
