@@ -44,7 +44,7 @@ export const CRAFTING_RECIPES: readonly CraftingRecipe[] = [
   {
     id: 'furnace',
     label: '熔炉',
-    description: '八块石头围成熔炉，用煤炭冶炼铁矿。',
+    description: '八块石头围成熔炉，放置后可持续燃烧和冶炼。',
     station: 'crafting-table',
     ingredients: [{ item: ItemType.StoneBlock, count: 8 }],
     output: { item: ItemType.FurnaceBlock, count: 1 },
@@ -52,9 +52,24 @@ export const CRAFTING_RECIPES: readonly CraftingRecipe[] = [
   ...(['pickaxe', 'shovel', 'axe'] as const).flatMap((kind) => {
     const label = kind === 'pickaxe' ? '镐' : kind === 'shovel' ? '铲' : '斧';
     const materialCount = kind === 'shovel' ? 1 : 3;
-    const woodenItem = kind === 'pickaxe' ? ItemType.WoodenPickaxe : kind === 'shovel' ? ItemType.WoodenShovel : ItemType.WoodenAxe;
-    const stoneItem = kind === 'pickaxe' ? ItemType.StonePickaxe : kind === 'shovel' ? ItemType.StoneShovel : ItemType.StoneAxe;
-    const ironItem = kind === 'pickaxe' ? ItemType.IronPickaxe : kind === 'shovel' ? ItemType.IronShovel : ItemType.IronAxe;
+    const woodenItem =
+      kind === 'pickaxe'
+        ? ItemType.WoodenPickaxe
+        : kind === 'shovel'
+          ? ItemType.WoodenShovel
+          : ItemType.WoodenAxe;
+    const stoneItem =
+      kind === 'pickaxe'
+        ? ItemType.StonePickaxe
+        : kind === 'shovel'
+          ? ItemType.StoneShovel
+          : ItemType.StoneAxe;
+    const ironItem =
+      kind === 'pickaxe'
+        ? ItemType.IronPickaxe
+        : kind === 'shovel'
+          ? ItemType.IronShovel
+          : ItemType.IronAxe;
     return [
       {
         id: `wooden-${kind}`,
@@ -91,25 +106,16 @@ export const CRAFTING_RECIPES: readonly CraftingRecipe[] = [
       },
     ];
   }),
-  {
-    id: 'smelt-iron',
-    label: '冶炼铁锭',
-    description: '一块粗铁与一块煤炭冶炼为一块铁锭。',
-    station: 'furnace',
-    ingredients: [
-      { item: ItemType.RawIron, count: 1 },
-      { item: ItemType.Coal, count: 1 },
-    ],
-    output: { item: ItemType.IronIngot, count: 1 },
-  },
 ];
 
-export function getVisibleRecipes(station: CraftingStation): readonly CraftingRecipe[] {
+export function getVisibleRecipes(
+  station: CraftingStation,
+): readonly CraftingRecipe[] {
   return CRAFTING_RECIPES.filter((recipe) => {
     if (station === 'inventory') return recipe.station === 'inventory';
     if (station === 'crafting-table') {
       return recipe.station === 'inventory' || recipe.station === 'crafting-table';
     }
-    return recipe.station === 'furnace';
+    return false;
   });
 }
