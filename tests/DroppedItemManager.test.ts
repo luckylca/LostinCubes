@@ -106,10 +106,10 @@ describe('DroppedItemManager', () => {
     const engine = new NullEngine();
     engines.push(engine);
     const scene = new Scene(engine);
-    let pickedUp: InventorySlotSnapshot | null = null;
+    const pickedUp: InventorySlotSnapshot[] = [];
     const manager = new DroppedItemManager(scene, createFloorWorld(), {
       onPickup: (stack) => {
-        pickedUp = stack;
+        pickedUp.push(stack);
         return null;
       },
     });
@@ -124,11 +124,11 @@ describe('DroppedItemManager', () => {
     ).toEqual([73, 180]);
 
     const player = createPlayer(0, 1.4, 0);
-    for (let index = 0; index < 60 && pickedUp === null; index += 1) {
+    for (let index = 0; index < 60 && pickedUp.length === 0; index += 1) {
       manager.update(player, 1 / 60);
     }
-    expect(pickedUp?.item).toBe(ItemType.IronAxe);
-    expect([73, 180]).toContain(pickedUp?.durability);
+    expect(pickedUp[0]?.item).toBe(ItemType.IronAxe);
+    expect([73, 180]).toContain(pickedUp[0]?.durability);
     manager.dispose();
   });
 });
