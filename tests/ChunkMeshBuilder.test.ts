@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockType } from '../src/world/BlockType';
 import { buildChunkMeshData } from '../src/world/ChunkMeshBuilder';
+import { BlockTexture } from '../src/world/BlockTextureLibrary';
 import {
   CHUNK_HEIGHT,
   CHUNK_SIZE,
@@ -48,7 +49,7 @@ function readVector(
 }
 
 describe('buildChunkMeshData', () => {
-  it('emits six greedy quads for one isolated block', () => {
+  it('emits six textured quads for one isolated block', () => {
     const chunk = new VoxelChunk(0, 0);
     chunk.setBlock(2, 3, 4, BlockType.Stone);
 
@@ -59,9 +60,17 @@ describe('buildChunkMeshData', () => {
     expect(mesh.positions).toHaveLength(6 * 4 * 3);
     expect(mesh.indices).toHaveLength(6 * 6);
     expect(mesh.colors).toHaveLength(6 * 4 * 4);
+    expect(mesh.uvs).toHaveLength(6 * 4 * 2);
+    expect(mesh.materialRanges).toEqual([
+      {
+        texture: BlockTexture.Stone,
+        indexStart: 0,
+        indexCount: 36,
+      },
+    ]);
   });
 
-  it('merges adjacent coplanar faces with the same material', () => {
+  it('merges adjacent opaque faces while repeating texture UVs', () => {
     const chunk = new VoxelChunk(0, 0);
     chunk.setBlock(2, 3, 4, BlockType.Stone);
     chunk.setBlock(3, 3, 4, BlockType.Stone);
@@ -70,6 +79,25 @@ describe('buildChunkMeshData', () => {
 
     expect(mesh.sourceFaceCount).toBe(10);
     expect(mesh.quadCount).toBe(6);
+    expect(Math.max(...mesh.uvs)).toBe(2);
+  });
+
+  it('keeps adjacent leaf faces as individual textured block faces', () => {
+    const chunk = new VoxelChunk(0, 0);
+    chunk.setBlock(2, 3, 4, BlockType.OakLeaves);
+    chunk.setBlock(3, 3, 4, BlockType.OakLeaves);
+
+    const mesh = buildChunk(chunk);
+
+    expect(mesh.sourceFaceCount).toBe(10);
+    expect(mesh.quadCount).toBe(10);
+    expect(mesh.materialRanges).toEqual([
+      {
+        texture: BlockTexture.OakLeaves,
+        indexStart: 0,
+        indexCount: 60,
+      },
+    ]);
   });
 
   it('collapses a complete one-block slab into six quads', () => {
@@ -85,6 +113,11 @@ describe('buildChunkMeshData', () => {
     expect(mesh.sourceFaceCount).toBe(576);
     expect(mesh.quadCount).toBe(6);
     expect(mesh.indices).toHaveLength(36);
+    expect(mesh.materialRanges.map((range) => range.texture)).toEqual([
+      BlockTexture.GrassTop,
+      BlockTexture.GrassSide,
+      BlockTexture.Dirt,
+    ]);
   });
 
   it('culls a face against a solid block in the neighboring chunk', () => {
