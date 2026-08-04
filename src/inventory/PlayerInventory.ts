@@ -48,24 +48,17 @@ function createEmptySlot(): MutableInventorySlot {
 }
 
 function normalizeSelectedSlot(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isInteger(value)) {
-    return 0;
-  }
+  if (typeof value !== 'number' || !Number.isInteger(value)) return 0;
   return Math.min(Math.max(value, 0), HOTBAR_SLOT_COUNT - 1);
 }
 
 function normalizeLegacyBlock(value: unknown): ItemTypeValue | null {
-  if (typeof value !== 'number') {
-    return null;
-  }
+  if (typeof value !== 'number') return null;
   return itemFromBlock(value as BlockTypeValue);
 }
 
 function normalizeSlot(value: unknown): MutableInventorySlot {
-  if (typeof value !== 'object' || value === null) {
-    return createEmptySlot();
-  }
-
+  if (typeof value !== 'object' || value === null) return createEmptySlot();
   const candidate = value as {
     item?: unknown;
     block?: unknown;
@@ -75,9 +68,7 @@ function normalizeSlot(value: unknown): MutableInventorySlot {
   const item = isItemType(candidate.item)
     ? candidate.item
     : normalizeLegacyBlock(candidate.block);
-  if (item === null) {
-    return createEmptySlot();
-  }
+  if (item === null) return createEmptySlot();
 
   const definition = getItemDefinition(item);
   if (definition.kind === 'tool') {
@@ -110,8 +101,9 @@ function cloneStack(stack: InventorySlotSnapshot): InventorySlotSnapshot {
 
 function slotOrderForPickup(): number[] {
   return [
-    ...Array.from({ length: HOTBAR_SLOT_COUNT }, (_, index) =>
-      HOTBAR_START_INDEX + index,
+    ...Array.from(
+      { length: HOTBAR_SLOT_COUNT },
+      (_, index) => HOTBAR_START_INDEX + index,
     ),
     ...Array.from({ length: STORAGE_SLOT_COUNT }, (_, index) => index),
   ];
@@ -143,31 +135,26 @@ export class PlayerInventory {
   public constructor(snapshot?: unknown) {
     this.#slots = Array.from({ length: INVENTORY_SLOT_COUNT }, createEmptySlot);
     this.#selectedSlot = 0;
-
-    if (typeof snapshot !== 'object' || snapshot === null) {
-      return;
-    }
+    if (typeof snapshot !== 'object' || snapshot === null) return;
 
     const candidate = snapshot as { selectedSlot?: unknown; slots?: unknown };
     const sourceSlots = Array.isArray(candidate.slots) ? candidate.slots : [];
     this.#selectedSlot = normalizeSelectedSlot(candidate.selectedSlot);
-
     if (sourceSlots.length <= HOTBAR_SLOT_COUNT) {
       for (let index = 0; index < sourceSlots.length; index += 1) {
-        this.#slots[HOTBAR_START_INDEX + index] = normalizeSlot(sourceSlots[index]);
+        this.#slots[HOTBAR_START_INDEX + index] = normalizeSlot(
+          sourceSlots[index],
+        );
       }
       return;
     }
-
     for (let index = 0; index < INVENTORY_SLOT_COUNT; index += 1) {
       this.#slots[index] = normalizeSlot(sourceSlots[index]);
     }
   }
 
   public selectSlot(index: number): void {
-    if (!Number.isInteger(index)) {
-      return;
-    }
+    if (!Number.isInteger(index)) return;
     const next = Math.min(Math.max(index, 0), HOTBAR_SLOT_COUNT - 1);
     if (next !== this.#selectedSlot) {
       this.#selectedSlot = next;
@@ -176,12 +163,11 @@ export class PlayerInventory {
   }
 
   public cycleSelection(delta: number): void {
-    if (!Number.isFinite(delta) || delta === 0) {
-      return;
-    }
+    if (!Number.isFinite(delta) || delta === 0) return;
     const direction = delta > 0 ? 1 : -1;
     this.#selectedSlot =
-      (this.#selectedSlot + direction + HOTBAR_SLOT_COUNT) % HOTBAR_SLOT_COUNT;
+      (this.#selectedSlot + direction + HOTBAR_SLOT_COUNT) %
+      HOTBAR_SLOT_COUNT;
     this.#revision += 1;
   }
 
@@ -194,16 +180,12 @@ export class PlayerInventory {
     if (!isItemType(item) || !Number.isInteger(count) || count <= 0) {
       return count;
     }
-
     const definition = getItemDefinition(item);
     let remaining = count;
     if (definition.maximumStack > 1) {
       for (const index of PICKUP_SLOT_ORDER) {
         const slot = this.#slots[index];
-        if (
-          slot?.item !== item ||
-          slot.count >= definition.maximumStack
-        ) {
+        if (slot?.item !== item || slot.count >= definition.maximumStack) {
           continue;
         }
         const accepted = Math.min(
@@ -221,9 +203,7 @@ export class PlayerInventory {
 
     for (const index of PICKUP_SLOT_ORDER) {
       const slot = this.#slots[index];
-      if (slot?.item !== null) {
-        continue;
-      }
+      if (slot?.item !== null) continue;
       const accepted = Math.min(definition.maximumStack, remaining);
       slot.item = item;
       slot.count = accepted;
@@ -234,66 +214,112 @@ export class PlayerInventory {
         return 0;
       }
     }
-
-    if (remaining !== count) {
-      this.#revision += 1;
-    }
+    if (remaining !== count) this.#revision += 1;
     return remaining;
+  }
+
+  public addStack(
+    stack: InventorySlotSnapshot,
+  ): InventorySlotSnapshot | null {
+    if (
+      stack.item === null ||
+      !isItemType(stack.item) ||
+      !Number.isInteger(stack.count) ||
+      stack.count <= 0
+    ) {
+      return null;
+    }
+    const definition = getItemDefinition(stack.item);
+    if (definition.kind !== 'tool') {
+      const remaining = this.addItem(stack.item, stack.count);
+      return remaining > 0
+        ? { item: stack.item, count: remaining, durability: null }
+        : null;
+    }
+
+    const maximum = definition.maximumDurability ?? 1;
+    const durability =
+      stack.durability === null || !Number.isInteger(stack.durability)
+        ? maximum
+        : Math.min(Math.max(stack.durability, 1), maximum);
+    const emptyIndex = PICKUP_SLOT_ORDER.find(
+      (index) => this.#slots[index]?.item === null,
+    );
+    if (emptyIndex === undefined) {
+      return { item: stack.item, count: 1, durability };
+    }
+    const slot = this.#slots[emptyIndex];
+    if (slot === undefined) return { item: stack.item, count: 1, durability };
+    slot.item = stack.item;
+    slot.count = 1;
+    slot.durability = durability;
+    this.#revision += 1;
+    return null;
   }
 
   public countItem(item: ItemTypeValue): number {
     let total = 0;
     for (const slot of this.#slots) {
-      if (slot.item === item) {
-        total += slot.count;
-      }
+      if (slot.item === item) total += slot.count;
     }
     return total;
   }
 
   public hasItems(requirements: readonly ItemRequirement[]): boolean {
     const totals = aggregateRequirements(requirements);
-    if (totals === null) {
-      return false;
-    }
+    if (totals === null) return false;
     for (const [item, count] of totals) {
-      if (this.countItem(item) < count) {
-        return false;
-      }
+      if (this.countItem(item) < count) return false;
     }
     return true;
   }
 
   public consumeItems(requirements: readonly ItemRequirement[]): boolean {
     const totals = aggregateRequirements(requirements);
-    if (totals === null) {
-      return false;
-    }
+    if (totals === null) return false;
     for (const [item, count] of totals) {
-      if (this.countItem(item) < count) {
-        return false;
-      }
+      if (this.countItem(item) < count) return false;
     }
-
     for (const [item, count] of totals) {
       let remaining = count;
       for (const slot of this.#slots) {
-        if (slot.item !== item) {
-          continue;
-        }
+        if (slot.item !== item) continue;
         const removed = Math.min(slot.count, remaining);
         slot.count -= removed;
         remaining -= removed;
-        if (slot.count === 0) {
-          this.#clearSlot(slot);
-        }
-        if (remaining === 0) {
-          break;
-        }
+        if (slot.count === 0) this.#clearSlot(slot);
+        if (remaining === 0) break;
       }
     }
     this.#revision += 1;
     return true;
+  }
+
+  public consumeSelectedItem(item: ItemTypeValue, count = 1): boolean {
+    const slot = this.#slots[this.selectedInventoryIndex];
+    if (
+      slot?.item !== item ||
+      !Number.isInteger(count) ||
+      count <= 0 ||
+      slot.count < count
+    ) {
+      return false;
+    }
+    slot.count -= count;
+    if (slot.count === 0) this.#clearSlot(slot);
+    this.#revision += 1;
+    return true;
+  }
+
+  public drainAllItems(): readonly InventorySlotSnapshot[] {
+    const drained: InventorySlotSnapshot[] = [];
+    for (const slot of this.#slots) {
+      if (slot.item === null || slot.count <= 0) continue;
+      drained.push({ item: slot.item, count: slot.count, durability: slot.durability });
+      this.#clearSlot(slot);
+    }
+    if (drained.length > 0) this.#revision += 1;
+    return drained;
   }
 
   public interactSlot(
@@ -302,14 +328,10 @@ export class PlayerInventory {
     secondary: boolean,
   ): InventorySlotSnapshot | null {
     const slot = this.#slots[index];
-    if (slot === undefined) {
-      return cursor === null ? null : cloneStack(cursor);
-    }
+    if (slot === undefined) return cursor === null ? null : cloneStack(cursor);
 
     if (cursor === null) {
-      if (slot.item === null) {
-        return null;
-      }
+      if (slot.item === null) return null;
       const takeCount = secondary ? Math.ceil(slot.count / 2) : slot.count;
       const taken: InventorySlotSnapshot = {
         item: slot.item,
@@ -317,18 +339,14 @@ export class PlayerInventory {
         durability: slot.durability,
       };
       slot.count -= takeCount;
-      if (slot.count === 0) {
-        this.#clearSlot(slot);
-      }
+      if (slot.count === 0) this.#clearSlot(slot);
       this.#revision += 1;
       return taken;
     }
 
     const cursorDefinition =
       cursor.item === null ? null : getItemDefinition(cursor.item);
-    if (cursor.item === null || cursorDefinition === null) {
-      return null;
-    }
+    if (cursor.item === null || cursorDefinition === null) return null;
 
     if (slot.item === null) {
       const placed = secondary ? 1 : cursor.count;
@@ -357,10 +375,7 @@ export class PlayerInventory {
         : { ...cursor, count: cursor.count - placed };
     }
 
-    if (secondary) {
-      return cloneStack(cursor);
-    }
-
+    if (secondary) return cloneStack(cursor);
     const replaced: InventorySlotSnapshot = {
       item: slot.item,
       count: slot.count,
@@ -397,11 +412,8 @@ export class PlayerInventory {
     ) {
       return false;
     }
-
     slot.count -= count;
-    if (slot.count === 0) {
-      this.#clearSlot(slot);
-    }
+    if (slot.count === 0) this.#clearSlot(slot);
     this.#revision += 1;
     return true;
   }
@@ -417,11 +429,8 @@ export class PlayerInventory {
     ) {
       return false;
     }
-
     slot.durability -= amount;
-    if (slot.durability <= 0) {
-      this.#clearSlot(slot);
-    }
+    if (slot.durability <= 0) this.#clearSlot(slot);
     this.#revision += 1;
     return true;
   }
@@ -444,6 +453,11 @@ export class PlayerInventory {
 
   public get selectedItem(): ItemTypeValue | null {
     return this.#slots[this.selectedInventoryIndex]?.item ?? null;
+  }
+
+  public get selectedStack(): InventorySlotSnapshot {
+    const slot = this.#slots[this.selectedInventoryIndex];
+    return slot === undefined ? { ...EMPTY_SLOT } : { ...slot };
   }
 
   public get selectedBlock(): BlockTypeValue | null {
