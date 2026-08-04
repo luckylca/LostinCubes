@@ -11,11 +11,30 @@ import {
 import type { Mesh, Scene } from '@babylonjs/core';
 import type { ChunkMaterialRange } from './ChunkMeshBuilder';
 import {
-  BLOCK_TEXTURE_COUNT,
   BLOCK_TEXTURE_SIZE,
   BlockTexture,
   getBlockTexturePixels,
 } from './BlockTextureLibrary';
+
+const TEXTURE_KINDS: readonly BlockTexture[] = [
+  BlockTexture.GrassTop,
+  BlockTexture.GrassSide,
+  BlockTexture.Dirt,
+  BlockTexture.Stone,
+  BlockTexture.RuneStone,
+  BlockTexture.OakLogTop,
+  BlockTexture.OakLogSide,
+  BlockTexture.OakLeaves,
+  BlockTexture.OakPlanks,
+  BlockTexture.CraftingTableTop,
+  BlockTexture.CraftingTableSide,
+  BlockTexture.CraftingTableFront,
+  BlockTexture.CoalOre,
+  BlockTexture.IronOre,
+  BlockTexture.FurnaceTop,
+  BlockTexture.FurnaceSide,
+  BlockTexture.FurnaceFront,
+];
 
 /** Shared nearest-neighbor pixel materials used by every streamed chunk. */
 export class VoxelMaterialLibrary {
@@ -25,8 +44,7 @@ export class VoxelMaterialLibrary {
   public constructor(scene: Scene) {
     this.#multiMaterial = new MultiMaterial('voxel-world-materials', scene);
 
-    for (let textureId = 0; textureId < BLOCK_TEXTURE_COUNT; textureId += 1) {
-      const textureKind = textureId;
+    for (const textureKind of TEXTURE_KINDS) {
       const source = getBlockTexturePixels(textureKind);
       const texture = RawTexture.CreateRGBATexture(
         source.pixels,
@@ -38,14 +56,14 @@ export class VoxelMaterialLibrary {
         Texture.NEAREST_NEAREST_MIPNEAREST,
         Constants.TEXTURETYPE_UNSIGNED_BYTE,
       );
-      texture.name = `voxel-texture-${String(textureId)}`;
+      texture.name = `voxel-texture-${String(textureKind)}`;
       texture.wrapU = Texture.WRAP_ADDRESSMODE;
       texture.wrapV = Texture.WRAP_ADDRESSMODE;
       texture.anisotropicFilteringLevel = 1;
       texture.hasAlpha = source.hasAlpha;
 
       const material = new StandardMaterial(
-        `voxel-material-${String(textureId)}`,
+        `voxel-material-${String(textureKind)}`,
         scene,
       );
       material.diffuseTexture = texture;
