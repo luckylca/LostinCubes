@@ -7,6 +7,7 @@ import {
   isItemType,
 } from '../inventory/ItemDefinitions';
 import type { ItemType } from '../inventory/ItemDefinitions';
+import type { InventorySlotSnapshot } from '../inventory/PlayerInventory';
 import type { VoxelWorldData } from './VoxelWorldData';
 
 const MAXIMUM_DROPS = 96;
@@ -24,6 +25,7 @@ interface DropEntity {
   active: boolean;
   item: ItemType;
   count: number;
+  durability: number | null;
   x: number;
   y: number;
   z: number;
@@ -36,6 +38,7 @@ interface DropEntity {
 export interface DroppedItemSnapshot {
   readonly item: ItemType;
   readonly count: number;
+  readonly durability: number | null;
   readonly x: number;
   readonly y: number;
   readonly z: number;
@@ -43,8 +46,10 @@ export interface DroppedItemSnapshot {
 }
 
 export interface DroppedItemCallbacks {
-  readonly onPickup: (item: ItemType, count: number) => number;
-  readonly onPickupSucceeded?: (item: ItemType, count: number) => void;
+  readonly onPickup: (
+    stack: InventorySlotSnapshot,
+  ) => InventorySlotSnapshot | null;
+  readonly onPickupSucceeded?: (stack: InventorySlotSnapshot) => void;
 }
 
 function createMaterial(item: ItemType, scene: Scene): StandardMaterial {
@@ -72,6 +77,17 @@ function distanceSquared(
   return deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ;
 }
 
+function normalizeDurability(
+  item: ItemType,
+  durability: number | null,
+): number | null {
+  const definition = getItemDefinition(item);
+  if (definition.kind !== 'tool') return null;
+  const maximum = definition.maximumDurability ?? 1;
+  if (durability === null || !Number.isInteger(durability)) return maximum;
+  return Math.min(Math.max(durability, 1), maximum);
+}
+
 export class DroppedItemManager {
   readonly #scene: Scene;
   readonly #world: VoxelWorldData;
@@ -80,7 +96,11 @@ export class DroppedItemManager {
   readonly #drops: DropEntity[] = [];
   #nextPhase = 0;
 
-  public constructor(scene: Scene, world: VoxelWorldData, callbacks: DroppedItemCallbacks) {
+  public constructor(
+    scene: Scene,
+    world: VoxelWorldData,
+    callbacks: DroppedItemCallbacks,
+  ) {
     this.#scene = scene;
     this.#world = world;
     this.#callbacks = callbacks;
@@ -92,6 +112,7 @@ export class DroppedItemManager {
     worldY: number,
     worldZ: number,
     count = 1,
+    durability: number | null = null,
   ): number {
     if (
       !isItemType(item) ||
@@ -104,14 +125,18 @@ export class DroppedItemManager {
       return count;
     }
 
-    const maximumStack = getItemDefinition(item).maximumStack;
+    const definition = getItemDefinition(item);
+    const maximumStack = definition.maximumStack;
+    const normalizedDurability = normalizeDurability(item, durability);
     let remaining = count;
     for (const drop of this.#drops) {
       if (
         !drop.active ||
         drop.item !== item ||
+        drop.durability !== normalizedDurability ||
         drop.count >= maximumStack ||
-        distanceSquared(drop.x, drop.y, drop.z, worldX, worldY, worldZ) > MERGE_RADIUS * MERGE_RADIUS
+        distanceSquared(drop.x, drop.y, drop.z, worldX, worldY, worldZ) >
+          MERGE_RADIUS * MERGE_RADIUS
       ) {
         continue;
       }
@@ -132,6 +157,7 @@ export class DroppedItemManager {
       this.#activateDrop(drop, {
         item,
         count: stackCount,
+        durability: normalizedDurability,
         x: worldX + Math.sin(phase * 2.31) * 0.12,
         y: worldY + 0.18,
         z: worldZ + Math.cos(phase * 1.73) * 0.12,
@@ -159,7 +185,11 @@ export class DroppedItemManager {
       if (drop === null) return;
       this.#activateDrop(drop, {
         ...snapshot,
-        count: Math.min(snapshot.count, getItemDefinition(snapshot.item).maximumStack),
+        durability: normalizeDurability(snapshot.item, snapshot.durability),
+        count: Math.min(
+          snapshot.count,
+          getItemDefinition(snapshot.item).maximumStack,
+        ),
       });
       drop.velocityY = 0;
       drop.ageSeconds = PICKUP_DELAY_SECONDS;
@@ -178,19 +208,28 @@ export class DroppedItemManager {
         this.#deactivate(drop);
         continue;
       }
-      if (drop.ageSeconds >= PICKUP_DELAY_SECONDS && this.#attractAndPickup(drop, player, seconds)) {
+      if (
+        drop.ageSeconds >= PICKUP_DELAY_SECONDS &&
+        this.#attractAndPickup(drop, player, seconds)
+      ) {
         continue;
       }
       if (!drop.grounded) this.#advanceVertical(drop, seconds);
       drop.mesh.rotation.y += seconds * 1.8;
-      drop.mesh.rotation.x = Math.sin(drop.ageSeconds * 1.4 + drop.phase) * 0.12;
-      const bob = drop.grounded ? Math.sin(drop.ageSeconds * 3.2 + drop.phase) * 0.045 : 0;
+      drop.mesh.rotation.x =
+        Math.sin(drop.ageSeconds * 1.4 + drop.phase) * 0.12;
+      const bob = drop.grounded
+        ? Math.sin(drop.ageSeconds * 3.2 + drop.phase) * 0.045
+        : 0;
       this.#syncMesh(drop, bob);
     }
   }
 
   public get activeCount(): number {
-    return this.#drops.reduce((count, drop) => count + (drop.active ? 1 : 0), 0);
+    return this.#drops.reduce(
+      (count, drop) => count + (drop.active ? 1 : 0),
+      0,
+    );
   }
 
   public get snapshots(): readonly DroppedItemSnapshot[] {
@@ -199,6 +238,7 @@ export class DroppedItemManager {
       .map((drop) => ({
         item: drop.item,
         count: drop.count,
+        durability: drop.durability,
         x: drop.x,
         y: drop.y,
         z: drop.z,
@@ -225,6 +265,7 @@ export class DroppedItemManager {
     drop.active = true;
     drop.item = snapshot.item;
     drop.count = snapshot.count;
+    drop.durability = snapshot.durability;
     drop.x = snapshot.x;
     drop.y = snapshot.y;
     drop.z = snapshot.z;
@@ -233,7 +274,7 @@ export class DroppedItemManager {
     const definition = getItemDefinition(snapshot.item);
     if (definition.kind === 'tool') {
       drop.mesh.scaling.set(0.55, 1.35, 0.42);
-    } else if (definition.kind === 'material') {
+    } else if (definition.kind === 'material' || definition.kind === 'food') {
       drop.mesh.scaling.set(0.78, 0.5, 0.78);
     } else {
       drop.mesh.scaling.setAll(1);
@@ -259,6 +300,7 @@ export class DroppedItemManager {
       active: false,
       item,
       count: 0,
+      durability: null,
       x: 0,
       y: 0,
       z: 0,
@@ -301,7 +343,11 @@ export class DroppedItemManager {
     }
   }
 
-  #attractAndPickup(drop: DropEntity, player: PlayerState, seconds: number): boolean {
+  #attractAndPickup(
+    drop: DropEntity,
+    player: PlayerState,
+    seconds: number,
+  ): boolean {
     const targetY = player.position.y - 0.15;
     const deltaX = player.position.x - drop.x;
     const deltaY = targetY - drop.y;
@@ -310,25 +356,42 @@ export class DroppedItemManager {
     if (distance > ATTRACTION_RADIUS) return false;
     if (distance <= PICKUP_RADIUS) return this.#attemptPickup(drop);
     if (distance <= Number.EPSILON) return false;
-    const moveDistance = Math.min(distance, (3.5 + (ATTRACTION_RADIUS - distance) * 3) * seconds);
+    const moveDistance = Math.min(
+      distance,
+      (3.5 + (ATTRACTION_RADIUS - distance) * 3) * seconds,
+    );
     drop.x += (deltaX / distance) * moveDistance;
     drop.y += (deltaY / distance) * moveDistance;
     drop.z += (deltaZ / distance) * moveDistance;
     drop.velocityY = 0;
     drop.grounded = false;
-    return distance - moveDistance <= PICKUP_RADIUS ? this.#attemptPickup(drop) : false;
+    return distance - moveDistance <= PICKUP_RADIUS
+      ? this.#attemptPickup(drop)
+      : false;
   }
 
   #attemptPickup(drop: DropEntity): boolean {
-    const originalCount = drop.count;
-    const remaining = this.#callbacks.onPickup(drop.item, drop.count);
-    const pickedUp = originalCount - Math.max(remaining, 0);
-    if (pickedUp > 0) this.#callbacks.onPickupSucceeded?.(drop.item, pickedUp);
-    if (remaining <= 0) {
+    const original: InventorySlotSnapshot = {
+      item: drop.item,
+      count: drop.count,
+      durability: drop.durability,
+    };
+    const remaining = this.#callbacks.onPickup(original);
+    const remainingCount = remaining?.count ?? 0;
+    const pickedUp = original.count - remainingCount;
+    if (pickedUp > 0) {
+      this.#callbacks.onPickupSucceeded?.({
+        ...original,
+        count: pickedUp,
+      });
+    }
+    if (remaining === null || remaining.count <= 0) {
       this.#deactivate(drop);
       return true;
     }
-    drop.count = remaining;
+    drop.item = remaining.item ?? drop.item;
+    drop.count = remaining.count;
+    drop.durability = remaining.durability;
     drop.ageSeconds = PICKUP_DELAY_SECONDS;
     return false;
   }
@@ -338,9 +401,17 @@ export class DroppedItemManager {
     const stackScale = 1 + Math.min(drop.count - 1, 15) * 0.006;
     const definition = getItemDefinition(drop.item);
     if (definition.kind === 'tool') {
-      drop.mesh.scaling.set(0.55 * stackScale, 1.35 * stackScale, 0.42 * stackScale);
-    } else if (definition.kind === 'material') {
-      drop.mesh.scaling.set(0.78 * stackScale, 0.5 * stackScale, 0.78 * stackScale);
+      drop.mesh.scaling.set(
+        0.55 * stackScale,
+        1.35 * stackScale,
+        0.42 * stackScale,
+      );
+    } else if (definition.kind === 'material' || definition.kind === 'food') {
+      drop.mesh.scaling.set(
+        0.78 * stackScale,
+        0.5 * stackScale,
+        0.78 * stackScale,
+      );
     } else {
       drop.mesh.scaling.setAll(stackScale);
     }
@@ -349,6 +420,7 @@ export class DroppedItemManager {
   #deactivate(drop: DropEntity): void {
     drop.active = false;
     drop.count = 0;
+    drop.durability = null;
     drop.mesh.setEnabled(false);
   }
 }
