@@ -19,6 +19,7 @@ workerScope.onmessage = (event): void => {
       response.meshData.normals.buffer as ArrayBuffer,
       response.meshData.indices.buffer as ArrayBuffer,
       response.meshData.colors.buffer as ArrayBuffer,
+      response.meshData.uvs.buffer as ArrayBuffer,
     ]);
   } catch (error: unknown) {
     workerScope.postMessage(
