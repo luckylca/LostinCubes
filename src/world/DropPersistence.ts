@@ -1,4 +1,8 @@
-import { isItemType, itemFromBlock } from '../inventory/ItemDefinitions';
+import {
+  getItemDefinition,
+  isItemType,
+  itemFromBlock,
+} from '../inventory/ItemDefinitions';
 import type { ItemType } from '../inventory/ItemDefinitions';
 import type { BlockType } from './BlockType';
 import type { DroppedItemSnapshot } from './DroppedItemManager';
@@ -26,6 +30,7 @@ function normalizeSnapshot(value: unknown): DroppedItemSnapshot | null {
     item?: unknown;
     block?: unknown;
     count?: unknown;
+    durability?: unknown;
     x?: unknown;
     y?: unknown;
     z?: unknown;
@@ -46,9 +51,22 @@ function normalizeSnapshot(value: unknown): DroppedItemSnapshot | null {
   ) {
     return null;
   }
+
+  const definition = getItemDefinition(item);
+  const durability =
+    definition.kind === 'tool'
+      ? typeof candidate.durability === 'number' &&
+        Number.isInteger(candidate.durability)
+        ? Math.min(
+            Math.max(candidate.durability, 1),
+            definition.maximumDurability ?? 1,
+          )
+        : definition.maximumDurability
+      : null;
   return {
     item,
-    count: Math.min(candidate.count, 64),
+    count: Math.min(candidate.count, definition.maximumStack),
+    durability,
     x: candidate.x,
     y: candidate.y,
     z: candidate.z,
@@ -69,7 +87,9 @@ export function loadDroppedItems(
     return parsed
       .slice(0, MAXIMUM_SAVED_DROPS)
       .map(normalizeSnapshot)
-      .filter((snapshot): snapshot is DroppedItemSnapshot => snapshot !== null);
+      .filter(
+        (snapshot): snapshot is DroppedItemSnapshot => snapshot !== null,
+      );
   } catch (error: unknown) {
     console.warn('Ground-drop save could not be restored.', error);
     return [];
