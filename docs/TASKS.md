@@ -34,7 +34,10 @@
 - [x] Add a nine-slot finite hotbar
 - [x] Add pooled visible drops with gravity, merging, attraction, and overflow safety
 - [x] Add wooden shovel and pickaxe speed, durability, and save migration
-- [x] Add block-face palettes, improved player proportions, sky lighting, and fog
+- [x] Add improved player proportions, sky lighting, and fog
+- [x] Add generated 16×16 nearest-neighbor block textures with face-specific materials
+- [x] Keep leaves as individually tiled alpha-cutout voxel faces instead of merged slabs
+- [x] Add eight-stage mining cracks and immediate owning-chunk visual updates
 - [x] Add pooled break particles and synthesized interaction audio
 - [x] Persist bounded ground-drop snapshots
 
@@ -46,6 +49,8 @@
 - [x] Generate deterministic oak trees with real log and leaf voxels
 - [x] Add oak logs, leaves, planks, sticks, and crafting tables
 - [x] Add personal recipe-book crafting for planks, sticks, and crafting tables
+- [x] Display personal recipes as 2×2 shapes and workbench recipes as classic 3×3 shapes
+- [x] Add an in-game workbench/furnace progression guide and familiar furnace slot layout
 - [x] Add placed crafting-table interaction and tool recipes
 - [x] Add wooden axes and full stone tool tier
 - [x] Add tier- and material-aware mining speeds and durability
