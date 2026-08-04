@@ -1,16 +1,28 @@
-import { isSolidBlock } from './BlockType';
+import { BlockType, isSolidBlock } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { getBlockFaceColor } from './BlockVisuals';
+import {
+  getBlockFaceTexture,
+  type BlockTexture,
+} from './BlockTextureLibrary';
 import { CHUNK_HEIGHT, CHUNK_SIZE } from './VoxelChunk';
 
 type VectorTuple = readonly [number, number, number];
 type MutableVector = [number, number, number];
+
+export interface ChunkMaterialRange {
+  readonly texture: BlockTexture;
+  readonly indexStart: number;
+  readonly indexCount: number;
+}
 
 export interface ChunkMeshData {
   readonly positions: Float32Array;
   readonly normals: Float32Array;
   readonly indices: Uint32Array;
   readonly colors: Float32Array;
+  readonly uvs: Float32Array;
+  readonly materialRanges: readonly ChunkMaterialRange[];
   readonly quadCount: number;
   readonly sourceFaceCount: number;
 }
@@ -21,6 +33,15 @@ export type WorldBlockSampler = (
   worldZ: number,
 ) => BlockTypeValue;
 
+interface MaterialBucket {
+  readonly texture: BlockTexture;
+  readonly positions: number[];
+  readonly normals: number[];
+  readonly indices: number[];
+  readonly colors: number[];
+  readonly uvs: number[];
+}
+
 const DIMENSIONS: VectorTuple = [CHUNK_SIZE, CHUNK_HEIGHT, CHUNK_SIZE];
 const MAXIMUM_MASK_SIZE = Math.max(
   CHUNK_SIZE * CHUNK_HEIGHT,
@@ -28,12 +49,8 @@ const MAXIMUM_MASK_SIZE = Math.max(
 );
 
 function getComponent(vector: VectorTuple | MutableVector, axis: number): number {
-  if (axis === 0) {
-    return vector[0];
-  }
-  if (axis === 1) {
-    return vector[1];
-  }
+  if (axis === 0) return vector[0];
+  if (axis === 1) return vector[1];
   return vector[2];
 }
 
@@ -42,13 +59,9 @@ function setComponent(
   axis: number,
   value: number,
 ): void {
-  if (axis === 0) {
-    vector[0] = value;
-  } else if (axis === 1) {
-    vector[1] = value;
-  } else {
-    vector[2] = value;
-  }
+  if (axis === 0) vector[0] = value;
+  else if (axis === 1) vector[1] = value;
+  else vector[2] = value;
 }
 
 function addVectors(
@@ -62,19 +75,50 @@ function addVectors(
   ];
 }
 
+function createBucket(texture: BlockTexture): MaterialBucket {
+  return {
+    texture,
+    positions: [],
+    normals: [],
+    indices: [],
+    colors: [],
+    uvs: [],
+  };
+}
+
+function pushQuadUvs(
+  target: number[],
+  axis: number,
+  width: number,
+  height: number,
+  positive: boolean,
+): void {
+  if (axis === 0) {
+    if (positive) {
+      target.push(0, 0, 0, width, height, width, height, 0);
+    } else {
+      target.push(height, 0, height, width, 0, width, 0, 0);
+    }
+    return;
+  }
+
+  if (positive) {
+    target.push(0, 0, width, 0, width, height, 0, height);
+  } else {
+    target.push(width, 0, 0, 0, 0, height, width, height);
+  }
+}
+
 /**
- * Builds a greedy-meshed chunk. Adjacent coplanar faces with the same block
- * material and normal are collapsed into one quad before data reaches Babylon.
+ * Builds a greedy-meshed chunk with repeated 16×16 pixel textures. Faces are
+ * still merged geometrically, then grouped into bounded material sub-ranges.
  */
 export function buildChunkMeshData(
   chunkX: number,
   chunkZ: number,
   sampleWorldBlock: WorldBlockSampler,
 ): ChunkMeshData {
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const indices: number[] = [];
-  const colors: number[] = [];
+  const buckets = new Map<BlockTexture, MaterialBucket>();
   const mask = new Int16Array(MAXIMUM_MASK_SIZE);
   const coordinate: MutableVector = [0, 0, 0];
   const neighborOffset: MutableVector = [0, 0, 0];
@@ -145,23 +189,29 @@ export function buildChunkMeshData(
             continue;
           }
 
+          const block = Math.abs(encodedFace) as BlockTypeValue;
+          const mergeFace = block !== BlockType.OakLeaves;
           let width = 1;
-          while (
-            column + width < dimensionU &&
-            mask[startIndex + width] === encodedFace
-          ) {
-            width += 1;
+          if (mergeFace) {
+            while (
+              column + width < dimensionU &&
+              mask[startIndex + width] === encodedFace
+            ) {
+              width += 1;
+            }
           }
 
           let height = 1;
-          heightLoop: while (row + height < dimensionV) {
-            const nextRowStart = startIndex + height * dimensionU;
-            for (let offset = 0; offset < width; offset += 1) {
-              if (mask[nextRowStart + offset] !== encodedFace) {
-                break heightLoop;
+          if (mergeFace) {
+            heightLoop: while (row + height < dimensionV) {
+              const nextRowStart = startIndex + height * dimensionU;
+              for (let offset = 0; offset < width; offset += 1) {
+                if (mask[nextRowStart + offset] !== encodedFace) {
+                  break heightLoop;
+                }
               }
+              height += 1;
             }
-            height += 1;
           }
 
           for (let clearRow = 0; clearRow < height; clearRow += 1) {
@@ -170,7 +220,6 @@ export function buildChunkMeshData(
           }
 
           const positive = encodedFace > 0;
-          const block = Math.abs(encodedFace) as BlockTypeValue;
           const base: MutableVector = [0, 0, 0];
           const edgeU: MutableVector = [0, 0, 0];
           const edgeV: MutableVector = [0, 0, 0];
@@ -189,7 +238,13 @@ export function buildChunkMeshData(
             cornerUV,
             cornerV,
           ];
-          const firstVertex = positions.length / 3;
+          const texture = getBlockFaceTexture(block, axis, positive);
+          let bucket = buckets.get(texture);
+          if (bucket === undefined) {
+            bucket = createBucket(texture);
+            buckets.set(texture, bucket);
+          }
+          const firstVertex = bucket.positions.length / 3;
           const normalX = axis === 0 ? (positive ? 1 : -1) : 0;
           const normalY = axis === 1 ? (positive ? 1 : -1) : 0;
           const normalZ = axis === 2 ? (positive ? 1 : -1) : 0;
@@ -208,14 +263,15 @@ export function buildChunkMeshData(
           );
 
           for (const corner of corners) {
-            positions.push(corner[0], corner[1], corner[2]);
-            normals.push(normalX, normalY, normalZ);
-            colors.push(red, green, blue, 1);
+            bucket.positions.push(corner[0], corner[1], corner[2]);
+            bucket.normals.push(normalX, normalY, normalZ);
+            bucket.colors.push(red, green, blue, 1);
           }
+          pushQuadUvs(bucket.uvs, axis, width, height, positive);
 
           // Babylon's default left-handed scene uses clockwise front faces.
           if (positive) {
-            indices.push(
+            bucket.indices.push(
               firstVertex,
               firstVertex + 2,
               firstVertex + 1,
@@ -224,7 +280,7 @@ export function buildChunkMeshData(
               firstVertex + 2,
             );
           } else {
-            indices.push(
+            bucket.indices.push(
               firstVertex,
               firstVertex + 1,
               firstVertex + 2,
@@ -242,11 +298,38 @@ export function buildChunkMeshData(
     }
   }
 
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  const colors: number[] = [];
+  const uvs: number[] = [];
+  const materialRanges: ChunkMaterialRange[] = [];
+  const orderedBuckets = [...buckets.values()].sort(
+    (left, right) => left.texture - right.texture,
+  );
+
+  for (const bucket of orderedBuckets) {
+    const vertexOffset = positions.length / 3;
+    const indexStart = indices.length;
+    positions.push(...bucket.positions);
+    normals.push(...bucket.normals);
+    colors.push(...bucket.colors);
+    uvs.push(...bucket.uvs);
+    for (const index of bucket.indices) indices.push(index + vertexOffset);
+    materialRanges.push({
+      texture: bucket.texture,
+      indexStart,
+      indexCount: bucket.indices.length,
+    });
+  }
+
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     indices: new Uint32Array(indices),
     colors: new Float32Array(colors),
+    uvs: new Float32Array(uvs),
+    materialRanges,
     quadCount,
     sourceFaceCount,
   };
