@@ -26,7 +26,7 @@ export class VoxelMaterialLibrary {
     this.#multiMaterial = new MultiMaterial('voxel-world-materials', scene);
 
     for (let textureId = 0; textureId < BLOCK_TEXTURE_COUNT; textureId += 1) {
-      const textureKind = textureId as BlockTexture;
+      const textureKind = textureId;
       const source = getBlockTexturePixels(textureKind);
       const texture = RawTexture.CreateRGBATexture(
         source.pixels,
