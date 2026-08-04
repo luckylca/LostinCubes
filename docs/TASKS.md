@@ -51,14 +51,19 @@
 - [x] Add tier- and material-aware mining speeds and durability
 - [x] Add deterministic underground caves with a protected surface shell
 - [x] Add coal and iron ore depth bands with tool-tier harvest rules
-- [x] Generalize pooled drops and save migration to block, material, and tool items
-- [x] Add furnaces, coal-fueled iron smelting, and full iron tools
+- [x] Generalize pooled drops and save migration to blocks, materials, food, and durability-preserving tools
+- [x] Add coordinate-scoped furnaces with fuel, timed smelting, output storage, persistence, and break recovery
+- [x] Add full iron tools
 - [x] Add fixed-step health, fall damage, void death, and automatic respawn
+- [x] Persist health, world time, and respawn count per world
+- [x] Drop the complete inventory at the recorded death position without repairing tools
+- [x] Add deterministic apples, held-food presentation, consumption, and healing
 - [x] Add a fixed-step day/night cycle with dynamic sky, fog, and sunlight
+- [x] Add pooled night enemies, terrain pursuit, attack cooldowns, melee combat, and loot
 - [ ] Add save metadata and multiple world slots
 - [ ] Add additional biomes and structures
 - [ ] Add leaf decay, saplings, and tree regrowth
 - [ ] Add full drag distribution and shift-click inventory shortcuts
 - [ ] Add distance-tiered chunk rendering or LOD
 - [ ] Capture representative desktop and Android performance profiles
-- [ ] Add hostile entities, combat, hunger, recovery items, and persistent player health
+- [ ] Add hunger, armor, ranged combat, and additional enemy types
