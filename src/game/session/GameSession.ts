@@ -27,6 +27,7 @@ export interface WorldState {
   readonly tick: number;
   readonly worldSeed: string;
   readonly dayTime: number;
+  readonly lastDeathPosition: VectorState | null;
   readonly player: PlayerState;
 }
 

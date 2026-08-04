@@ -2,11 +2,13 @@ import type { PlayerInputCommand } from '../commands/PlayerInputCommand';
 import { createNeutralPlayerInput } from '../commands/PlayerInputCommand';
 import { KinematicPlayerMotor } from '../../player/KinematicPlayerMotor';
 import type { PlayerMotorConfig } from '../../player/KinematicPlayerMotor';
+import type { SurvivalSnapshot } from './SurvivalPersistence';
 import type {
   CameraMode,
   GameCommand,
   GameSession,
   PlayerState,
+  VectorState,
   WorldState,
 } from './GameSession';
 
@@ -14,7 +16,7 @@ const LOOK_SENSITIVITY = 0.0024;
 export const PLAYER_LOOK_PITCH_LIMIT = Math.PI / 2 - 0.003;
 const MINIMUM_PITCH = -PLAYER_LOOK_PITCH_LIMIT;
 const MAXIMUM_PITCH = PLAYER_LOOK_PITCH_LIMIT;
-const MAXIMUM_HEALTH = 20;
+export const PLAYER_MAXIMUM_HEALTH = 20;
 const SAFE_LANDING_SPEED = 8;
 const FALL_DAMAGE_PER_SPEED = 1.65;
 const VOID_DEATH_Y = -20;
@@ -39,11 +41,12 @@ export class LocalGameSession implements GameSession {
   #cameraMode: CameraMode = 'third-person';
   #paused = false;
   #menuOpen = false;
-  #health = MAXIMUM_HEALTH;
+  #health = PLAYER_MAXIMUM_HEALTH;
   #damageTaken = 0;
   #deathCount = 0;
   #maximumFallSpeed = 0;
   #dayTime = 0.28;
+  #lastDeathPosition: VectorState | null = null;
 
   public constructor(
     worldSeed: string,
@@ -61,11 +64,12 @@ export class LocalGameSession implements GameSession {
     this.#cameraMode = 'third-person';
     this.#paused = false;
     this.#menuOpen = false;
-    this.#health = MAXIMUM_HEALTH;
+    this.#health = PLAYER_MAXIMUM_HEALTH;
     this.#damageTaken = 0;
     this.#deathCount = 0;
     this.#maximumFallSpeed = 0;
     this.#dayTime = 0.28;
+    this.#lastDeathPosition = null;
     this.#pendingCommand = null;
     this.#heldCommand = createNeutralPlayerInput(0);
     this.#worldState = this.#createWorldState(0);
@@ -90,13 +94,53 @@ export class LocalGameSession implements GameSession {
     this.#worldState = this.#createWorldState(this.#worldState.tick);
   }
 
+  public restoreSurvival(snapshot: SurvivalSnapshot | null): void {
+    if (snapshot === null) return;
+    this.#health = Math.round(
+      clamp(snapshot.health, 1, PLAYER_MAXIMUM_HEALTH),
+    );
+    this.#dayTime = ((snapshot.dayTime % 1) + 1) % 1;
+    this.#deathCount = Math.max(Math.floor(snapshot.deathCount), 0);
+    this.#worldState = this.#createWorldState(this.#worldState.tick);
+  }
+
+  public damagePlayer(amount: number): number {
+    const before = this.#health;
+    this.#applyDamage(amount);
+    const damageDealt = before - this.#health;
+    if (this.#health <= 0) this.#respawn();
+    this.#worldState = this.#createWorldState(this.#worldState.tick);
+    return damageDealt;
+  }
+
+  public healPlayer(amount: number): number {
+    if (!Number.isFinite(amount) || amount <= 0 || this.#health <= 0) return 0;
+    const before = this.#health;
+    this.#health = Math.min(
+      PLAYER_MAXIMUM_HEALTH,
+      this.#health + Math.floor(amount),
+    );
+    this.#worldState = this.#createWorldState(this.#worldState.tick);
+    return this.#health - before;
+  }
+
+  public getSurvivalSnapshot(): SurvivalSnapshot {
+    return {
+      version: 1,
+      health: this.#health,
+      dayTime: this.#dayTime,
+      deathCount: this.#deathCount,
+    };
+  }
+
   public step(stepSeconds: number): void {
     const command = this.#consumeCommand();
     this.#damageTaken = 0;
 
     if (command.togglePause && !this.#menuOpen) this.#paused = !this.#paused;
     if (command.toggleCamera && !this.#menuOpen) {
-      this.#cameraMode = this.#cameraMode === 'third-person' ? 'first-person' : 'third-person';
+      this.#cameraMode =
+        this.#cameraMode === 'third-person' ? 'first-person' : 'third-person';
     }
     if (!this.#menuOpen) {
       this.#yaw -= command.lookX * LOOK_SENSITIVITY;
@@ -110,7 +154,10 @@ export class LocalGameSession implements GameSession {
     if (!this.#paused && !this.#menuOpen) {
       const before = this.#motor.getState();
       if (!before.grounded && before.verticalVelocity < 0) {
-        this.#maximumFallSpeed = Math.max(this.#maximumFallSpeed, -before.verticalVelocity);
+        this.#maximumFallSpeed = Math.max(
+          this.#maximumFallSpeed,
+          -before.verticalVelocity,
+        );
       }
       const after = this.#motor.update(
         {
@@ -123,7 +170,9 @@ export class LocalGameSession implements GameSession {
         stepSeconds,
       );
       if (!before.grounded && after.grounded) this.#resolveLanding();
-      if (after.position.y < VOID_DEATH_Y) this.#applyDamage(MAXIMUM_HEALTH);
+      if (after.position.y < VOID_DEATH_Y) {
+        this.#applyDamage(PLAYER_MAXIMUM_HEALTH);
+      }
       this.#dayTime = (this.#dayTime + stepSeconds / DAY_LENGTH_SECONDS) % 1;
     }
 
@@ -139,19 +188,24 @@ export class LocalGameSession implements GameSession {
     const excessSpeed = this.#maximumFallSpeed - SAFE_LANDING_SPEED;
     this.#maximumFallSpeed = 0;
     if (excessSpeed <= 0) return;
-    this.#applyDamage(Math.max(1, Math.ceil(excessSpeed * FALL_DAMAGE_PER_SPEED)));
+    this.#applyDamage(
+      Math.max(1, Math.ceil(excessSpeed * FALL_DAMAGE_PER_SPEED)),
+    );
   }
 
   #applyDamage(amount: number): void {
-    const damage = Math.min(Math.max(Math.floor(amount), 0), this.#health);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const damage = Math.min(Math.floor(amount), this.#health);
     if (damage <= 0) return;
     this.#health -= damage;
     this.#damageTaken += damage;
   }
 
   #respawn(): void {
+    const deathPosition = this.#motor.getState().position;
+    this.#lastDeathPosition = { ...deathPosition };
     this.#motor.reset();
-    this.#health = MAXIMUM_HEALTH;
+    this.#health = PLAYER_MAXIMUM_HEALTH;
     this.#maximumFallSpeed = 0;
     this.#deathCount += 1;
   }
@@ -187,7 +241,7 @@ export class LocalGameSession implements GameSession {
       cameraMode: this.#cameraMode,
       paused: this.#paused || this.#menuOpen,
       health: this.#health,
-      maximumHealth: MAXIMUM_HEALTH,
+      maximumHealth: PLAYER_MAXIMUM_HEALTH,
       damageTaken: this.#damageTaken,
       deathCount: this.#deathCount,
     };
@@ -195,6 +249,8 @@ export class LocalGameSession implements GameSession {
       tick,
       worldSeed: this.#worldSeed,
       dayTime: this.#dayTime,
+      lastDeathPosition:
+        this.#lastDeathPosition === null ? null : { ...this.#lastDeathPosition },
       player,
     };
   }
