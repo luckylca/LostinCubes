@@ -32,6 +32,17 @@ function createFlatWorld(): VoxelWorldData {
   } as unknown as VoxelWorldData;
 }
 
+function advance(
+  manager: NightStalkerManager,
+  player: PlayerState,
+  seconds: number,
+): void {
+  const steps = Math.ceil(seconds / 0.1);
+  for (let index = 0; index < steps; index += 1) {
+    manager.update(player, 0.9, Math.min(0.1, seconds - index * 0.1));
+  }
+}
+
 describe('NightStalkerManager', () => {
   const engines: NullEngine[] = [];
 
@@ -73,7 +84,7 @@ describe('NightStalkerManager', () => {
       killed: false,
       damage: 9,
     });
-    manager.update(player, 0.9, 0.5);
+    advance(manager, player, 0.5);
     expect(manager.attack(player, ItemType.IronAxe)).toEqual({
       hit: true,
       killed: true,
@@ -101,11 +112,11 @@ describe('NightStalkerManager', () => {
     });
     manager.spawnAt(0, 1.4, 1);
     const player = createPlayer();
-    manager.update(player, 0.9, 0.2);
+    advance(manager, player, 0.4);
     expect(damage).toBe(0);
-    manager.update(player, 0.9, 0.3);
+    advance(manager, player, 0.1);
     expect(damage).toBe(3);
-    manager.update(player, 0.9, 0.3);
+    advance(manager, player, 0.3);
     expect(damage).toBe(3);
     manager.dispose();
   });
