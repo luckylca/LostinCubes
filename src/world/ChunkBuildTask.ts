@@ -5,6 +5,7 @@ import type {
   ChunkBuildSuccess,
 } from './ChunkBuildProtocol';
 import { TerrainGenerator } from './TerrainGenerator';
+import { buildChunkLightField } from './VoxelLightEngine';
 
 function createModificationKey(
   worldX: number,
@@ -24,15 +25,27 @@ export function executeChunkBuild(
     modifications.set(createModificationKey(worldX, worldY, worldZ), block);
   }
 
+  const sampleWorldBlock = (
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): BlockType => {
+    const modified = modifications.get(
+      createModificationKey(worldX, worldY, worldZ),
+    );
+    return modified ?? generator.sampleBlock(worldX, worldY, worldZ);
+  };
+  const lighting = buildChunkLightField(
+    request.chunkX,
+    request.chunkZ,
+    sampleWorldBlock,
+    request.lightEmitters ?? [],
+  );
   const meshData = buildChunkMeshData(
     request.chunkX,
     request.chunkZ,
-    (worldX, worldY, worldZ) => {
-      const modified = modifications.get(
-        createModificationKey(worldX, worldY, worldZ),
-      );
-      return modified ?? generator.sampleBlock(worldX, worldY, worldZ);
-    },
+    sampleWorldBlock,
+    lighting.sampleCombined,
   );
 
   return {
