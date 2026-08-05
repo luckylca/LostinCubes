@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BlockInteractionState } from '../src/world/BlockInteractionState';
+import {
+  BlockInteractionState,
+  getBlockBreakDuration,
+} from '../src/world/BlockInteractionState';
 import { BlockType } from '../src/world/BlockType';
 
 function update(
@@ -21,8 +24,11 @@ function update(
 describe('BlockInteractionState', () => {
   it('requires continuous focus on one block before breaking it', () => {
     const state = new BlockInteractionState();
+    const expectedStep = 0.1 / getBlockBreakDuration(BlockType.Dirt);
 
-    expect(update(state, { breakHeld: true }).breakProgress).toBeCloseTo(0.2);
+    expect(update(state, { breakHeld: true }).breakProgress).toBeCloseTo(
+      expectedStep,
+    );
     expect(update(state, { breakHeld: true }).breakNow).toBe(false);
     expect(update(state, { breakHeld: true }).breakNow).toBe(false);
     expect(update(state, { breakHeld: true }).breakNow).toBe(false);
@@ -49,11 +55,12 @@ describe('BlockInteractionState', () => {
 
   it('resets mining progress when the target changes or attack is released', () => {
     const state = new BlockInteractionState();
+    const expectedStep = 0.1 / getBlockBreakDuration(BlockType.Dirt);
 
     update(state, { breakHeld: true });
     expect(
       update(state, { breakHeld: true, targetKey: '2,2,3' }).breakProgress,
-    ).toBeCloseTo(0.2);
+    ).toBeCloseTo(expectedStep);
     expect(update(state, { breakHeld: false }).breakProgress).toBe(0);
   });
 
