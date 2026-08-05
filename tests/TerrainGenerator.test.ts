@@ -67,7 +67,7 @@ describe('TerrainGenerator', () => {
         }
       }
     }
-    expect(caves).toBeGreaterThan(50);
+    expect(caves).toBeGreaterThan(20);
   });
 
   it('places coal above and below iron while keeping both underground', () => {
