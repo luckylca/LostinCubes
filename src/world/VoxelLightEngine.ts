@@ -27,22 +27,44 @@ export interface ChunkLightField {
   readonly sampleCombined: (worldX: number, worldY: number, worldZ: number) => number;
 }
 
-interface MutableQueue {
-  readonly values: number[];
-  head: number;
+class GrowingIntQueue {
+  #values: Int32Array;
+  #head = 0;
+  #tail = 0;
+
+  public constructor(initialCapacity: number) {
+    this.#values = new Int32Array(Math.max(16, initialCapacity));
+  }
+
+  public push(value: number): void {
+    if (this.#tail >= this.#values.length) this.#makeRoom();
+    this.#values[this.#tail] = value;
+    this.#tail += 1;
+  }
+
+  public shift(): number | null {
+    if (this.#head >= this.#tail) return null;
+    const value = this.#values[this.#head] ?? 0;
+    this.#head += 1;
+    return value;
+  }
+
+  #makeRoom(): void {
+    if (this.#head > 0) {
+      this.#values.copyWithin(0, this.#head, this.#tail);
+      this.#tail -= this.#head;
+      this.#head = 0;
+      if (this.#tail < this.#values.length) return;
+    }
+    const expanded = new Int32Array(this.#values.length * 2);
+    expanded.set(this.#values);
+    this.#values = expanded;
+  }
 }
 
 function clampLight(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(Math.max(Math.floor(value), 0), MAXIMUM_LIGHT_LEVEL);
-}
-
-function createQueue(): MutableQueue {
-  return { values: [], head: 0 };
-}
-
-function enqueue(queue: MutableQueue, index: number): void {
-  queue.values.push(index);
 }
 
 /**
@@ -79,17 +101,11 @@ export function buildChunkLightField(
     (worldZ - minimumZ) * sizeX +
     worldY * layerSize;
 
-  const coordinatesOf = (
-    index: number,
-  ): readonly [worldX: number, worldY: number, worldZ: number] => {
-    const worldY = Math.floor(index / layerSize);
-    const inLayer = index - worldY * layerSize;
-    const localZ = Math.floor(inLayer / sizeX);
-    const localX = inLayer - localZ * sizeX;
-    return [minimumX + localX, worldY, minimumZ + localZ];
-  };
-
-  const skyQueue = createQueue();
+  // Direct vertical skylight is solved in one column pass. Unlike the old
+  // implementation, this does not enqueue every lit cell in the 67k-cell
+  // volume. A second pass only seeds cells that can actually improve a
+  // neighbor, which keeps the flood queue focused on cave mouths and shadow
+  // boundaries instead of the entire open sky.
   for (let localZ = 0; localZ < sizeZ; localZ += 1) {
     const worldZ = minimumZ + localZ;
     for (let localX = 0; localX < sizeX; localX += 1) {
@@ -104,38 +120,8 @@ export function buildChunkLightField(
         } else if (opacity > 0) {
           level = Math.max(level - Math.max(opacity, 1), 0);
         }
-        const index = indexOf(worldX, worldY, worldZ);
-        sky[index] = level;
-        if (level > 1) enqueue(skyQueue, index);
+        sky[indexOf(worldX, worldY, worldZ)] = level;
       }
-    }
-  }
-
-  const blockQueue = createQueue();
-  for (let worldY = 0; worldY < CHUNK_HEIGHT; worldY += 1) {
-    for (let localZ = 0; localZ < sizeZ; localZ += 1) {
-      const worldZ = minimumZ + localZ;
-      for (let localX = 0; localX < sizeX; localX += 1) {
-        const worldX = minimumX + localX;
-        const level = getBlockLuminance(
-          sampleBlock(worldX, worldY, worldZ),
-        );
-        if (level <= 0) continue;
-        const index = indexOf(worldX, worldY, worldZ);
-        block[index] = level;
-        enqueue(blockQueue, index);
-      }
-    }
-  }
-
-  for (const [worldX, worldY, worldZ, rawLevel] of dynamicEmitters) {
-    if (!contains(worldX, worldY, worldZ)) continue;
-    const level = clampLight(rawLevel);
-    if (level <= 0) continue;
-    const index = indexOf(worldX, worldY, worldZ);
-    if (level > (block[index] ?? 0)) {
-      block[index] = level;
-      enqueue(blockQueue, index);
     }
   }
 
@@ -148,13 +134,81 @@ export function buildChunkLightField(
     [0, 0, 1],
   ] as const;
 
-  const propagate = (levels: Uint8Array, queue: MutableQueue): void => {
-    while (queue.head < queue.values.length) {
-      const sourceIndex = queue.values[queue.head] ?? 0;
-      queue.head += 1;
+  const skyQueue = new GrowingIntQueue(layerSize);
+  for (let worldY = 0; worldY < CHUNK_HEIGHT; worldY += 1) {
+    for (let localZ = 0; localZ < sizeZ; localZ += 1) {
+      const worldZ = minimumZ + localZ;
+      for (let localX = 0; localX < sizeX; localX += 1) {
+        const worldX = minimumX + localX;
+        const sourceIndex = indexOf(worldX, worldY, worldZ);
+        const sourceLevel = sky[sourceIndex] ?? 0;
+        if (sourceLevel <= 1) continue;
+
+        let canImproveNeighbor = false;
+        for (const [offsetX, offsetY, offsetZ] of neighborOffsets) {
+          const targetX = worldX + offsetX;
+          const targetY = worldY + offsetY;
+          const targetZ = worldZ + offsetZ;
+          if (!contains(targetX, targetY, targetZ)) continue;
+          const opacity = getBlockLightOpacity(
+            sampleBlock(targetX, targetY, targetZ),
+          );
+          if (opacity >= MAXIMUM_LIGHT_LEVEL) continue;
+          const propagated = sourceLevel - Math.max(opacity, 1);
+          if (
+            propagated >
+            (sky[indexOf(targetX, targetY, targetZ)] ?? 0)
+          ) {
+            canImproveNeighbor = true;
+            break;
+          }
+        }
+        if (canImproveNeighbor) skyQueue.push(sourceIndex);
+      }
+    }
+  }
+
+  const blockQueue = new GrowingIntQueue(128);
+  for (let worldY = 0; worldY < CHUNK_HEIGHT; worldY += 1) {
+    for (let localZ = 0; localZ < sizeZ; localZ += 1) {
+      const worldZ = minimumZ + localZ;
+      for (let localX = 0; localX < sizeX; localX += 1) {
+        const worldX = minimumX + localX;
+        const level = getBlockLuminance(
+          sampleBlock(worldX, worldY, worldZ),
+        );
+        if (level <= 0) continue;
+        const index = indexOf(worldX, worldY, worldZ);
+        block[index] = level;
+        blockQueue.push(index);
+      }
+    }
+  }
+
+  for (const [worldX, worldY, worldZ, rawLevel] of dynamicEmitters) {
+    if (!contains(worldX, worldY, worldZ)) continue;
+    const level = clampLight(rawLevel);
+    if (level <= 0) continue;
+    const index = indexOf(worldX, worldY, worldZ);
+    if (level > (block[index] ?? 0)) {
+      block[index] = level;
+      blockQueue.push(index);
+    }
+  }
+
+  const propagate = (levels: Uint8Array, queue: GrowingIntQueue): void => {
+    while (true) {
+      const sourceIndex = queue.shift();
+      if (sourceIndex === null) break;
       const sourceLevel = levels[sourceIndex] ?? 0;
       if (sourceLevel <= 1) continue;
-      const [sourceX, sourceY, sourceZ] = coordinatesOf(sourceIndex);
+
+      const sourceY = Math.floor(sourceIndex / layerSize);
+      const inLayer = sourceIndex - sourceY * layerSize;
+      const localZ = Math.floor(inLayer / sizeX);
+      const localX = inLayer - localZ * sizeX;
+      const sourceX = minimumX + localX;
+      const sourceZ = minimumZ + localZ;
 
       for (const [offsetX, offsetY, offsetZ] of neighborOffsets) {
         const targetX = sourceX + offsetX;
@@ -170,7 +224,7 @@ export function buildChunkLightField(
         const targetIndex = indexOf(targetX, targetY, targetZ);
         if (propagated <= (levels[targetIndex] ?? 0)) continue;
         levels[targetIndex] = propagated;
-        enqueue(queue, targetIndex);
+        queue.push(targetIndex);
       }
     }
   };
