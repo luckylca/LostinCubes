@@ -41,8 +41,14 @@ export function getBlockFaceColor(
     getDirectionalShade(axis, positive) *
     coordinateVariation(worldX, worldY, worldZ, block);
   const emissionBoost =
-    block === BlockType.RuneStone || block === BlockType.Torch ? 1.035 : 1;
+    block === BlockType.RuneStone ||
+    block === BlockType.Torch ||
+    block === BlockType.Lava
+      ? 1.035
+      : 1;
   const value = clampChannel(multiplier * emissionBoost);
+  if (block === BlockType.Water) return [value * 0.88, value * 0.95, value];
+  if (block === BlockType.Lava) return [value, value * 0.94, value * 0.8];
   return [value, value, value];
 }
 
@@ -74,6 +80,26 @@ export function getBlockItemColor(block: BlockTypeValue): BlockRgb {
       return [0.38, 0.4, 0.39];
     case BlockType.Torch:
       return [0.93, 0.66, 0.23];
+    case BlockType.Sand:
+      return [0.82, 0.76, 0.51];
+    case BlockType.Gravel:
+      return [0.48, 0.46, 0.45];
+    case BlockType.Clay:
+      return [0.58, 0.64, 0.67];
+    case BlockType.Snow:
+      return [0.92, 0.96, 0.98];
+    case BlockType.Water:
+      return [0.18, 0.43, 0.82];
+    case BlockType.Lava:
+      return [0.94, 0.29, 0.05];
+    case BlockType.Ladder:
+      return [0.58, 0.39, 0.18];
+    case BlockType.OakSapling:
+      return [0.25, 0.55, 0.18];
+    case BlockType.TallGrass:
+      return [0.27, 0.57, 0.2];
+    case BlockType.Dandelion:
+      return [0.84, 0.7, 0.15];
     case BlockType.Air:
       return [0, 0, 0];
   }
