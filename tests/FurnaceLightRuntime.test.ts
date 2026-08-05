@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { BiomeType } from '../src/world/BiomeDefinition';
 import { BlockType } from '../src/world/BlockType';
 import {
   registerFurnaceLightRuntime,
@@ -19,6 +20,7 @@ describe('FurnaceLightRuntime', () => {
   const world = {
     worldSeed: 'furnace-light-test',
     sampleBlock: () => BlockType.Air,
+    sampleBiome: () => BiomeType.Plains,
     isSolidAt: () => false,
     isWaterAt: () => false,
     isLavaAt: () => false,
