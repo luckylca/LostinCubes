@@ -106,7 +106,7 @@ export class VoxelWorldRenderer {
     );
     if (!this.#disposed) {
       this.#applyChunk(centerKey, revision, response);
-      this.#scheduleMissingChunks(centerChunkX, centerChunkZ);
+      this.#scheduleMissingChunks();
     }
   }
 
@@ -125,7 +125,7 @@ export class VoxelWorldRenderer {
       this.#updateDesiredKeys(centerChunkX, centerChunkZ);
       this.#cancelUndesiredWork();
       this.#unloadDistantChunks();
-      this.#scheduleMissingChunks(centerChunkX, centerChunkZ);
+      this.#scheduleMissingChunks();
     }
 
     return this.getStats();
@@ -286,9 +286,7 @@ export class VoxelWorldRenderer {
     this.#recentChunks.set(key, chunk);
 
     while (this.#recentChunks.size > RECENT_CHUNK_CACHE_LIMIT) {
-      const oldestKey = this.#recentChunks.keys().next().value as
-        | string
-        | undefined;
+      const oldestKey = this.#recentChunks.keys().next().value;
       if (oldestKey === undefined) break;
       const oldest = this.#recentChunks.get(oldestKey);
       this.#recentChunks.delete(oldestKey);
@@ -316,7 +314,7 @@ export class VoxelWorldRenderer {
     this.#recentChunks.clear();
   }
 
-  #scheduleMissingChunks(centerChunkX: number, centerChunkZ: number): void {
+  #scheduleMissingChunks(): void {
     const coordinates: (readonly [number, number, number])[] = [];
     for (const key of this.#desiredKeys) {
       if (this.#chunks.has(key) || this.#restoreRecentChunk(key)) continue;
