@@ -26,10 +26,13 @@ function blockFrequency(block: BlockTypeValue): number {
     case BlockType.OakLeaves:
       return 260;
     case BlockType.Stone:
+    case BlockType.Cobblestone:
     case BlockType.CoalOre:
     case BlockType.IronOre:
     case BlockType.Furnace:
       return 92;
+    case BlockType.Torch:
+      return 185;
     case BlockType.RuneStone:
       return 210;
     case BlockType.Air:
