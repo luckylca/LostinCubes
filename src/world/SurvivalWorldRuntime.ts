@@ -2,7 +2,13 @@ import type {
   PlayerEnvironmentState,
   PlayerVector,
 } from '../player/KinematicPlayerMotor';
-import { CHUNK_SIZE, createChunkKey, worldToChunkCoordinate } from './VoxelChunk';
+import { getBiomeLabel } from './BiomeDefinition';
+import type { BiomeType } from './BiomeDefinition';
+import {
+  CHUNK_SIZE,
+  createChunkKey,
+  worldToChunkCoordinate,
+} from './VoxelChunk';
 import {
   WorldTickManager,
   type RandomTickWorld,
@@ -10,6 +16,7 @@ import {
 } from './WorldTickManager';
 
 interface SurvivalRuntimeWorld extends RandomTickWorld {
+  sampleBiome(worldX: number, worldZ: number): BiomeType;
   isWaterAt(worldX: number, worldY: number, worldZ: number): boolean;
   isLavaAt(worldX: number, worldY: number, worldZ: number): boolean;
   isClimbableAt(worldX: number, worldY: number, worldZ: number): boolean;
@@ -62,6 +69,11 @@ export function unregisterSurvivalWorldRuntime(
   renderer = null;
   ticks = null;
   changes.length = 0;
+}
+
+export function getSurvivalBiomeLabel(position: PlayerVector): string {
+  if (world === null) return '未知区域';
+  return getBiomeLabel(world.sampleBiome(position.x, position.z));
 }
 
 export function sampleSurvivalEnvironment(
