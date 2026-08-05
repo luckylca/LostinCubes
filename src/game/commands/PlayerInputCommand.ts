@@ -8,6 +8,7 @@ export interface PlayerInputCommand extends GameCommand {
   readonly lookY: number;
   readonly jump: boolean;
   readonly sprint: boolean;
+  readonly sneak: boolean;
   readonly toggleCamera: boolean;
   readonly togglePause: boolean;
   readonly toggleInventory: boolean;
@@ -28,6 +29,7 @@ export function createNeutralPlayerInput(
     lookY: 0,
     jump: false,
     sprint: false,
+    sneak: false,
     toggleCamera: false,
     togglePause: false,
     toggleInventory: false,
