@@ -6,6 +6,7 @@ import type {
   InventorySlotSnapshot,
   PlayerInventory,
 } from '../inventory/PlayerInventory';
+import { syncBurningFurnaceLights } from '../world/FurnaceLightRuntime';
 
 const STORAGE_PREFIX = 'lost-in-cubes:furnaces:';
 const MAXIMUM_FURNACES = 128;
@@ -77,6 +78,7 @@ export class FurnaceManager {
     this.#worldSeed = worldSeed;
     this.#storage = storage;
     this.#restore();
+    this.#syncLightSources();
   }
 
   public getState(position: FurnacePosition): FurnaceViewState {
@@ -197,7 +199,10 @@ export class FurnaceManager {
       }
     }
 
-    if (changed) this.#revision += 1;
+    if (changed) {
+      this.#revision += 1;
+      this.#syncLightSources();
+    }
   }
 
   public drain(position: FurnacePosition): readonly InventorySlotSnapshot[] {
@@ -206,6 +211,7 @@ export class FurnaceManager {
     if (state === undefined) return [];
     this.#states.delete(key);
     this.#revision += 1;
+    this.#syncLightSources();
     const stacks: InventorySlotSnapshot[] = [];
     if (state.inputCount > 0) {
       stacks.push({ item: ItemType.RawIron, count: state.inputCount, durability: null });
@@ -248,6 +254,10 @@ export class FurnaceManager {
       }
     }
     return positions;
+  }
+
+  #syncLightSources(): void {
+    syncBurningFurnaceLights(this.burningPositions, FURNACE_LIGHT_LEVEL);
   }
 
   #ensure(position: FurnacePosition): MutableFurnaceState {
