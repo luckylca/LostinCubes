@@ -1,4 +1,4 @@
-import { isSolidBlock } from './BlockType';
+import { isTargetableBlock } from './BlockRegistry';
 import type { WorldBlockSampler } from './ChunkMeshBuilder';
 
 export interface RayVector {
@@ -98,7 +98,7 @@ export function raycastVoxels(
       break;
     }
 
-    if (isSolidBlock(sampleBlock(cellX, cellY, cellZ))) {
+    if (isTargetableBlock(sampleBlock(cellX, cellY, cellZ))) {
       return {
         block: { x: cellX, y: cellY, z: cellZ },
         adjacent: { x: previousX, y: previousY, z: previousZ },
