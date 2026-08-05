@@ -81,14 +81,32 @@
 
 ### Batch 2 — world generation and complete survival movement
 
-- [ ] Add a deterministic biome climate map and classic grassland, forest, desert, and snowy surface rules
-- [ ] Add sea level, bounded water and lava blocks, fluid surfaces, and fluid-aware light opacity
-- [ ] Add beaches, clay/sand/gravel deposits, flowers, tall grass, and biome-specific tree density
-- [ ] Add classic-style cave carving, ore passes, springs, dungeons, and cross-chunk structures under one population pipeline
-- [ ] Add swimming, buoyancy, water drag, drowning, lava damage, extinguishing, and air supply
-- [ ] Add sneaking with ledge prevention, ladders, suffocation, knockback, and hurt invulnerability frames
-- [ ] Add leaf decay, saplings, deterministic tree regrowth, and scheduled/random block ticks
-- [ ] Add quality controls and representative Android performance profiles for fluids and voxel lighting
+- [x] Add a deterministic climate map with plains, forest, desert, and snowy-tundra rules
+- [x] Protect the spawn as a dry plains clearing above sea level
+- [x] Add sea level, static water and lava blocks, lowered fluid surfaces, opacity, and lava emission
+- [x] Render liquids in shared chunk meshes with same-fluid internal-face culling
+- [x] Add beaches and mixed sand, gravel, and clay seabeds
+- [x] Add snow, flowers, tall grass, biome-specific tree density, and associated pixel textures
+- [x] Preserve caves, coal, iron, rune stone, and a protected surface shell while adding deep cave lava
+- [x] Add swimming, fluid drag, upward swimming, downward diving, oxygen, drowning, and lava damage
+- [x] Add Ctrl sneaking, reduced speed, ledge prevention, ladders, and suffocation
+- [x] Add shared hurt invulnerability frames across falls, enemies, drowning, lava, and suffocation
+- [x] Add low-probability sapling drops, leaf decay, sapling growth, plant support, and grass spread
+- [x] Run random block ticks through a fixed nearby budget with no world scans or per-block timers
+- [x] Batch random-tick renderer invalidation by touched chunk
+- [x] Add a classic seven-stick ladder recipe and touch/desktop survival controls
+- [x] Add a compact biome/environment/oxygen HUD and water/lava overlays
+- [x] Keep existing numeric IDs 0–13 unchanged and append environmental IDs 14–23
+
+Not included in Batch 2 and intentionally deferred:
+
+- [ ] Flowing-fluid source levels, scheduled flow, springs, and buckets
+- [ ] Dungeons and a separate cross-chunk population pipeline
+- [ ] Ice/freezing and snow-layer state
+- [ ] Falling sand and gravel entities
+- [ ] Directional wall-mounted ladder state
+- [ ] Fire, extinguishing, and environmental knockback
+- [ ] Representative Android performance captures and quality presets
 
 ### Batch 3 — unified entities and persistent worlds
 
