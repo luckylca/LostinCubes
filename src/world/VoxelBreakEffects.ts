@@ -16,11 +16,16 @@ const PARTICLE_BLOCKS: readonly BlockTypeValue[] = [
   BlockType.Grass,
   BlockType.Dirt,
   BlockType.Stone,
+  BlockType.Cobblestone,
   BlockType.RuneStone,
   BlockType.OakLog,
   BlockType.OakLeaves,
   BlockType.OakPlanks,
   BlockType.CraftingTable,
+  BlockType.CoalOre,
+  BlockType.IronOre,
+  BlockType.Furnace,
+  BlockType.Torch,
 ];
 
 interface Particle {
@@ -43,7 +48,13 @@ function createMaterial(
   const color = colorFromTuple(getBlockItemColor(block));
   const material = new StandardMaterial(`break-particle-${String(block)}`, scene);
   material.diffuseColor = color;
-  material.emissiveColor = color.scale(block === BlockType.RuneStone ? 0.22 : 0.05);
+  material.emissiveColor = color.scale(
+    block === BlockType.Torch
+      ? 0.4
+      : block === BlockType.RuneStone
+        ? 0.22
+        : 0.05,
+  );
   material.specularColor = Color3.Black();
   material.freeze();
   return material;
@@ -71,14 +82,10 @@ export class VoxelBreakEffects {
     count = 9,
   ): void {
     const material = this.#materials.get(block);
-    if (material === undefined) {
-      return;
-    }
+    if (material === undefined) return;
     for (let index = 0; index < count; index += 1) {
       const particle = this.#acquireParticle();
-      if (particle === null) {
-        return;
-      }
+      if (particle === null) return;
       const phase = this.#sequence * 1.618 + index * 2.41;
       this.#sequence += 1;
       const horizontalSpeed = 0.75 + (index % 3) * 0.22;
@@ -99,14 +106,10 @@ export class VoxelBreakEffects {
   }
 
   public update(frameSeconds: number): void {
-    if (!Number.isFinite(frameSeconds) || frameSeconds <= 0) {
-      return;
-    }
+    if (!Number.isFinite(frameSeconds) || frameSeconds <= 0) return;
     const seconds = Math.min(frameSeconds, 0.1);
     for (const particle of this.#particles) {
-      if (!particle.active) {
-        continue;
-      }
+      if (!particle.active) continue;
       particle.age += seconds;
       if (particle.age >= PARTICLE_LIFETIME) {
         particle.active = false;
@@ -125,13 +128,9 @@ export class VoxelBreakEffects {
   }
 
   public dispose(): void {
-    for (const particle of this.#particles) {
-      particle.mesh.dispose(false, false);
-    }
+    for (const particle of this.#particles) particle.mesh.dispose(false, false);
     this.#particles.length = 0;
-    for (const material of this.#materials.values()) {
-      material.dispose();
-    }
+    for (const material of this.#materials.values()) material.dispose();
   }
 
   #acquireParticle(): Particle | null {
@@ -140,9 +139,7 @@ export class VoxelBreakEffects {
       inactive.mesh.scaling.setAll(1);
       return inactive;
     }
-    if (this.#particles.length >= MAXIMUM_PARTICLES) {
-      return null;
-    }
+    if (this.#particles.length >= MAXIMUM_PARTICLES) return null;
     const mesh = MeshBuilder.CreateBox(
       `voxel-break-particle-${String(this.#particles.length)}`,
       { size: PARTICLE_SIZE },
