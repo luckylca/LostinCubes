@@ -28,9 +28,8 @@ export interface ChunkLightField {
 }
 
 interface MutableQueue {
-  readonly values: Int32Array;
+  readonly values: number[];
   head: number;
-  tail: number;
 }
 
 function clampLight(value: number): number {
@@ -38,14 +37,12 @@ function clampLight(value: number): number {
   return Math.min(Math.max(Math.floor(value), 0), MAXIMUM_LIGHT_LEVEL);
 }
 
-function createQueue(capacity: number): MutableQueue {
-  return { values: new Int32Array(capacity), head: 0, tail: 0 };
+function createQueue(): MutableQueue {
+  return { values: [], head: 0 };
 }
 
 function enqueue(queue: MutableQueue, index: number): void {
-  if (queue.tail >= queue.values.length) return;
-  queue.values[queue.tail] = index;
-  queue.tail += 1;
+  queue.values.push(index);
 }
 
 /**
@@ -92,7 +89,7 @@ export function buildChunkLightField(
     return [minimumX + localX, worldY, minimumZ + localZ];
   };
 
-  const skyQueue = createQueue(volumeSize);
+  const skyQueue = createQueue();
   for (let localZ = 0; localZ < sizeZ; localZ += 1) {
     const worldZ = minimumZ + localZ;
     for (let localX = 0; localX < sizeX; localX += 1) {
@@ -114,7 +111,7 @@ export function buildChunkLightField(
     }
   }
 
-  const blockQueue = createQueue(volumeSize);
+  const blockQueue = createQueue();
   for (let worldY = 0; worldY < CHUNK_HEIGHT; worldY += 1) {
     for (let localZ = 0; localZ < sizeZ; localZ += 1) {
       const worldZ = minimumZ + localZ;
@@ -152,7 +149,7 @@ export function buildChunkLightField(
   ] as const;
 
   const propagate = (levels: Uint8Array, queue: MutableQueue): void => {
-    while (queue.head < queue.tail) {
+    while (queue.head < queue.values.length) {
       const sourceIndex = queue.values[queue.head] ?? 0;
       queue.head += 1;
       const sourceLevel = levels[sourceIndex] ?? 0;
