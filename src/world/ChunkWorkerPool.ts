@@ -55,12 +55,14 @@ function compareBuilds(left: QueuedBuild, right: QueuedBuild): number {
 export class ChunkWorkerPool {
   readonly #slots: WorkerSlot[] = [];
   readonly #queue: QueuedBuild[] = [];
+  readonly #fallbackQueue: QueuedBuild[] = [];
   readonly #fallbackPending = new Map<string, QueuedBuild>();
   readonly #workerFactory: WorkerFactory;
   #nextRequestId = 1;
   #nextSequence = 1;
   #disposed = false;
   #fallback = false;
+  #fallbackScheduled = false;
   #cancelledCount = 0;
 
   public constructor(
@@ -148,9 +150,7 @@ export class ChunkWorkerPool {
 
     for (let index = this.#queue.length - 1; index >= 0; index -= 1) {
       const queued = this.#queue[index];
-      if (queued?.jobKey !== jobKey) {
-        continue;
-      }
+      if (queued?.jobKey !== jobKey) continue;
       this.#queue.splice(index, 1);
       queued.reject(cancellation);
       cancelled += 1;
@@ -158,9 +158,7 @@ export class ChunkWorkerPool {
 
     for (let index = 0; index < this.#slots.length; index += 1) {
       const slot = this.#slots[index];
-      if (slot?.current?.jobKey !== jobKey) {
-        continue;
-      }
+      if (slot?.current?.jobKey !== jobKey) continue;
       const current = slot.current;
       slot.current = null;
       current.reject(cancellation);
@@ -174,18 +172,14 @@ export class ChunkWorkerPool {
     }
 
     this.#cancelledCount += cancelled;
-    if (cancelled > 0) {
-      this.#pump();
-    }
+    if (cancelled > 0) this.#pump();
     return cancelled;
   }
 
   public cancelExcept(jobKeys: ReadonlySet<string>): number {
     const keysToCancel = new Set<string>();
     for (const queued of this.#queue) {
-      if (!jobKeys.has(queued.jobKey)) {
-        keysToCancel.add(queued.jobKey);
-      }
+      if (!jobKeys.has(queued.jobKey)) keysToCancel.add(queued.jobKey);
     }
     for (const slot of this.#slots) {
       if (slot.current !== null && !jobKeys.has(slot.current.jobKey)) {
@@ -193,15 +187,11 @@ export class ChunkWorkerPool {
       }
     }
     for (const key of this.#fallbackPending.keys()) {
-      if (!jobKeys.has(key)) {
-        keysToCancel.add(key);
-      }
+      if (!jobKeys.has(key)) keysToCancel.add(key);
     }
 
     let cancelled = 0;
-    for (const key of keysToCancel) {
-      cancelled += this.cancel(key);
-    }
+    for (const key of keysToCancel) cancelled += this.cancel(key);
     return cancelled;
   }
 
@@ -222,18 +212,13 @@ export class ChunkWorkerPool {
   }
 
   public dispose(): void {
-    if (this.#disposed) {
-      return;
-    }
+    if (this.#disposed) return;
     this.#disposed = true;
     const error = new Error('Chunk worker pool was disposed.');
-    for (const queued of this.#queue.splice(0)) {
-      queued.reject(error);
-    }
-    for (const queued of this.#fallbackPending.values()) {
-      queued.reject(error);
-    }
+    for (const queued of this.#queue.splice(0)) queued.reject(error);
+    for (const queued of this.#fallbackPending.values()) queued.reject(error);
     this.#fallbackPending.clear();
+    this.#fallbackQueue.length = 0;
     for (const slot of this.#slots) {
       slot.current?.reject(error);
       slot.current = null;
@@ -271,26 +256,56 @@ export class ChunkWorkerPool {
 
   #enqueueFallback(build: QueuedBuild): void {
     this.#fallbackPending.set(build.jobKey, build);
-    queueMicrotask(() => this.#runFallback(build));
+    this.#fallbackQueue.push(build);
+    this.#fallbackQueue.sort(compareBuilds);
+    this.#scheduleFallback();
   }
 
-  #runFallback(build: QueuedBuild): void {
-    if (this.#fallbackPending.get(build.jobKey) !== build || this.#disposed) {
-      return;
+  #scheduleFallback(): void {
+    if (this.#fallbackScheduled || this.#disposed) return;
+    this.#fallbackScheduled = true;
+
+    // Microtasks run before the browser can paint. The old fallback queued all
+    // chunk builds as microtasks, so a failed Worker could freeze the page while
+    // the entire render window generated back-to-back. One macrotask performs
+    // one chunk and then yields, allowing input, animation, and rendering
+    // between expensive synchronous builds.
+    setTimeout(() => {
+      this.#fallbackScheduled = false;
+      this.#runNextFallback();
+    }, 0);
+  }
+
+  #runNextFallback(): void {
+    if (this.#disposed) return;
+
+    let build: QueuedBuild | undefined;
+    while (this.#fallbackQueue.length > 0) {
+      const candidate = this.#fallbackQueue.shift();
+      if (
+        candidate !== undefined &&
+        this.#fallbackPending.get(candidate.jobKey) === candidate
+      ) {
+        build = candidate;
+        break;
+      }
     }
-    this.#fallbackPending.delete(build.jobKey);
-    try {
-      build.resolve(executeChunkBuild(build.request));
-    } catch (error: unknown) {
-      build.reject(error instanceof Error ? error : new Error(String(error)));
+
+    if (build !== undefined) {
+      this.#fallbackPending.delete(build.jobKey);
+      try {
+        build.resolve(executeChunkBuild(build.request));
+      } catch (error: unknown) {
+        build.reject(error instanceof Error ? error : new Error(String(error)));
+      }
     }
+
+    if (this.#fallbackPending.size > 0) this.#scheduleFallback();
   }
 
   #handleMessage(slot: WorkerSlot, response: ChunkBuildResponse): void {
     const current = slot.current;
-    if (current?.request.requestId !== response.requestId) {
-      return;
-    }
+    if (current?.request.requestId !== response.requestId) return;
     slot.current = null;
     if (response.type === 'chunk-built') {
       current.resolve(response);
@@ -301,16 +316,12 @@ export class ChunkWorkerPool {
   }
 
   #handleWorkerError(slot: WorkerSlot, error: Error): void {
-    if (!this.#slots.includes(slot) || this.#disposed) {
-      return;
-    }
+    if (!this.#slots.includes(slot) || this.#disposed) return;
     this.#activateFallback(error);
   }
 
   #activateFallback(error: unknown): void {
-    if (this.#fallback || this.#disposed) {
-      return;
-    }
+    if (this.#fallback || this.#disposed) return;
     console.warn(
       'Chunk worker failed at runtime; continuing with synchronous generation.',
       error,
@@ -329,23 +340,15 @@ export class ChunkWorkerPool {
     pending.push(...this.#queue.splice(0));
     pending.sort(compareBuilds);
 
-    for (const build of pending) {
-      this.#enqueueFallback(build);
-    }
+    for (const build of pending) this.#enqueueFallback(build);
   }
 
   #pump(): void {
-    if (this.#disposed || this.#fallback) {
-      return;
-    }
+    if (this.#disposed || this.#fallback) return;
     for (const slot of this.#slots) {
-      if (slot.current !== null) {
-        continue;
-      }
+      if (slot.current !== null) continue;
       const next = this.#queue.shift();
-      if (next === undefined) {
-        return;
-      }
+      if (next === undefined) return;
       slot.current = next;
       slot.worker.postMessage(next.request);
     }

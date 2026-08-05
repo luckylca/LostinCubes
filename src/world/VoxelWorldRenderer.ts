@@ -20,6 +20,7 @@ import type { VoxelWorldData } from './VoxelWorldData';
 
 interface RenderedChunk {
   readonly mesh: Mesh;
+  readonly revision: number;
   readonly quadCount: number;
   readonly sourceFaceCount: number;
   readonly buildMilliseconds: number;
@@ -35,6 +36,7 @@ export interface VoxelWorldStats {
   readonly loadedChunks: number;
   readonly desiredChunks: number;
   readonly pendingChunks: number;
+  readonly cachedChunks: number;
   readonly cancelledBuilds: number;
   readonly visibleQuads: number;
   readonly sourceFaces: number;
@@ -43,10 +45,11 @@ export interface VoxelWorldStats {
   readonly averageBuildMilliseconds: number;
 }
 
-const MAXIMUM_MESH_UPLOADS_PER_FRAME = 2;
+const MAXIMUM_MESH_UPLOADS_PER_FRAME = 1;
+const RECENT_CHUNK_CACHE_LIMIT = 12;
 const IMMEDIATE_EDIT_LIGHT_LEVEL = 13;
 
-/** Streams a bounded, cancellable, nearest-first chunk window. */
+/** Streams a bounded, cancellable, direction-aware chunk window. */
 export class VoxelWorldRenderer {
   readonly #scene: Scene;
   readonly #world: VoxelWorldData;
@@ -54,6 +57,7 @@ export class VoxelWorldRenderer {
   readonly #materials: VoxelMaterialLibrary;
   readonly #workers = new ChunkWorkerPool();
   readonly #chunks = new Map<string, RenderedChunk>();
+  readonly #recentChunks = new Map<string, RenderedChunk>();
   readonly #desiredKeys = new Set<string>();
   readonly #revisions = new Map<string, number>();
   readonly #pendingRevisions = new Map<string, number>();
@@ -61,6 +65,10 @@ export class VoxelWorldRenderer {
   readonly #afterUpdate = new Map<string, (() => void)[]>();
   #centerChunkX: number | null = null;
   #centerChunkZ: number | null = null;
+  #lastPlayerX: number | null = null;
+  #lastPlayerZ: number | null = null;
+  #travelX = 0;
+  #travelZ = 0;
   #disposed = false;
 
   public constructor(
@@ -84,6 +92,8 @@ export class VoxelWorldRenderer {
     const centerChunkZ = worldToChunkCoordinate(Math.floor(playerZ));
     this.#centerChunkX = centerChunkX;
     this.#centerChunkZ = centerChunkZ;
+    this.#lastPlayerX = playerX;
+    this.#lastPlayerZ = playerZ;
     this.#updateDesiredKeys(centerChunkX, centerChunkZ);
 
     const centerKey = createChunkKey(centerChunkX, centerChunkZ);
@@ -96,11 +106,12 @@ export class VoxelWorldRenderer {
     );
     if (!this.#disposed) {
       this.#applyChunk(centerKey, revision, response);
-      this.#scheduleMissingChunks(centerChunkX, centerChunkZ);
+      this.#scheduleMissingChunks();
     }
   }
 
   public update(playerX: number, playerZ: number): VoxelWorldStats {
+    this.#trackTravel(playerX, playerZ);
     this.#applyCompletedChunks();
     const centerChunkX = worldToChunkCoordinate(Math.floor(playerX));
     const centerChunkZ = worldToChunkCoordinate(Math.floor(playerZ));
@@ -114,7 +125,7 @@ export class VoxelWorldRenderer {
       this.#updateDesiredKeys(centerChunkX, centerChunkZ);
       this.#cancelUndesiredWork();
       this.#unloadDistantChunks();
-      this.#scheduleMissingChunks(centerChunkX, centerChunkZ);
+      this.#scheduleMissingChunks();
     }
 
     return this.getStats();
@@ -155,6 +166,7 @@ export class VoxelWorldRenderer {
   }
 
   public invalidateAll(): void {
+    this.#disposeRecentChunks();
     for (const key of this.#desiredKeys) {
       const coordinates = this.#parseChunkKey(key);
       this.#invalidateChunk(coordinates[0], coordinates[1]);
@@ -175,6 +187,7 @@ export class VoxelWorldRenderer {
       loadedChunks: this.#chunks.size,
       desiredChunks: this.#desiredKeys.size,
       pendingChunks: this.#workers.queuedCount + this.#completed.length,
+      cachedChunks: this.#recentChunks.size,
       cancelledBuilds: this.#workers.cancelledCount,
       visibleQuads,
       sourceFaces,
@@ -194,11 +207,23 @@ export class VoxelWorldRenderer {
       chunk.mesh.dispose(false, false);
     }
     this.#chunks.clear();
+    this.#disposeRecentChunks();
     this.#desiredKeys.clear();
     this.#pendingRevisions.clear();
     this.#completed.length = 0;
     this.#afterUpdate.clear();
     this.#materials.dispose();
+  }
+
+  #trackTravel(playerX: number, playerZ: number): void {
+    if (this.#lastPlayerX !== null && this.#lastPlayerZ !== null) {
+      const deltaX = playerX - this.#lastPlayerX;
+      const deltaZ = playerZ - this.#lastPlayerZ;
+      this.#travelX = this.#travelX * 0.84 + deltaX * 0.16;
+      this.#travelZ = this.#travelZ * 0.84 + deltaZ * 0.16;
+    }
+    this.#lastPlayerX = playerX;
+    this.#lastPlayerZ = playerZ;
   }
 
   #invalidateLightingNeighborhood(
@@ -246,34 +271,70 @@ export class VoxelWorldRenderer {
 
   #unloadDistantChunks(): void {
     for (const [key, chunk] of this.#chunks) {
-      if (!this.#desiredKeys.has(key)) {
-        chunk.mesh.dispose(false, false);
-        this.#chunks.delete(key);
-        this.#afterUpdate.delete(key);
-      }
+      if (this.#desiredKeys.has(key)) continue;
+      chunk.mesh.setEnabled(false);
+      this.#chunks.delete(key);
+      this.#afterUpdate.delete(key);
+      this.#cacheRecentChunk(key, chunk);
     }
   }
 
-  #scheduleMissingChunks(centerChunkX: number, centerChunkZ: number): void {
+  #cacheRecentChunk(key: string, chunk: RenderedChunk): void {
+    const previous = this.#recentChunks.get(key);
+    previous?.mesh.dispose(false, false);
+    this.#recentChunks.delete(key);
+    this.#recentChunks.set(key, chunk);
+
+    while (this.#recentChunks.size > RECENT_CHUNK_CACHE_LIMIT) {
+      const oldestKey = this.#recentChunks.keys().next().value;
+      if (oldestKey === undefined) break;
+      const oldest = this.#recentChunks.get(oldestKey);
+      this.#recentChunks.delete(oldestKey);
+      oldest?.mesh.dispose(false, false);
+    }
+  }
+
+  #restoreRecentChunk(key: string): boolean {
+    const cached = this.#recentChunks.get(key);
+    if (cached === undefined) return false;
+    this.#recentChunks.delete(key);
+    if (cached.revision !== this.#getRevision(key)) {
+      cached.mesh.dispose(false, false);
+      return false;
+    }
+    cached.mesh.setEnabled(true);
+    this.#chunks.set(key, cached);
+    return true;
+  }
+
+  #disposeRecentChunks(): void {
+    for (const chunk of this.#recentChunks.values()) {
+      chunk.mesh.dispose(false, false);
+    }
+    this.#recentChunks.clear();
+  }
+
+  #scheduleMissingChunks(): void {
     const coordinates: (readonly [number, number, number])[] = [];
     for (const key of this.#desiredKeys) {
+      if (this.#chunks.has(key) || this.#restoreRecentChunk(key)) continue;
       const [chunkX, chunkZ] = this.#parseChunkKey(key);
-      const distance =
-        Math.abs(chunkX - centerChunkX) + Math.abs(chunkZ - centerChunkZ);
-      coordinates.push([chunkX, chunkZ, distance]);
+      coordinates.push([
+        chunkX,
+        chunkZ,
+        this.#getPriority(chunkX, chunkZ),
+      ]);
     }
     coordinates.sort((left, right) => left[2] - right[2]);
 
     for (const [chunkX, chunkZ, priority] of coordinates) {
-      const key = createChunkKey(chunkX, chunkZ);
-      if (!this.#chunks.has(key)) {
-        this.#scheduleChunk(chunkX, chunkZ, priority);
-      }
+      this.#scheduleChunk(chunkX, chunkZ, priority);
     }
   }
 
   #rebuildChunkImmediately(chunkX: number, chunkZ: number): void {
     const key = createChunkKey(chunkX, chunkZ);
+    this.#discardRecentChunk(key);
     this.#workers.cancel(key);
     this.#pendingRevisions.delete(key);
     for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
@@ -305,12 +366,20 @@ export class VoxelWorldRenderer {
 
   #invalidateChunk(chunkX: number, chunkZ: number): void {
     const key = createChunkKey(chunkX, chunkZ);
+    this.#discardRecentChunk(key);
     this.#workers.cancel(key);
     this.#pendingRevisions.delete(key);
     this.#revisions.set(key, this.#getRevision(key) + 1);
     if (this.#desiredKeys.has(key)) {
       this.#scheduleChunk(chunkX, chunkZ, this.#getPriority(chunkX, chunkZ));
     }
+  }
+
+  #discardRecentChunk(key: string): void {
+    const recent = this.#recentChunks.get(key);
+    if (recent === undefined) return;
+    this.#recentChunks.delete(key);
+    recent.mesh.dispose(false, false);
   }
 
   #scheduleChunk(chunkX: number, chunkZ: number, priority: number): void {
@@ -409,9 +478,11 @@ export class VoxelWorldRenderer {
     mesh.freezeWorldMatrix();
     mesh.freezeNormals();
 
+    this.#discardRecentChunk(key);
     const previous = this.#chunks.get(key);
     this.#chunks.set(key, {
       mesh,
+      revision,
       quadCount: response.meshData.quadCount,
       sourceFaceCount: response.meshData.sourceFaceCount,
       buildMilliseconds: response.buildMilliseconds,
@@ -426,10 +497,17 @@ export class VoxelWorldRenderer {
   }
 
   #getPriority(chunkX: number, chunkZ: number): number {
-    return (
-      Math.abs(chunkX - (this.#centerChunkX ?? chunkX)) +
-      Math.abs(chunkZ - (this.#centerChunkZ ?? chunkZ))
-    );
+    const centerX = this.#centerChunkX ?? chunkX;
+    const centerZ = this.#centerChunkZ ?? chunkZ;
+    const deltaX = chunkX - centerX;
+    const deltaZ = chunkZ - centerZ;
+    const manhattan = Math.abs(deltaX) + Math.abs(deltaZ);
+    const travelLength = Math.hypot(this.#travelX, this.#travelZ);
+    const forwardBias =
+      travelLength > 0.0001
+        ? (deltaX * this.#travelX + deltaZ * this.#travelZ) / travelLength
+        : 0;
+    return manhattan * 100 + Math.hypot(deltaX, deltaZ) - forwardBias * 18;
   }
 
   #getRevision(key: string): number {
