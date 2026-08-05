@@ -1,4 +1,5 @@
 import type { FurnacePosition } from '../crafting/FurnaceManager';
+import type { BiomeType } from './BiomeDefinition';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import {
   registerSurvivalWorldRuntime,
@@ -8,6 +9,7 @@ import {
 interface RuntimeLightWorld {
   readonly worldSeed: string;
   sampleBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue;
+  sampleBiome(worldX: number, worldZ: number): BiomeType;
   isSolidAt(worldX: number, worldY: number, worldZ: number): boolean;
   isWaterAt(worldX: number, worldY: number, worldZ: number): boolean;
   isLavaAt(worldX: number, worldY: number, worldZ: number): boolean;
