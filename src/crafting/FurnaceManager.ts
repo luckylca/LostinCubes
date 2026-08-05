@@ -1,11 +1,18 @@
-import { ItemType } from '../inventory/ItemDefinitions';
-import type { InventorySlotSnapshot, PlayerInventory } from '../inventory/PlayerInventory';
+import {
+  getFuelSeconds,
+  ItemType,
+} from '../inventory/ItemDefinitions';
+import type {
+  InventorySlotSnapshot,
+  PlayerInventory,
+} from '../inventory/PlayerInventory';
 
 const STORAGE_PREFIX = 'lost-in-cubes:furnaces:';
 const MAXIMUM_FURNACES = 128;
 const MAXIMUM_SLOT_COUNT = 64;
-export const FURNACE_BURN_SECONDS_PER_COAL = 12;
+export const FURNACE_BURN_SECONDS_PER_COAL = getFuelSeconds(ItemType.Coal);
 export const FURNACE_SMELT_SECONDS = 4;
+export const FURNACE_LIGHT_LEVEL = 13;
 
 export interface FurnacePosition {
   readonly x: number;
@@ -231,6 +238,16 @@ export class FurnaceManager {
 
   public get furnaceCount(): number {
     return this.#states.size;
+  }
+
+  public get burningPositions(): readonly FurnacePosition[] {
+    const positions: FurnacePosition[] = [];
+    for (const state of this.#states.values()) {
+      if (state.burnSecondsRemaining > 0) {
+        positions.push({ x: state.x, y: state.y, z: state.z });
+      }
+    }
+    return positions;
   }
 
   #ensure(position: FurnacePosition): MutableFurnaceState {
