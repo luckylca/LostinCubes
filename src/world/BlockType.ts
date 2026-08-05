@@ -13,6 +13,16 @@ export const BlockType = {
   Furnace: 11,
   Cobblestone: 12,
   Torch: 13,
+  Sand: 14,
+  Gravel: 15,
+  Clay: 16,
+  Snow: 17,
+  Water: 18,
+  Lava: 19,
+  Ladder: 20,
+  OakSapling: 21,
+  TallGrass: 22,
+  Dandelion: 23,
 } as const;
 
 export type BlockType = (typeof BlockType)[keyof typeof BlockType];
