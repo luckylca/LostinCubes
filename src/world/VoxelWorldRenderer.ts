@@ -7,6 +7,10 @@ import {
   ChunkWorkerPool,
 } from './ChunkWorkerPool';
 import {
+  registerFurnaceLightRuntime,
+  unregisterFurnaceLightRuntime,
+} from './FurnaceLightRuntime';
+import {
   CHUNK_SIZE,
   createChunkKey,
   worldToChunkCoordinate,
@@ -72,6 +76,7 @@ export class VoxelWorldRenderer {
     this.#world = world;
     this.#renderRadius = renderRadius;
     this.#materials = new VoxelMaterialLibrary(scene);
+    registerFurnaceLightRuntime(world, this);
   }
 
   public async initialize(playerX: number, playerZ: number): Promise<void> {
@@ -183,6 +188,7 @@ export class VoxelWorldRenderer {
   public dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    unregisterFurnaceLightRuntime(this);
     this.#workers.dispose();
     for (const chunk of this.#chunks.values()) {
       chunk.mesh.dispose(false, false);
