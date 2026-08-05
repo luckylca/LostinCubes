@@ -12,7 +12,14 @@ export interface PlayerState {
   readonly verticalVelocity: number;
   readonly horizontalSpeed: number;
   readonly sprinting: boolean;
+  readonly sneaking: boolean;
   readonly grounded: boolean;
+  readonly inWater: boolean;
+  readonly submerged: boolean;
+  readonly inLava: boolean;
+  readonly onLadder: boolean;
+  readonly airSupply: number;
+  readonly maximumAirSupply: number;
   readonly yaw: number;
   readonly pitch: number;
   readonly cameraMode: CameraMode;
