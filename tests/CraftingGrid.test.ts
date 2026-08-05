@@ -59,26 +59,77 @@ describe('CraftingGrid', () => {
     ).toBe('iron-axe');
   });
 
-  it('uses the recipe book only to fill the grid and consumes one layer per output', () => {
+  it('fills every available recipe layer instead of only one craft', () => {
     const inventory = new PlayerInventory();
     inventory.addItem(ItemType.OakPlanksBlock, 8);
     const grid = new CraftingGrid(2);
     const table = recipe('crafting-table');
 
     expect(grid.fillFromRecipe(table, inventory)).toBe(true);
-    expect(inventory.countItem(ItemType.OakPlanksBlock)).toBe(4);
-    expect(grid.getMatch(getVisibleRecipes('inventory'))?.recipe.id).toBe(
-      'crafting-table',
-    );
+    expect(inventory.countItem(ItemType.OakPlanksBlock)).toBe(0);
+    expect(grid.snapshot).toEqual([
+      stack(ItemType.OakPlanksBlock, 2),
+      stack(ItemType.OakPlanksBlock, 2),
+      stack(ItemType.OakPlanksBlock, 2),
+      stack(ItemType.OakPlanksBlock, 2),
+    ]);
 
     const first = grid.takeOutput(null, getVisibleRecipes('inventory'));
     expect(first.crafted).toBe(true);
+    expect(first.crafts).toBe(1);
     expect(first.cursor).toEqual({
       item: ItemType.CraftingTableBlock,
       count: 1,
       durability: null,
     });
+    expect(grid.isEmpty).toBe(false);
+
+    const second = grid.takeOutput(first.cursor, getVisibleRecipes('inventory'));
+    expect(second.crafts).toBe(1);
+    expect(second.cursor).toEqual({
+      item: ItemType.CraftingTableBlock,
+      count: 2,
+      durability: null,
+    });
     expect(grid.isEmpty).toBe(true);
+  });
+
+  it('crafts ten logs into forty planks in one maximum-output action', () => {
+    const inventory = new PlayerInventory();
+    inventory.addItem(ItemType.OakLogBlock, 10);
+    const grid = new CraftingGrid(2);
+
+    expect(grid.fillFromRecipe(recipe('oak-planks'), inventory)).toBe(true);
+    expect(grid.snapshot[0]).toEqual(stack(ItemType.OakLogBlock, 10));
+
+    const result = grid.takeOutput(
+      null,
+      getVisibleRecipes('inventory'),
+      Number.POSITIVE_INFINITY,
+    );
+    expect(result.crafts).toBe(10);
+    expect(result.cursor).toEqual({
+      item: ItemType.OakPlanksBlock,
+      count: 40,
+      durability: null,
+    });
+    expect(grid.isEmpty).toBe(true);
+  });
+
+  it('stops maximum crafting at the output stack limit', () => {
+    const grid = new CraftingGrid(2);
+    let cursor: InventorySlotSnapshot | null = stack(ItemType.OakLogBlock, 20);
+    cursor = grid.interactSlot(0, cursor, false);
+    expect(cursor).toBeNull();
+
+    const result = grid.takeOutput(
+      stack(ItemType.OakPlanksBlock, 60),
+      getVisibleRecipes('inventory'),
+      Number.POSITIVE_INFINITY,
+    );
+    expect(result.crafts).toBe(1);
+    expect(result.cursor).toEqual(stack(ItemType.OakPlanksBlock, 64));
+    expect(grid.snapshot[0]).toEqual(stack(ItemType.OakLogBlock, 19));
   });
 
   it('returns remaining grid stacks without losing items', () => {
