@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { BlockType } from '../src/world/BlockType';
 import {
   registerFurnaceLightRuntime,
   syncBurningFurnaceLights,
@@ -16,12 +17,20 @@ describe('FurnaceLightRuntime', () => {
   const calls: LightCall[] = [];
   const invalidations: string[] = [];
   const world = {
+    worldSeed: 'furnace-light-test',
+    sampleBlock: () => BlockType.Air,
+    isSolidAt: () => false,
+    isWaterAt: () => false,
+    isLavaAt: () => false,
+    isClimbableAt: () => false,
+    setBlock: () => false,
     setDynamicLight(x: number, y: number, z: number, level: number): boolean {
       calls.push({ x, y, z, level });
       return true;
     },
   };
   const renderer = {
+    invalidateBlock: () => undefined,
     invalidateLightEmitter(x: number, z: number): void {
       invalidations.push(`${String(x)},${String(z)}`);
     },
