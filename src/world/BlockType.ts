@@ -11,10 +11,8 @@ export const BlockType = {
   CoalOre: 9,
   IronOre: 10,
   Furnace: 11,
+  Cobblestone: 12,
+  Torch: 13,
 } as const;
 
 export type BlockType = (typeof BlockType)[keyof typeof BlockType];
-
-export function isSolidBlock(block: BlockType): boolean {
-  return block !== BlockType.Air;
-}
