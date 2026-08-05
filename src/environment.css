@@ -1,0 +1,100 @@
+.survival-environment-pill {
+  min-width: 13rem;
+}
+
+#survival-environment-status {
+  font-variant-numeric: tabular-nums;
+}
+
+body::after {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  content: "";
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+body.player-underwater::after {
+  opacity: 1;
+  background:
+    radial-gradient(circle at center, transparent 44%, rgb(15 69 145 / 18%) 100%),
+    linear-gradient(rgb(25 104 191 / 7%), rgb(4 43 94 / 18%));
+  box-shadow: inset 0 0 5rem rgb(15 80 168 / 28%);
+}
+
+body.player-in-lava::after {
+  opacity: 1;
+  background:
+    radial-gradient(circle at center, transparent 32%, rgb(218 53 5 / 33%) 100%),
+    linear-gradient(rgb(255 135 24 / 11%), rgb(130 18 0 / 27%));
+  box-shadow: inset 0 0 6rem rgb(255 75 0 / 42%);
+}
+
+.item-sand {
+  background:
+    radial-gradient(circle at 28% 30%, #f1e5a9 0 7%, transparent 8%),
+    radial-gradient(circle at 70% 64%, #bba96a 0 6%, transparent 7%),
+    #d8ca8c;
+}
+
+.item-gravel {
+  background:
+    radial-gradient(circle at 25% 24%, #aaa29f 0 10%, transparent 11%),
+    radial-gradient(circle at 68% 38%, #5e5a5b 0 12%, transparent 13%),
+    radial-gradient(circle at 44% 76%, #8b8582 0 13%, transparent 14%),
+    #777371;
+}
+
+.item-clay {
+  background:
+    radial-gradient(circle at 30% 26%, #b8c3c6 0 8%, transparent 9%),
+    radial-gradient(circle at 72% 70%, #778b92 0 8%, transparent 9%),
+    #96a8ad;
+}
+
+.item-snow {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 68%), transparent 42%),
+    #e9f1f4;
+  box-shadow: inset -0.15rem -0.15rem 0 #bfd2da;
+}
+
+.item-ladder {
+  background:
+    linear-gradient(90deg, transparent 13%, #6d431f 14% 24%, transparent 25% 75%, #6d431f 76% 86%, transparent 87%),
+    repeating-linear-gradient(0deg, transparent 0 18%, #a8753b 19% 28%, transparent 29% 42%);
+}
+
+.item-oak-sapling {
+  border-radius: 40% 55% 44% 52%;
+  background:
+    linear-gradient(90deg, transparent 43%, #503316 44% 56%, transparent 57%),
+    radial-gradient(ellipse at 28% 42%, #3e8c31 0 25%, transparent 27%),
+    radial-gradient(ellipse at 72% 32%, #58a943 0 27%, transparent 29%);
+}
+
+.item-tall-grass {
+  background:
+    linear-gradient(72deg, transparent 42%, #3f8e31 43% 50%, transparent 51%),
+    linear-gradient(108deg, transparent 42%, #58a943 43% 50%, transparent 51%),
+    linear-gradient(90deg, transparent 46%, #357a2b 47% 53%, transparent 54%);
+}
+
+.item-dandelion {
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 28%, #f3d834 0 24%, #bf9e15 25% 35%, transparent 36%),
+    linear-gradient(90deg, transparent 45%, #3f8a31 46% 54%, transparent 55%);
+}
+
+@media (max-width: 700px) {
+  .survival-environment-pill {
+    min-width: 0;
+  }
+
+  #survival-environment-status {
+    font-size: 0.76rem;
+  }
+}
