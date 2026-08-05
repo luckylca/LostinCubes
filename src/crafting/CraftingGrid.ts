@@ -38,9 +38,9 @@ function cloneStack(stack: InventorySlotSnapshot): InventorySlotSnapshot {
 }
 
 function trimPattern(recipe: CraftingRecipe): TrimmedPattern | null {
-  let minimumRow = recipe.gridSize;
+  let minimumRow: number = recipe.gridSize;
   let maximumRow = -1;
-  let minimumColumn = recipe.gridSize;
+  let minimumColumn: number = recipe.gridSize;
   let maximumColumn = -1;
   for (let row = 0; row < recipe.gridSize; row += 1) {
     for (let column = 0; column < recipe.gridSize; column += 1) {
@@ -222,11 +222,11 @@ export class CraftingGrid {
     inventory: PlayerInventory,
   ): boolean {
     if (!this.isEmpty || recipe.gridSize > this.#size) return false;
+    const pattern = trimPattern(recipe);
+    if (pattern === null) return false;
     if (!inventory.hasItems(recipe.ingredients)) return false;
     if (!inventory.consumeItems(recipe.ingredients)) return false;
 
-    const pattern = trimPattern(recipe);
-    if (pattern === null) return false;
     const offsetX = Math.floor((this.#size - pattern.width) / 2);
     const offsetY = Math.floor((this.#size - pattern.height) / 2);
     for (let row = 0; row < pattern.height; row += 1) {
