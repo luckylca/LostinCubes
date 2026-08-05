@@ -15,6 +15,7 @@ function command(overrides: Partial<PlayerInputCommand> = {}): PlayerInputComman
     lookY: 0,
     jump: false,
     sprint: false,
+    sneak: false,
     toggleCamera: false,
     togglePause: false,
     toggleInventory: false,
@@ -41,11 +42,13 @@ function stepUntilGrounded(session: LocalGameSession, maximumSteps = 1_200): voi
 }
 
 describe('LocalGameSession', () => {
-  it('preserves the selected world seed and starts with full health', () => {
+  it('preserves the selected world seed and starts with full health and air', () => {
     const session = new LocalGameSession('test-seed');
     expect(session.getWorldState().worldSeed).toBe('test-seed');
     expect(session.getWorldState().player.health).toBe(20);
     expect(session.getWorldState().player.maximumHealth).toBe(20);
+    expect(session.getWorldState().player.airSupply).toBe(300);
+    expect(session.getWorldState().player.maximumAirSupply).toBe(300);
   });
 
   it('switches camera mode without replacing player state', () => {
@@ -89,10 +92,16 @@ describe('LocalGameSession', () => {
     const session = new LocalGameSession('test-seed');
     session.submitCommand(command({ lookY: 100_000 }));
     session.step(1 / 60);
-    expect(session.getWorldState().player.pitch).toBeCloseTo(-PLAYER_LOOK_PITCH_LIMIT, 12);
+    expect(session.getWorldState().player.pitch).toBeCloseTo(
+      -PLAYER_LOOK_PITCH_LIMIT,
+      12,
+    );
     session.submitCommand(command({ lookY: -100_000 }));
     session.step(1 / 60);
-    expect(session.getWorldState().player.pitch).toBeCloseTo(PLAYER_LOOK_PITCH_LIMIT, 12);
+    expect(session.getWorldState().player.pitch).toBeCloseTo(
+      PLAYER_LOOK_PITCH_LIMIT,
+      12,
+    );
   });
 
   it('advances day time from fixed simulation steps', () => {
@@ -120,5 +129,43 @@ describe('LocalGameSession', () => {
     expect(state.deathCount).toBe(1);
     expect(state.health).toBe(20);
     expect(state.position.y).toBeCloseTo(40, 8);
+  });
+
+  it('drains oxygen underwater and begins drowning after it reaches zero', () => {
+    const session = new LocalGameSession('water-test', {
+      isSolidAt: () => false,
+      spawnPosition: { x: 0, y: 3, z: 0 },
+      environmentAt: () => ({
+        inWater: true,
+        inLava: false,
+        onLadder: false,
+      }),
+      isHeadSubmergedAt: () => true,
+    });
+
+    for (let step = 0; step < 16 * 60; step += 1) session.step(1 / 60);
+    const player = session.getWorldState().player;
+    expect(player.submerged).toBe(true);
+    expect(player.airSupply).toBe(0);
+    expect(player.health).toBeLessThan(20);
+  });
+
+  it('applies periodic lava damage and shared hurt invulnerability', () => {
+    const session = new LocalGameSession('lava-test', {
+      isSolidAt: () => false,
+      spawnPosition: { x: 0, y: 3, z: 0 },
+      environmentAt: () => ({
+        inWater: false,
+        inLava: true,
+        onLadder: false,
+      }),
+    });
+
+    for (let step = 0; step < 60; step += 1) session.step(1 / 60);
+    expect(session.getWorldState().player.inLava).toBe(true);
+    expect(session.getWorldState().player.health).toBeLessThan(20);
+    const health = session.getWorldState().player.health;
+    expect(session.damagePlayer(3)).toBe(0);
+    expect(session.getWorldState().player.health).toBe(health);
   });
 });
