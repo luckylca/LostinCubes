@@ -13,13 +13,13 @@ describe('VoxelLightEngine', () => {
     expect(field.sampleBlock(0, 10, 0)).toBe(0);
   });
 
-  it('blocks direct sky below opaque roofs but lets entrances spread light', () => {
+  it('blocks direct sky below opaque roofs but lets adjacent entrances spread light', () => {
     const field = buildChunkLightField(0, 0, (x, y, z) => {
       if (x === 0 && z === 0 && y === 20) return BlockType.Stone;
       return BlockType.Air;
     });
     expect(field.sampleSky(0, 19, 0)).toBe(14);
-    expect(field.sampleSky(0, 18, 0)).toBe(13);
+    expect(field.sampleSky(0, 18, 0)).toBe(14);
   });
 
   it('propagates torch and dynamic furnace light one level per open voxel', () => {
