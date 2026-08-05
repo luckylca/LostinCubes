@@ -5,6 +5,12 @@ import type {
   PlayerMotorConfig,
   PlayerVector,
 } from '../../player/KinematicPlayerMotor';
+import {
+  isPlayerHeadSubmerged,
+  isPlayerHeadSuffocating,
+  sampleSurvivalEnvironment,
+  updateSurvivalWorld,
+} from '../../world/SurvivalWorldRuntime';
 import type { SurvivalSnapshot } from './SurvivalPersistence';
 import type {
   CameraMode,
@@ -79,9 +85,14 @@ export class LocalGameSession implements GameSession {
     config: LocalGameSessionConfig = {},
   ) {
     this.#worldSeed = worldSeed;
-    this.#motor = new KinematicPlayerMotor(config);
-    this.#isHeadSubmergedAt = config.isHeadSubmergedAt ?? (() => false);
-    this.#isHeadSuffocatingAt = config.isHeadSuffocatingAt ?? (() => false);
+    this.#motor = new KinematicPlayerMotor({
+      ...config,
+      environmentAt: config.environmentAt ?? sampleSurvivalEnvironment,
+    });
+    this.#isHeadSubmergedAt =
+      config.isHeadSubmergedAt ?? isPlayerHeadSubmerged;
+    this.#isHeadSuffocatingAt =
+      config.isHeadSuffocatingAt ?? isPlayerHeadSuffocating;
     this.#worldState = this.#createWorldState(0);
   }
 
@@ -220,6 +231,7 @@ export class LocalGameSession implements GameSession {
       this.#submerged = this.#isHeadSubmergedAt(after.position);
       this.#updateAir(stepSeconds);
       this.#updateEnvironmentalDamage(after.position, after.inLava, stepSeconds);
+      updateSurvivalWorld(after.position, stepSeconds);
 
       if (after.position.y < VOID_DEATH_Y) {
         this.#applyDamage(PLAYER_MAXIMUM_HEALTH, true);
