@@ -7,6 +7,7 @@ type HeldAction =
   | 'move-left'
   | 'move-right'
   | 'sprint'
+  | 'sneak'
   | 'break-block'
   | 'place-block';
 
@@ -32,6 +33,8 @@ const GAMEPLAY_KEYS = new Set([
   'KeyE',
   'ShiftLeft',
   'ShiftRight',
+  'ControlLeft',
+  'ControlRight',
   'Space',
   'KeyV',
   'F5',
@@ -46,6 +49,7 @@ function isHeldAction(value: string): value is HeldAction {
     'move-left',
     'move-right',
     'sprint',
+    'sneak',
     'break-block',
     'place-block',
   ].includes(value);
@@ -168,6 +172,11 @@ export class InputManager {
         (this.#keys.has('ShiftLeft') ||
           this.#keys.has('ShiftRight') ||
           this.#touchActions.has('sprint')),
+      sneak:
+        !this.#uiOpen &&
+        (this.#keys.has('ControlLeft') ||
+          this.#keys.has('ControlRight') ||
+          this.#touchActions.has('sneak')),
       toggleCamera: !this.#uiOpen && this.#cameraToggleRequested,
       togglePause: !this.#uiOpen && this.#pauseToggleRequested,
       toggleInventory: this.#inventoryToggleRequested,
@@ -197,9 +206,7 @@ export class InputManager {
   }
 
   public selectHotbarSlot(index: number): void {
-    if (!Number.isInteger(index)) {
-      return;
-    }
+    if (!Number.isInteger(index)) return;
     this.#selectedHotbarSlot = Math.min(
       Math.max(index, 0),
       HOTBAR_SLOT_COUNT - 1,
@@ -207,9 +214,7 @@ export class InputManager {
   }
 
   public setUiOpen(open: boolean): void {
-    if (open === this.#uiOpen) {
-      return;
-    }
+    if (open === this.#uiOpen) return;
     this.#uiOpen = open;
     this.#clearHeldState();
     if (open && document.pointerLockElement === this.#canvas) {
@@ -228,18 +233,14 @@ export class InputManager {
 
   public dispose(): void {
     this.#suppressUnlockPause = true;
-    if (document.pointerLockElement === this.#canvas) {
-      document.exitPointerLock();
-    }
+    if (document.pointerLockElement === this.#canvas) document.exitPointerLock();
     document.body.classList.remove('is-pointer-locked');
     this.#abortController.abort();
     this.#clearHeldState();
   }
 
   readonly #onKeyDown = (event: KeyboardEvent): void => {
-    if (GAMEPLAY_KEYS.has(event.code)) {
-      event.preventDefault();
-    }
+    if (GAMEPLAY_KEYS.has(event.code)) event.preventDefault();
 
     if (!event.repeat) {
       if (event.code === 'KeyE') {
@@ -270,9 +271,7 @@ export class InputManager {
       }
     }
 
-    if (!this.#uiOpen) {
-      this.#keys.add(event.code);
-    }
+    if (!this.#uiOpen) this.#keys.add(event.code);
   };
 
   readonly #onKeyUp = (event: KeyboardEvent): void => {
@@ -280,9 +279,7 @@ export class InputManager {
   };
 
   readonly #onWheel = (event: WheelEvent): void => {
-    if (this.#uiOpen) {
-      return;
-    }
+    if (this.#uiOpen) return;
     if (
       !this.#pointerLocked &&
       event.target !== this.#canvas &&
@@ -290,9 +287,7 @@ export class InputManager {
     ) {
       return;
     }
-    if (event.deltaY === 0) {
-      return;
-    }
+    if (event.deltaY === 0) return;
     event.preventDefault();
     const direction = event.deltaY > 0 ? 1 : -1;
     this.#selectedHotbarSlot =
@@ -307,9 +302,7 @@ export class InputManager {
   };
 
   readonly #onCanvasPointerDown = (event: PointerEvent): void => {
-    if (this.#uiOpen) {
-      return;
-    }
+    if (this.#uiOpen) return;
     if (event.pointerType !== 'mouse') {
       this.#beginTouchLook(event);
       return;
@@ -338,9 +331,7 @@ export class InputManager {
   };
 
   readonly #onPointerMove = (event: PointerEvent): void => {
-    if (this.#uiOpen) {
-      return;
-    }
+    if (this.#uiOpen) return;
     if (event.pointerType === 'mouse') {
       if (this.#pointerLocked) {
         this.#lookDeltaX += event.movementX;
@@ -381,17 +372,13 @@ export class InputManager {
           !this.#pointerLocked &&
           !this.#pointerLockPending
         ) {
-          if (this.#fallbackButton === 0) {
-            this.#breakPulse = true;
-          } else if (this.#fallbackButton === 2) {
-            this.#placePulse = true;
-          }
+          if (this.#fallbackButton === 0) this.#breakPulse = true;
+          else if (this.#fallbackButton === 2) this.#placePulse = true;
         }
         this.#clearFallbackPointer();
       }
       return;
     }
-
     if (event.pointerId === this.#touchLookPointerId) {
       this.#touchLookPointerId = null;
     }
@@ -439,27 +426,17 @@ export class InputManager {
   readonly #onTouchButtonDown = (event: PointerEvent): void => {
     event.preventDefault();
     event.stopPropagation();
-
     const target = event.currentTarget;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
+    if (!(target instanceof HTMLElement)) return;
     const action = target.dataset.action;
-    if (action === undefined) {
-      return;
-    }
-
+    if (action === undefined) return;
     target.setPointerCapture(event.pointerId);
-
     if (isHeldAction(action)) {
       this.#touchActions.add(action);
     } else if (isEdgeAction(action)) {
-      if (action === 'jump') {
-        this.#jumpRequested = true;
-      } else if (action === 'toggle-camera') {
-        this.#cameraToggleRequested = true;
-      } else if (action === 'toggle-inventory') {
+      if (action === 'jump') this.#jumpRequested = true;
+      else if (action === 'toggle-camera') this.#cameraToggleRequested = true;
+      else if (action === 'toggle-inventory') {
         this.#inventoryToggleRequested = true;
       } else {
         this.#pauseToggleRequested = true;
@@ -470,12 +447,8 @@ export class InputManager {
   readonly #onTouchButtonUp = (event: PointerEvent): void => {
     event.preventDefault();
     event.stopPropagation();
-
     const target = event.currentTarget;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
+    if (!(target instanceof HTMLElement)) return;
     const action = target.dataset.action;
     if (action !== undefined && isHeldAction(action)) {
       this.#touchActions.delete(action);
@@ -505,9 +478,7 @@ export class InputManager {
   }
 
   #beginTouchLook(event: PointerEvent): void {
-    if (this.#touchLookPointerId !== null) {
-      return;
-    }
+    if (this.#touchLookPointerId !== null) return;
     this.#touchLookPointerId = event.pointerId;
     this.#touchLookX = event.clientX;
     this.#touchLookY = event.clientY;
