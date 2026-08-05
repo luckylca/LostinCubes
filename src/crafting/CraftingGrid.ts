@@ -262,7 +262,7 @@ export class CraftingGrid {
 
     for (const index of match.consumedSlots) {
       const slot = this.#slots[index];
-      if (slot === undefined || slot.item === null || slot.count <= 0) {
+      if (slot?.item === undefined || slot.item === null || slot.count <= 0) {
         return { cursor, recipe: match.recipe, crafted: false };
       }
       slot.count -= 1;
