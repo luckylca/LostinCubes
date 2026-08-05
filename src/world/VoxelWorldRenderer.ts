@@ -15,7 +15,6 @@ import {
   createChunkKey,
   worldToChunkCoordinate,
 } from './VoxelChunk';
-import { buildChunkLightField } from './VoxelLightEngine';
 import { VoxelMaterialLibrary } from './VoxelMaterialLibrary';
 import type { VoxelWorldData } from './VoxelWorldData';
 
@@ -45,6 +44,7 @@ export interface VoxelWorldStats {
 }
 
 const MAXIMUM_MESH_UPLOADS_PER_FRAME = 2;
+const IMMEDIATE_EDIT_LIGHT_LEVEL = 13;
 
 /** Streams a bounded, cancellable, nearest-first chunk window. */
 export class VoxelWorldRenderer {
@@ -127,11 +127,11 @@ export class VoxelWorldRenderer {
     const chunkX = worldToChunkCoordinate(worldX);
     const chunkZ = worldToChunkCoordinate(worldZ);
 
-    // The owning chunk disappears/appears immediately. A block can also alter
-    // sky or emitted light up to 15 cells away, so its eight neighboring chunks
-    // are rebuilt asynchronously instead of only face-sharing boundary chunks.
+    // Remove/add the edited voxel immediately with a cheap mesh-only rebuild.
+    // The accurate 0-15 sky/block light field is rebuilt asynchronously for
+    // the owning chunk and its neighbors, avoiding a visible main-thread stall.
     this.#rebuildChunkImmediately(chunkX, chunkZ);
-    this.#invalidateLightingNeighborhood(chunkX, chunkZ, false);
+    this.#invalidateLightingNeighborhood(chunkX, chunkZ, true);
   }
 
   public invalidateLightEmitter(worldX: number, worldZ: number): void {
@@ -287,17 +287,11 @@ export class VoxelWorldRenderer {
     const startedAt = performance.now();
     const sampleBlock = (sampleX: number, sampleY: number, sampleZ: number) =>
       this.#world.sampleBlock(sampleX, sampleY, sampleZ);
-    const lighting = buildChunkLightField(
-      chunkX,
-      chunkZ,
-      sampleBlock,
-      this.#world.getBuildLightEmitters(chunkX, chunkZ),
-    );
     const meshData = buildChunkMeshData(
       chunkX,
       chunkZ,
       sampleBlock,
-      lighting.sampleCombined,
+      () => IMMEDIATE_EDIT_LIGHT_LEVEL,
     );
     this.#applyChunk(key, revision, {
       type: 'chunk-built',
