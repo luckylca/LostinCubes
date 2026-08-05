@@ -1,3 +1,8 @@
+import {
+  BiomeType,
+  getBiomeDefinition,
+} from './BiomeDefinition';
+import type { BiomeType as BiomeTypeValue } from './BiomeDefinition';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { CHUNK_HEIGHT, CHUNK_SIZE, VoxelChunk } from './VoxelChunk';
@@ -5,11 +10,14 @@ import { CHUNK_HEIGHT, CHUNK_SIZE, VoxelChunk } from './VoxelChunk';
 const UINT32_MAX = 4_294_967_295;
 const PLAYER_FOOT_OFFSET = 0.9;
 const TREE_CELL_SIZE = 7;
-const TREE_CHANCE = 0.52;
 const TREE_STRUCTURE_HEIGHT = 8;
-const SPAWN_CLEAR_RADIUS = 6.5;
+const SPAWN_CLEAR_RADIUS = 7.5;
 const MAXIMUM_CANOPY_RADIUS = 2;
 const CAVE_SURFACE_BUFFER = 4;
+const BEACH_DEPTH = 3;
+
+export const SEA_LEVEL = 8;
+export const LAVA_LEVEL = 4;
 
 interface TreeAnchor {
   readonly x: number;
@@ -52,7 +60,12 @@ function interpolate(start: number, end: number, amount: number): number {
   return start + (end - start) * amount;
 }
 
-function sampleValueNoise(worldX: number, worldZ: number, scale: number, seed: number): number {
+function sampleValueNoise(
+  worldX: number,
+  worldZ: number,
+  scale: number,
+  seed: number,
+): number {
   const scaledX = worldX / scale;
   const scaledZ = worldZ / scale;
   const minimumX = Math.floor(scaledX);
@@ -111,23 +124,91 @@ export class TerrainGenerator {
     this.#seed = hashWorldSeed(worldSeed);
   }
 
-  public sampleSurfaceHeight(worldX: number, worldZ: number): number {
-    const continent = sampleValueNoise(worldX, worldZ, 48, this.#seed);
-    const hills = sampleValueNoise(worldX, worldZ, 18, this.#seed ^ 0x9e3779b9);
-    const detail = sampleValueNoise(worldX, worldZ, 7, this.#seed ^ 0x85ebca6b);
-    const height = Math.floor(4 + continent * 5 + hills * 3 + detail * 1.5);
-    return Math.min(Math.max(height, 2), CHUNK_HEIGHT - TREE_STRUCTURE_HEIGHT);
+  public sampleBiome(worldX: number, worldZ: number): BiomeTypeValue {
+    if (Math.hypot(worldX, worldZ - 3.5) < SPAWN_CLEAR_RADIUS + 6) {
+      return BiomeType.Plains;
+    }
+    const temperature = sampleValueNoise(
+      worldX,
+      worldZ,
+      104,
+      this.#seed ^ 0x27d4eb2d,
+    );
+    const moisture = sampleValueNoise(
+      worldX,
+      worldZ,
+      88,
+      this.#seed ^ 0x165667b1,
+    );
+    if (temperature < 0.34) return BiomeType.SnowyTundra;
+    if (temperature > 0.62 && moisture < 0.48) return BiomeType.Desert;
+    if (moisture > 0.55) return BiomeType.Forest;
+    return BiomeType.Plains;
   }
 
-  public sampleBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue {
-    if (worldY < 0 || worldY >= CHUNK_HEIGHT) {
+  public sampleSurfaceHeight(worldX: number, worldZ: number): number {
+    const biome = getBiomeDefinition(this.sampleBiome(worldX, worldZ));
+    const continent = sampleValueNoise(worldX, worldZ, 64, this.#seed);
+    const hills = sampleValueNoise(
+      worldX,
+      worldZ,
+      24,
+      this.#seed ^ 0x9e3779b9,
+    );
+    const detail = sampleValueNoise(
+      worldX,
+      worldZ,
+      9,
+      this.#seed ^ 0x85ebca6b,
+    );
+    const continentalOffset = (continent - 0.5) * 8;
+    const localRelief =
+      (hills - 0.5) * biome.heightVariation * 1.6 + (detail - 0.5) * 2;
+    let height = Math.floor(biome.baseHeight + continentalOffset + localRelief);
+    if (Math.hypot(worldX, worldZ - 3.5) < SPAWN_CLEAR_RADIUS + 3) {
+      height = Math.max(height, SEA_LEVEL + 1);
+    }
+    return Math.min(
+      Math.max(height, 2),
+      CHUNK_HEIGHT - TREE_STRUCTURE_HEIGHT,
+    );
+  }
+
+  public sampleBlock(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): BlockTypeValue {
+    if (worldY < 0 || worldY >= CHUNK_HEIGHT) return BlockType.Air;
+
+    const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
+    const biome = this.sampleBiome(worldX, worldZ);
+    const terrain = this.#sampleTerrainBlock(
+      worldX,
+      worldY,
+      worldZ,
+      surfaceHeight,
+      biome,
+    );
+    if (terrain !== BlockType.Air) return terrain;
+
+    if (worldY <= SEA_LEVEL && worldY > surfaceHeight) {
+      return BlockType.Water;
+    }
+
+    if (worldY <= surfaceHeight || surfaceHeight <= SEA_LEVEL) {
       return BlockType.Air;
     }
-    const terrainBlock = this.#sampleTerrainBlock(worldX, worldY, worldZ);
-    if (terrainBlock !== BlockType.Air) {
-      return terrainBlock;
-    }
-    return this.#sampleTreeBlock(worldX, worldY, worldZ);
+
+    const tree = this.#sampleTreeBlock(worldX, worldY, worldZ);
+    if (tree !== BlockType.Air) return tree;
+    return this.#samplePlantBlock(
+      worldX,
+      worldY,
+      worldZ,
+      surfaceHeight,
+      biome,
+    );
   }
 
   public sampleStandingY(worldX: number, worldZ: number): number {
@@ -143,7 +224,10 @@ export class TerrainGenerator {
         const worldX = chunkX * CHUNK_SIZE + localX;
         const worldZ = chunkZ * CHUNK_SIZE + localZ;
         const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
-        const maximumY = Math.min(CHUNK_HEIGHT - 1, surfaceHeight + TREE_STRUCTURE_HEIGHT);
+        const maximumY = Math.min(
+          CHUNK_HEIGHT - 1,
+          Math.max(SEA_LEVEL, surfaceHeight + TREE_STRUCTURE_HEIGHT),
+        );
         for (let localY = 0; localY <= maximumY; localY += 1) {
           const block = this.sampleBlock(worldX, localY, worldZ);
           if (block !== BlockType.Air) {
@@ -155,20 +239,74 @@ export class TerrainGenerator {
     return chunk;
   }
 
-  #sampleTerrainBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue {
-    const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
+  #sampleTerrainBlock(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    surfaceHeight: number,
+    biome: BiomeTypeValue,
+  ): BlockTypeValue {
     if (worldY > surfaceHeight) return BlockType.Air;
-    if (worldY === surfaceHeight) return BlockType.Grass;
-    if (worldY >= surfaceHeight - 2) return BlockType.Dirt;
-    if (this.#isCave(worldX, worldY, worldZ, surfaceHeight)) return BlockType.Air;
 
-    const oreNoise = sampleValueNoise3d(worldX, worldY, worldZ, 2.4, this.#seed ^ 0x52dce729);
-    const oreDetail = hashCoordinate3d(worldX, worldY, worldZ, this.#seed ^ 0x38495ab5);
+    if (this.#isCave(worldX, worldY, worldZ, surfaceHeight)) {
+      if (
+        worldY <= LAVA_LEVEL &&
+        sampleValueNoise3d(
+          worldX,
+          worldY,
+          worldZ,
+          5.4,
+          this.#seed ^ 0xc2b2ae35,
+        ) > 0.52
+      ) {
+        return BlockType.Lava;
+      }
+      return BlockType.Air;
+    }
+
+    const definition = getBiomeDefinition(biome);
+    const submerged = surfaceHeight < SEA_LEVEL;
+    if (worldY === surfaceHeight) {
+      if (submerged) return this.#sampleRiverbedBlock(worldX, worldZ);
+      if (surfaceHeight <= SEA_LEVEL + 1 && biome !== BiomeType.SnowyTundra) {
+        return BlockType.Sand;
+      }
+      return definition.surfaceBlock;
+    }
+    if (worldY >= surfaceHeight - BEACH_DEPTH) {
+      if (submerged || biome === BiomeType.Desert) return BlockType.Sand;
+      return definition.fillerBlock;
+    }
+
+    const oreNoise = sampleValueNoise3d(
+      worldX,
+      worldY,
+      worldZ,
+      2.4,
+      this.#seed ^ 0x52dce729,
+    );
+    const oreDetail = hashCoordinate3d(
+      worldX,
+      worldY,
+      worldZ,
+      this.#seed ^ 0x38495ab5,
+    );
     if (worldY <= 12 && oreNoise > 0.69 && oreDetail > 0.34) {
       return BlockType.IronOre;
     }
     if (worldY <= 22 && oreNoise < 0.31 && oreDetail > 0.25) {
       return BlockType.CoalOre;
+    }
+
+    const gravelNoise = sampleValueNoise3d(
+      worldX,
+      worldY,
+      worldZ,
+      3.2,
+      this.#seed ^ 0x6d2b79f5,
+    );
+    if (worldY < surfaceHeight - 3 && gravelNoise > 0.79) {
+      return BlockType.Gravel;
     }
 
     const runeChance = hashCoordinate(
@@ -179,17 +317,51 @@ export class TerrainGenerator {
     return runeChance > 0.997 ? BlockType.RuneStone : BlockType.Stone;
   }
 
-  #isCave(worldX: number, worldY: number, worldZ: number, surfaceHeight: number): boolean {
+  #sampleRiverbedBlock(worldX: number, worldZ: number): BlockTypeValue {
+    const patch = sampleValueNoise(
+      worldX,
+      worldZ,
+      5.5,
+      this.#seed ^ 0x94d049bb,
+    );
+    if (patch > 0.72) return BlockType.Clay;
+    if (patch < 0.23) return BlockType.Gravel;
+    return BlockType.Sand;
+  }
+
+  #isCave(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    surfaceHeight: number,
+  ): boolean {
     if (worldY <= 1 || worldY > surfaceHeight - CAVE_SURFACE_BUFFER) {
       return false;
     }
-    const broad = sampleValueNoise3d(worldX, worldY * 1.35, worldZ, 9, this.#seed ^ 0x7f4a7c15);
-    const detail = sampleValueNoise3d(worldX, worldY, worldZ, 4.2, this.#seed ^ 0x94d049bb);
-    const depthBias = Math.min(Math.max((surfaceHeight - worldY) / 18, 0), 1) * 0.045;
+    const broad = sampleValueNoise3d(
+      worldX,
+      worldY * 1.35,
+      worldZ,
+      9,
+      this.#seed ^ 0x7f4a7c15,
+    );
+    const detail = sampleValueNoise3d(
+      worldX,
+      worldY,
+      worldZ,
+      4.2,
+      this.#seed ^ 0x94d049bb,
+    );
+    const depthBias =
+      Math.min(Math.max((surfaceHeight - worldY) / 18, 0), 1) * 0.045;
     return broad * 0.72 + detail * 0.28 > 0.72 - depthBias;
   }
 
-  #sampleTreeBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue {
+  #sampleTreeBlock(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): BlockTypeValue {
     const cellX = Math.floor(worldX / TREE_CELL_SIZE);
     const cellZ = Math.floor(worldZ / TREE_CELL_SIZE);
     let leafCandidate = false;
@@ -200,7 +372,12 @@ export class TerrainGenerator {
         const deltaX = worldX - anchor.x;
         const deltaZ = worldZ - anchor.z;
         const trunkTop = anchor.baseY + anchor.trunkHeight - 1;
-        if (deltaX === 0 && deltaZ === 0 && worldY >= anchor.baseY && worldY <= trunkTop) {
+        if (
+          deltaX === 0 &&
+          deltaZ === 0 &&
+          worldY >= anchor.baseY &&
+          worldY <= trunkTop
+        ) {
           return BlockType.OakLog;
         }
         const vertical = worldY - trunkTop;
@@ -209,7 +386,11 @@ export class TerrainGenerator {
         if (
           Math.abs(deltaX) <= radius &&
           Math.abs(deltaZ) <= radius &&
-          !(radius === 2 && Math.abs(deltaX) === 2 && Math.abs(deltaZ) === 2)
+          !(
+            radius === 2 &&
+            Math.abs(deltaX) === 2 &&
+            Math.abs(deltaZ) === 2
+          )
         ) {
           leafCandidate = true;
         }
@@ -218,16 +399,54 @@ export class TerrainGenerator {
     return leafCandidate ? BlockType.OakLeaves : BlockType.Air;
   }
 
+  #samplePlantBlock(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    surfaceHeight: number,
+    biome: BiomeTypeValue,
+  ): BlockTypeValue {
+    if (worldY !== surfaceHeight + 1) return BlockType.Air;
+    const definition = getBiomeDefinition(biome);
+    const roll = hashCoordinate(
+      worldX,
+      worldZ,
+      this.#seed ^ 0x51ed270b,
+    );
+    if (roll < definition.flowerChance) return BlockType.Dandelion;
+    if (roll < definition.flowerChance + definition.tallGrassChance) {
+      return BlockType.TallGrass;
+    }
+    return BlockType.Air;
+  }
+
   #getTreeAnchor(cellX: number, cellZ: number): TreeAnchor | null {
-    const chance = hashCoordinate(cellX, cellZ, this.#seed ^ 0x1b873593);
-    if (chance > TREE_CHANCE) return null;
-    const xOffset = Math.floor(hashCoordinate(cellX, cellZ, this.#seed ^ 0x27d4eb2d) * TREE_CELL_SIZE);
-    const zOffset = Math.floor(hashCoordinate(cellX, cellZ, this.#seed ^ 0x165667b1) * TREE_CELL_SIZE);
+    const xOffset = Math.floor(
+      hashCoordinate(cellX, cellZ, this.#seed ^ 0x27d4eb2d) * TREE_CELL_SIZE,
+    );
+    const zOffset = Math.floor(
+      hashCoordinate(cellX, cellZ, this.#seed ^ 0x165667b1) * TREE_CELL_SIZE,
+    );
     const x = cellX * TREE_CELL_SIZE + xOffset;
     const z = cellZ * TREE_CELL_SIZE + zOffset;
-    if (Math.hypot(x, z - 3.5) < SPAWN_CLEAR_RADIUS + MAXIMUM_CANOPY_RADIUS) return null;
+    if (
+      Math.hypot(x, z - 3.5) <
+      SPAWN_CLEAR_RADIUS + MAXIMUM_CANOPY_RADIUS
+    ) {
+      return null;
+    }
+    const biome = this.sampleBiome(x, z);
+    const definition = getBiomeDefinition(biome);
+    if (definition.treeChance <= 0) return null;
+    const chance = hashCoordinate(cellX, cellZ, this.#seed ^ 0x1b873593);
+    if (chance > definition.treeChance) return null;
     const surfaceY = this.sampleSurfaceHeight(x, z);
-    const trunkHeight = 4 + Math.floor(hashCoordinate(cellX, cellZ, this.#seed ^ 0x85ebca77) * 2);
+    if (surfaceY <= SEA_LEVEL) return null;
+    const trunkHeight =
+      4 +
+      Math.floor(
+        hashCoordinate(cellX, cellZ, this.#seed ^ 0x85ebca77) * 2,
+      );
     return { x, z, baseY: surfaceY + 1, trunkHeight };
   }
 }

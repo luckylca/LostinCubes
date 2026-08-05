@@ -86,6 +86,21 @@ const furnaceRecipe: CraftingRecipe = {
   output: { item: ItemType.FurnaceBlock, count: 1 },
 };
 
+const ladderRecipe: CraftingRecipe = {
+  id: 'ladders',
+  label: '梯子 ×3',
+  description: '七根木棍摆成 H 形。梯子可以攀爬，也会阻止高速坠落。',
+  station: 'crafting-table',
+  gridSize: 3,
+  pattern: [
+    [ItemType.Stick, EMPTY, ItemType.Stick],
+    [ItemType.Stick, ItemType.Stick, ItemType.Stick],
+    [ItemType.Stick, EMPTY, ItemType.Stick],
+  ],
+  ingredients: [{ item: ItemType.Stick, count: 7 }],
+  output: { item: ItemType.LadderBlock, count: 3 },
+};
+
 function toolPattern(
   kind: 'pickaxe' | 'shovel' | 'axe',
   material: ItemTypeValue,
@@ -171,6 +186,7 @@ const toolRecipes = (['pickaxe', 'shovel', 'axe'] as const).flatMap(
 export const CRAFTING_RECIPES: readonly CraftingRecipe[] = [
   ...personalRecipes,
   furnaceRecipe,
+  ladderRecipe,
   ...toolRecipes,
 ];
 

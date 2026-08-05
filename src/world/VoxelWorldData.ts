@@ -1,6 +1,12 @@
 import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
-import { isSolidBlock } from './BlockRegistry';
+import type { BiomeType } from './BiomeDefinition';
+import {
+  isClimbableBlock,
+  isLavaBlock,
+  isSolidBlock,
+  isWaterBlock,
+} from './BlockRegistry';
 import { BlockType } from './BlockType';
 import type {
   SerializedBlockModification,
@@ -14,7 +20,10 @@ import {
   createChunkKey,
   worldToChunkCoordinate,
 } from './VoxelChunk';
-import { LIGHT_PROPAGATION_RADIUS, MAXIMUM_LIGHT_LEVEL } from './VoxelLightEngine';
+import {
+  LIGHT_PROPAGATION_RADIUS,
+  MAXIMUM_LIGHT_LEVEL,
+} from './VoxelLightEngine';
 
 const PLAYER_FOOT_OFFSET = 0.9;
 const DATABASE_NAME = 'lost-in-cubes-worlds';
@@ -69,9 +78,7 @@ function isInteger(value: unknown): value is number {
 function isPersistedBlockModification(
   value: unknown,
 ): value is PersistedBlockModification {
-  if (!isRecord(value)) {
-    return false;
-  }
+  if (!isRecord(value)) return false;
   const { id, worldSeed, worldX, worldY, worldZ, block } = value;
   return (
     typeof id === 'string' &&
@@ -149,7 +156,10 @@ export class VoxelWorldData {
         );
       }
     } catch (error: unknown) {
-      console.warn('Voxel persistence is unavailable; using memory-only edits.', error);
+      console.warn(
+        'Voxel persistence is unavailable; using memory-only edits.',
+        error,
+      );
       this.#database = null;
     }
   }
@@ -159,18 +169,35 @@ export class VoxelWorldData {
     worldY: number,
     worldZ: number,
   ): BlockTypeValue {
-    if (worldY < 0 || worldY >= CHUNK_HEIGHT) {
-      return BlockType.Air;
-    }
-
+    if (worldY < 0 || worldY >= CHUNK_HEIGHT) return BlockType.Air;
     const modified = this.#modifications.get(
       createBlockKey(worldX, worldY, worldZ),
     );
     return modified ?? this.generator.sampleBlock(worldX, worldY, worldZ);
   }
 
+  public sampleBiome(worldX: number, worldZ: number): BiomeType {
+    return this.generator.sampleBiome(Math.floor(worldX), Math.floor(worldZ));
+  }
+
   public isSolidAt(worldX: number, worldY: number, worldZ: number): boolean {
     return isSolidBlock(this.sampleBlock(worldX, worldY, worldZ));
+  }
+
+  public isWaterAt(worldX: number, worldY: number, worldZ: number): boolean {
+    return isWaterBlock(this.sampleBlock(worldX, worldY, worldZ));
+  }
+
+  public isLavaAt(worldX: number, worldY: number, worldZ: number): boolean {
+    return isLavaBlock(this.sampleBlock(worldX, worldY, worldZ));
+  }
+
+  public isClimbableAt(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): boolean {
+    return isClimbableBlock(this.sampleBlock(worldX, worldY, worldZ));
   }
 
   public sampleStandingY(worldX: number, worldZ: number): number {
@@ -193,14 +220,10 @@ export class VoxelWorldData {
     validateCoordinate(worldX, 'worldX');
     validateCoordinate(worldY, 'worldY');
     validateCoordinate(worldZ, 'worldZ');
-    if (worldY < 0 || worldY >= CHUNK_HEIGHT) {
-      return false;
-    }
+    if (worldY < 0 || worldY >= CHUNK_HEIGHT) return false;
 
     const current = this.sampleBlock(worldX, worldY, worldZ);
-    if (current === block) {
-      return false;
-    }
+    if (current === block) return false;
 
     const generated = this.generator.sampleBlock(worldX, worldY, worldZ);
     if (block === generated) {
@@ -250,9 +273,7 @@ export class VoxelWorldData {
         const modifications = this.#modificationsByChunk.get(
           createChunkKey(neighborX, neighborZ),
         );
-        if (modifications !== undefined) {
-          result.push(...modifications.values());
-        }
+        if (modifications !== undefined) result.push(...modifications.values());
       }
     }
     return result;
@@ -348,10 +369,7 @@ export class VoxelWorldData {
     block: BlockTypeValue,
     generated: BlockTypeValue,
   ): Promise<void> {
-    if (this.#database === null) {
-      return;
-    }
-
+    if (this.#database === null) return;
     const id = createPersistenceKey(
       this.worldSeed,
       worldX,
@@ -362,7 +380,6 @@ export class VoxelWorldData {
       await this.#database.delete(BLOCK_STORE, id);
       return;
     }
-
     await this.#database.put(BLOCK_STORE, {
       id,
       worldSeed: this.worldSeed,

@@ -1,6 +1,25 @@
 import type { FurnacePosition } from '../crafting/FurnaceManager';
+import type { BiomeType } from './BiomeDefinition';
+import type { BlockType as BlockTypeValue } from './BlockType';
+import {
+  registerSurvivalWorldRuntime,
+  unregisterSurvivalWorldRuntime,
+} from './SurvivalWorldRuntime';
 
 interface RuntimeLightWorld {
+  readonly worldSeed: string;
+  sampleBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue;
+  sampleBiome(worldX: number, worldZ: number): BiomeType;
+  isSolidAt(worldX: number, worldY: number, worldZ: number): boolean;
+  isWaterAt(worldX: number, worldY: number, worldZ: number): boolean;
+  isLavaAt(worldX: number, worldY: number, worldZ: number): boolean;
+  isClimbableAt(worldX: number, worldY: number, worldZ: number): boolean;
+  setBlock(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    block: BlockTypeValue,
+  ): boolean;
   setDynamicLight(
     worldX: number,
     worldY: number,
@@ -10,6 +29,7 @@ interface RuntimeLightWorld {
 }
 
 interface RuntimeLightRenderer {
+  invalidateBlock(worldX: number, worldY: number, worldZ: number): void;
   invalidateLightEmitter(worldX: number, worldZ: number): void;
 }
 
@@ -43,7 +63,7 @@ function reconcile(): void {
   }
 }
 
-/** Registers the active single-player world and renderer for source transitions. */
+/** Registers the active single-player world and renderer for runtime bridges. */
 export function registerFurnaceLightRuntime(
   nextWorld: RuntimeLightWorld,
   nextRenderer: RuntimeLightRenderer,
@@ -51,6 +71,7 @@ export function registerFurnaceLightRuntime(
   world = nextWorld;
   renderer = nextRenderer;
   applied.clear();
+  registerSurvivalWorldRuntime(nextWorld, nextRenderer);
   reconcile();
 }
 
@@ -58,6 +79,7 @@ export function unregisterFurnaceLightRuntime(
   currentRenderer: RuntimeLightRenderer,
 ): void {
   if (renderer !== currentRenderer) return;
+  unregisterSurvivalWorldRuntime(currentRenderer);
   world = null;
   renderer = null;
   desired.clear();

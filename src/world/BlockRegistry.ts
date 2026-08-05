@@ -2,7 +2,8 @@ import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 
 export type BlockToolKind = 'shovel' | 'pickaxe' | 'axe';
-export type BlockRenderShape = 'empty' | 'cube' | 'cross';
+export type BlockRenderShape = 'empty' | 'cube' | 'cross' | 'fluid';
+export type BlockFluidKind = 'water' | 'lava' | null;
 
 export interface BlockDefinition {
   readonly id: BlockTypeValue;
@@ -18,6 +19,9 @@ export interface BlockDefinition {
   readonly minimumToolTierRank: number;
   readonly lightOpacity: number;
   readonly luminance: number;
+  readonly fluid: BlockFluidKind;
+  readonly climbable: boolean;
+  readonly randomTick: boolean;
 }
 
 function definition(
@@ -40,6 +44,9 @@ const AIR_VALUES = {
   minimumToolTierRank: 0,
   lightOpacity: 0,
   luminance: 0,
+  fluid: null,
+  climbable: false,
+  randomTick: false,
 } as const;
 
 const FULL_CUBE_VALUES = {
@@ -50,6 +57,25 @@ const FULL_CUBE_VALUES = {
   mergeFaces: true,
   lightOpacity: 15,
   luminance: 0,
+  fluid: null,
+  climbable: false,
+  randomTick: false,
+} as const;
+
+const PLANT_VALUES = {
+  solid: false,
+  targetable: true,
+  replaceable: true,
+  renderShape: 'cross',
+  mergeFaces: false,
+  blastResistance: 0,
+  preferredTool: null,
+  minimumToolTierRank: 0,
+  lightOpacity: 0,
+  luminance: 0,
+  fluid: null,
+  climbable: false,
+  randomTick: true,
 } as const;
 
 const DEFINITIONS: Readonly<Record<BlockTypeValue, BlockDefinition>> = {
@@ -60,6 +86,7 @@ const DEFINITIONS: Readonly<Record<BlockTypeValue, BlockDefinition>> = {
     blastResistance: 0.6,
     preferredTool: 'shovel',
     minimumToolTierRank: 0,
+    randomTick: true,
   }),
   [BlockType.Dirt]: definition(BlockType.Dirt, '泥土', {
     ...FULL_CUBE_VALUES,
@@ -96,9 +123,9 @@ const DEFINITIONS: Readonly<Record<BlockTypeValue, BlockDefinition>> = {
     blastResistance: 0.2,
     preferredTool: null,
     minimumToolTierRank: 0,
-    solid: true,
     mergeFaces: false,
     lightOpacity: 1,
+    randomTick: true,
   }),
   [BlockType.OakPlanks]: definition(BlockType.OakPlanks, '橡木木板', {
     ...FULL_CUBE_VALUES,
@@ -154,6 +181,97 @@ const DEFINITIONS: Readonly<Record<BlockTypeValue, BlockDefinition>> = {
     minimumToolTierRank: 0,
     lightOpacity: 0,
     luminance: 14,
+    fluid: null,
+    climbable: false,
+    randomTick: false,
+  }),
+  [BlockType.Sand]: definition(BlockType.Sand, '沙子', {
+    ...FULL_CUBE_VALUES,
+    hardness: 0.5,
+    blastResistance: 0.5,
+    preferredTool: 'shovel',
+    minimumToolTierRank: 0,
+  }),
+  [BlockType.Gravel]: definition(BlockType.Gravel, '沙砾', {
+    ...FULL_CUBE_VALUES,
+    hardness: 0.6,
+    blastResistance: 0.6,
+    preferredTool: 'shovel',
+    minimumToolTierRank: 0,
+  }),
+  [BlockType.Clay]: definition(BlockType.Clay, '黏土块', {
+    ...FULL_CUBE_VALUES,
+    hardness: 0.6,
+    blastResistance: 0.6,
+    preferredTool: 'shovel',
+    minimumToolTierRank: 0,
+  }),
+  [BlockType.Snow]: definition(BlockType.Snow, '雪块', {
+    ...FULL_CUBE_VALUES,
+    hardness: 0.25,
+    blastResistance: 0.3,
+    preferredTool: 'shovel',
+    minimumToolTierRank: 0,
+  }),
+  [BlockType.Water]: definition(BlockType.Water, '水', {
+    solid: false,
+    targetable: false,
+    replaceable: true,
+    renderShape: 'fluid',
+    mergeFaces: false,
+    hardness: 100,
+    blastResistance: 100,
+    preferredTool: null,
+    minimumToolTierRank: 0,
+    lightOpacity: 2,
+    luminance: 0,
+    fluid: 'water',
+    climbable: false,
+    randomTick: false,
+  }),
+  [BlockType.Lava]: definition(BlockType.Lava, '岩浆', {
+    solid: false,
+    targetable: false,
+    replaceable: true,
+    renderShape: 'fluid',
+    mergeFaces: false,
+    hardness: 100,
+    blastResistance: 100,
+    preferredTool: null,
+    minimumToolTierRank: 0,
+    lightOpacity: 1,
+    luminance: 15,
+    fluid: 'lava',
+    climbable: false,
+    randomTick: false,
+  }),
+  [BlockType.Ladder]: definition(BlockType.Ladder, '梯子', {
+    solid: false,
+    targetable: true,
+    replaceable: false,
+    renderShape: 'cross',
+    mergeFaces: false,
+    hardness: 0.4,
+    blastResistance: 0.4,
+    preferredTool: 'axe',
+    minimumToolTierRank: 0,
+    lightOpacity: 0,
+    luminance: 0,
+    fluid: null,
+    climbable: true,
+    randomTick: true,
+  }),
+  [BlockType.OakSapling]: definition(BlockType.OakSapling, '橡树树苗', {
+    ...PLANT_VALUES,
+    hardness: 0,
+  }),
+  [BlockType.TallGrass]: definition(BlockType.TallGrass, '高草', {
+    ...PLANT_VALUES,
+    hardness: 0,
+  }),
+  [BlockType.Dandelion]: definition(BlockType.Dandelion, '蒲公英', {
+    ...PLANT_VALUES,
+    hardness: 0,
   }),
 };
 
@@ -175,6 +293,26 @@ export function isRenderableBlock(block: BlockTypeValue): boolean {
 
 export function isFullCubeBlock(block: BlockTypeValue): boolean {
   return getBlockDefinition(block).renderShape === 'cube';
+}
+
+export function isFluidBlock(block: BlockTypeValue): boolean {
+  return getBlockDefinition(block).fluid !== null;
+}
+
+export function isWaterBlock(block: BlockTypeValue): boolean {
+  return getBlockDefinition(block).fluid === 'water';
+}
+
+export function isLavaBlock(block: BlockTypeValue): boolean {
+  return getBlockDefinition(block).fluid === 'lava';
+}
+
+export function isClimbableBlock(block: BlockTypeValue): boolean {
+  return getBlockDefinition(block).climbable;
+}
+
+export function receivesRandomTicks(block: BlockTypeValue): boolean {
+  return getBlockDefinition(block).randomTick;
 }
 
 export function shouldMergeBlockFaces(block: BlockTypeValue): boolean {

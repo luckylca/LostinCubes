@@ -17,6 +17,22 @@ import {
   getBlockTexturePixels,
 } from './BlockTextureLibrary';
 
+const BLENDED_TEXTURES = new Set<BlockTexture>([
+  BlockTexture.Water,
+  BlockTexture.Lava,
+]);
+
+const DOUBLE_SIDED_TEXTURES = new Set<BlockTexture>([
+  BlockTexture.OakLeaves,
+  BlockTexture.Torch,
+  BlockTexture.Ladder,
+  BlockTexture.OakSapling,
+  BlockTexture.TallGrass,
+  BlockTexture.Dandelion,
+  BlockTexture.Water,
+  BlockTexture.Lava,
+]);
+
 /** Shared nearest-neighbor pixel materials used by every streamed chunk. */
 export class VoxelMaterialLibrary {
   readonly #multiMaterial: MultiMaterial;
@@ -50,20 +66,28 @@ export class VoxelMaterialLibrary {
       material.diffuseTexture = texture;
       material.diffuseColor = Color3.White();
       material.specularColor = Color3.Black();
+      material.backFaceCulling = !DOUBLE_SIDED_TEXTURES.has(textureKind);
       material.emissiveColor =
         textureKind === BlockTexture.Torch
           ? new Color3(0.62, 0.31, 0.05)
-          : textureKind === BlockTexture.RuneStone
-            ? new Color3(0.035, 0.1, 0.065)
-            : new Color3(0.018, 0.022, 0.02);
-      material.backFaceCulling =
-        textureKind !== BlockTexture.OakLeaves &&
-        textureKind !== BlockTexture.Torch;
-      if (source.hasAlpha) {
+          : textureKind === BlockTexture.Lava
+            ? new Color3(0.54, 0.16, 0.025)
+            : textureKind === BlockTexture.RuneStone
+              ? new Color3(0.035, 0.1, 0.065)
+              : new Color3(0.018, 0.022, 0.02);
+
+      if (BLENDED_TEXTURES.has(textureKind)) {
+        material.useAlphaFromDiffuseTexture = true;
+        material.transparencyMode = Material.MATERIAL_ALPHABLEND;
+        material.needDepthPrePass = true;
+        material.alpha = textureKind === BlockTexture.Water ? 0.78 : 0.92;
+        material.disableDepthWrite = false;
+      } else if (source.hasAlpha) {
         material.useAlphaFromDiffuseTexture = true;
         material.transparencyMode = Material.MATERIAL_ALPHATEST;
         material.alphaCutOff = 0.42;
       }
+
       material.freeze();
       this.#materials.push(material);
       this.#multiMaterial.subMaterials.push(material);

@@ -22,23 +22,19 @@ describe('crafting recipes', () => {
       'crafting-table',
       'torches',
     ]);
-    expect(
-      getVisibleRecipes('crafting-table').some(
-        (recipe) => recipe.id === 'furnace',
-      ),
-    ).toBe(true);
-    expect(
-      getVisibleRecipes('crafting-table').some(
-        (recipe) => recipe.id === 'iron-pickaxe',
-      ),
-    ).toBe(true);
+    const workbenchIds = getVisibleRecipes('crafting-table').map(
+      (recipe) => recipe.id,
+    );
+    expect(workbenchIds).toContain('furnace');
+    expect(workbenchIds).toContain('ladders');
+    expect(workbenchIds).toContain('iron-pickaxe');
     expect(getVisibleRecipes('furnace')).toEqual([]);
     expect(CRAFTING_RECIPES.some((recipe) => recipe.id === 'smelt-iron')).toBe(
       false,
     );
   });
 
-  it('uses classic 2x2 workbench, torch, and 3x3 furnace shapes', () => {
+  it('uses classic 2x2 workbench, torch, 3x3 furnace, and ladder shapes', () => {
     const table = requireRecipe('crafting-table');
     expect(table.gridSize).toBe(2);
     expect(table.pattern).toEqual([
@@ -54,15 +50,37 @@ describe('crafting recipes', () => {
     const furnace = requireRecipe('furnace');
     expect(furnace.gridSize).toBe(3);
     expect(furnace.pattern).toEqual([
-      [ItemType.CobblestoneBlock, ItemType.CobblestoneBlock, ItemType.CobblestoneBlock],
+      [
+        ItemType.CobblestoneBlock,
+        ItemType.CobblestoneBlock,
+        ItemType.CobblestoneBlock,
+      ],
       [ItemType.CobblestoneBlock, null, ItemType.CobblestoneBlock],
-      [ItemType.CobblestoneBlock, ItemType.CobblestoneBlock, ItemType.CobblestoneBlock],
+      [
+        ItemType.CobblestoneBlock,
+        ItemType.CobblestoneBlock,
+        ItemType.CobblestoneBlock,
+      ],
     ]);
+
+    expect(requireRecipe('ladders').pattern).toEqual([
+      [ItemType.Stick, null, ItemType.Stick],
+      [ItemType.Stick, ItemType.Stick, ItemType.Stick],
+      [ItemType.Stick, null, ItemType.Stick],
+    ]);
+    expect(requireRecipe('ladders').output).toEqual({
+      item: ItemType.LadderBlock,
+      count: 3,
+    });
   });
 
   it('uses classic shaped patterns for pickaxes, shovels, and axes', () => {
     expect(requireRecipe('wooden-pickaxe').pattern).toEqual([
-      [ItemType.OakPlanksBlock, ItemType.OakPlanksBlock, ItemType.OakPlanksBlock],
+      [
+        ItemType.OakPlanksBlock,
+        ItemType.OakPlanksBlock,
+        ItemType.OakPlanksBlock,
+      ],
       [null, ItemType.Stick, null],
       [null, ItemType.Stick, null],
     ]);

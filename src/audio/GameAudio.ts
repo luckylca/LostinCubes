@@ -18,12 +18,21 @@ function blockFrequency(block: BlockTypeValue): number {
   switch (block) {
     case BlockType.Grass:
     case BlockType.Dirt:
+    case BlockType.Sand:
+    case BlockType.Clay:
+    case BlockType.Snow:
       return 115;
+    case BlockType.Gravel:
+      return 102;
     case BlockType.OakLog:
     case BlockType.OakPlanks:
     case BlockType.CraftingTable:
+    case BlockType.Ladder:
       return 165;
     case BlockType.OakLeaves:
+    case BlockType.OakSapling:
+    case BlockType.TallGrass:
+    case BlockType.Dandelion:
       return 260;
     case BlockType.Stone:
     case BlockType.Cobblestone:
@@ -35,6 +44,10 @@ function blockFrequency(block: BlockTypeValue): number {
       return 185;
     case BlockType.RuneStone:
       return 210;
+    case BlockType.Water:
+      return 145;
+    case BlockType.Lava:
+      return 68;
     case BlockType.Air:
       return 120;
   }

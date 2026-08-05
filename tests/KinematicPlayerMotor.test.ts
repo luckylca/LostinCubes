@@ -5,6 +5,7 @@ const STILL_INPUT = {
   moveX: 0,
   moveZ: 0,
   sprint: false,
+  sneak: false,
   jump: false,
   yaw: 0,
 } as const;
@@ -59,5 +60,45 @@ describe('KinematicPlayerMotor', () => {
     expect(motor.getState().grounded).toBe(false);
     expect(motor.getState().verticalVelocity).toBeLessThan(0);
     expect(motor.getState().position.y).toBeGreaterThan(0.9);
+  });
+
+  it('uses fluid drag and swims upward while jump is held', () => {
+    const motor = new KinematicPlayerMotor({
+      isSolidAt: () => false,
+      spawnPosition: { x: 0, y: 3, z: 0 },
+      environmentAt: () => ({
+        inWater: true,
+        inLava: false,
+        onLadder: false,
+      }),
+    });
+
+    for (let index = 0; index < 60; index += 1) {
+      motor.update({ ...STILL_INPUT, jump: true, moveZ: 1 }, 1 / 60);
+    }
+
+    expect(motor.getState().inWater).toBe(true);
+    expect(motor.getState().position.y).toBeGreaterThan(3);
+    expect(motor.getState().horizontalSpeed).toBeLessThan(3);
+  });
+
+  it('climbs and descends a ladder without normal gravity', () => {
+    const motor = new KinematicPlayerMotor({
+      isSolidAt: () => false,
+      spawnPosition: { x: 0, y: 3, z: 0 },
+      environmentAt: () => ({
+        inWater: false,
+        inLava: false,
+        onLadder: true,
+      }),
+    });
+
+    motor.update({ ...STILL_INPUT, moveZ: 1 }, 0.5);
+    const climbedY = motor.getState().position.y;
+    motor.update({ ...STILL_INPUT, sneak: true }, 0.5);
+
+    expect(climbedY).toBeGreaterThan(3);
+    expect(motor.getState().position.y).toBeLessThan(climbedY);
+    expect(motor.getState().onLadder).toBe(true);
   });
 });

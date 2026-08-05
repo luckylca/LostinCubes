@@ -9,6 +9,7 @@ const STILL_INPUT = {
   moveX: 0,
   moveZ: 0,
   sprint: false,
+  sneak: false,
   jump: false,
   yaw: 0,
 } as const;

@@ -1,5 +1,7 @@
 import {
+  getBlockDefinition,
   isFullCubeBlock,
+  isFluidBlock,
   shouldMergeBlockFaces,
 } from './BlockRegistry';
 import { BlockType } from './BlockType';
@@ -58,6 +60,7 @@ const MAXIMUM_MASK_SIZE = Math.max(
   CHUNK_SIZE * CHUNK_HEIGHT,
   CHUNK_SIZE * CHUNK_SIZE,
 );
+const FLUID_SURFACE_OFFSET = 0.38;
 
 function getComponent(vector: VectorTuple | MutableVector, axis: number): number {
   if (axis === 0) return vector[0];
@@ -116,19 +119,12 @@ function pushQuadUvs(
   positive: boolean,
 ): void {
   if (axis === 0) {
-    if (positive) {
-      target.push(0, 0, 0, width, height, width, height, 0);
-    } else {
-      target.push(height, 0, height, width, 0, width, 0, 0);
-    }
+    if (positive) target.push(0, 0, 0, width, height, width, height, 0);
+    else target.push(height, 0, height, width, 0, width, 0, 0);
     return;
   }
-
-  if (positive) {
-    target.push(0, 0, width, 0, width, height, 0, height);
-  } else {
-    target.push(width, 0, 0, 0, 0, height, width, height);
-  }
+  if (positive) target.push(0, 0, width, 0, width, height, 0, height);
+  else target.push(width, 0, 0, 0, 0, height, width, height);
 }
 
 function pushQuadIndices(
@@ -157,25 +153,38 @@ function pushQuadIndices(
   }
 }
 
-function pushTorchQuad(
+function pushIndependentQuad(
   bucket: MaterialBucket,
   corners: readonly VectorTuple[],
-  brightness: number,
+  normal: VectorTuple,
+  color: readonly [number, number, number],
+  positive = true,
 ): void {
   const firstVertex = bucket.positions.length / 3;
   for (const corner of corners) {
     bucket.positions.push(corner[0], corner[1], corner[2]);
-    bucket.normals.push(0, 1, 0);
-    bucket.colors.push(brightness, brightness, brightness, 1);
+    bucket.normals.push(normal[0], normal[1], normal[2]);
+    bucket.colors.push(color[0], color[1], color[2], 1);
   }
   bucket.uvs.push(0, 1, 1, 1, 1, 0, 0, 0);
-  pushQuadIndices(bucket.indices, firstVertex, true);
+  pushQuadIndices(bucket.indices, firstVertex, positive);
+}
+
+function getCrossDimensions(
+  block: BlockTypeValue,
+): readonly [radius: number, bottom: number, top: number] {
+  if (block === BlockType.Torch) return [0.28, -0.48, 0.48];
+  if (block === BlockType.Ladder) return [0.46, -0.5, 0.5];
+  if (block === BlockType.OakSapling) return [0.38, -0.5, 0.42];
+  if (block === BlockType.Dandelion) return [0.34, -0.5, 0.28];
+  return [0.44, -0.5, 0.46];
 }
 
 /**
- * Builds one chunk mesh. Full cubes use greedy meshing; registered cross-shape
- * blocks are appended as bounded two-sided quads. Vertex color includes the
- * chunk's classic 0-15 sky/block light field.
+ * Builds one chunk mesh. Full cubes retain greedy meshing. Plants, torches,
+ * ladders, and saplings use two crossed alpha-tested quads. Fluids use one
+ * shared chunk mesh with hidden internal faces and a slightly lowered exposed
+ * surface, avoiding one mesh or simulation object per liquid voxel.
  */
 export function buildChunkMeshData(
   chunkX: number,
@@ -227,7 +236,6 @@ export function buildChunkMeshData(
           );
           const nearCube = isFullCubeBlock(blockNear);
           const farCube = isFullCubeBlock(blockFar);
-
           let encodedFace = 0;
           if (nearCube !== farCube) {
             if (nearCube && slice >= 0 && slice < dimensionAxis) {
@@ -253,7 +261,6 @@ export function buildChunkMeshData(
             column += 1;
             continue;
           }
-
           const block = Math.abs(encodedFace) as BlockTypeValue;
           const mergeFace = shouldMergeBlockFaces(block);
           let width = 1;
@@ -265,20 +272,16 @@ export function buildChunkMeshData(
               width += 1;
             }
           }
-
           let height = 1;
           if (mergeFace) {
             heightLoop: while (row + height < dimensionV) {
               const nextRowStart = startIndex + height * dimensionU;
               for (let offset = 0; offset < width; offset += 1) {
-                if (mask[nextRowStart + offset] !== encodedFace) {
-                  break heightLoop;
-                }
+                if (mask[nextRowStart + offset] !== encodedFace) break heightLoop;
               }
               height += 1;
             }
           }
-
           for (let clearRow = 0; clearRow < height; clearRow += 1) {
             const clearStart = startIndex + clearRow * dimensionU;
             mask.fill(0, clearStart, clearStart + width);
@@ -293,7 +296,6 @@ export function buildChunkMeshData(
           setComponent(base, axisV, row - 0.5);
           setComponent(edgeU, axisU, width);
           setComponent(edgeV, axisV, height);
-
           const cornerU = addVectors(base, edgeU);
           const cornerV = addVectors(base, edgeV);
           const cornerUV = addVectors(cornerU, edgeV);
@@ -309,7 +311,6 @@ export function buildChunkMeshData(
           const normalX = axis === 0 ? (positive ? 1 : -1) : 0;
           const normalY = axis === 1 ? (positive ? 1 : -1) : 0;
           const normalZ = axis === 2 ? (positive ? 1 : -1) : 0;
-
           const blockCoordinate: MutableVector = [0, 0, 0];
           setComponent(blockCoordinate, axis, positive ? slice : slice + 1);
           setComponent(blockCoordinate, axisU, column);
@@ -317,11 +318,12 @@ export function buildChunkMeshData(
           const worldBlockX = chunkX * CHUNK_SIZE + blockCoordinate[0];
           const worldBlockY = blockCoordinate[1];
           const worldBlockZ = chunkZ * CHUNK_SIZE + blockCoordinate[2];
-          const outsideX = worldBlockX + normalX;
-          const outsideY = worldBlockY + normalY;
-          const outsideZ = worldBlockZ + normalZ;
           const brightness = lightLevelToBrightness(
-            sampleWorldLight(outsideX, outsideY, outsideZ),
+            sampleWorldLight(
+              worldBlockX + normalX,
+              worldBlockY + normalY,
+              worldBlockZ + normalZ,
+            ),
           );
           const [red, green, blue] = getBlockFaceColor(
             block,
@@ -331,7 +333,6 @@ export function buildChunkMeshData(
             worldBlockY,
             worldBlockZ,
           );
-
           for (const corner of corners) {
             bucket.positions.push(corner[0], corner[1], corner[2]);
             bucket.normals.push(normalX, normalY, normalZ);
@@ -344,7 +345,6 @@ export function buildChunkMeshData(
           }
           pushQuadUvs(bucket.uvs, axis, width, height, positive);
           pushQuadIndices(bucket.indices, firstVertex, positive);
-
           quadCount += 1;
           sourceFaceCount += width * height;
           column += width;
@@ -353,36 +353,164 @@ export function buildChunkMeshData(
     }
   }
 
-  const torchBucket = getBucket(
-    buckets,
-    getBlockFaceTexture(BlockType.Torch, 1, true),
-  );
+  const fluidDirections = [
+    [-1, 0, 0, 0, false],
+    [1, 0, 0, 0, true],
+    [0, -1, 0, 1, false],
+    [0, 1, 0, 1, true],
+    [0, 0, -1, 2, false],
+    [0, 0, 1, 2, true],
+  ] as const;
+
   for (let localY = 0; localY < CHUNK_HEIGHT; localY += 1) {
     for (let localZ = 0; localZ < CHUNK_SIZE; localZ += 1) {
       for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
-        if (sampleLocalBlock(localX, localY, localZ) !== BlockType.Torch) continue;
+        const block = sampleLocalBlock(localX, localY, localZ);
+        const definition = getBlockDefinition(block);
+        if (definition.renderShape === 'cross') {
+          const worldX = chunkX * CHUNK_SIZE + localX;
+          const worldZ = chunkZ * CHUNK_SIZE + localZ;
+          const brightness = lightLevelToBrightness(
+            sampleWorldLight(worldX, localY, worldZ),
+          );
+          const [red, green, blue] = getBlockFaceColor(
+            block,
+            1,
+            true,
+            worldX,
+            localY,
+            worldZ,
+          );
+          const color = [
+            red * brightness,
+            green * brightness,
+            blue * brightness,
+          ] as const;
+          const [radius, bottomOffset, topOffset] = getCrossDimensions(block);
+          const bottom = localY + bottomOffset;
+          const top = localY + topOffset;
+          const bucket = getBucket(
+            buckets,
+            getBlockFaceTexture(block, 1, true),
+          );
+          pushIndependentQuad(
+            bucket,
+            [
+              [localX - radius, bottom, localZ - radius],
+              [localX + radius, bottom, localZ + radius],
+              [localX + radius, top, localZ + radius],
+              [localX - radius, top, localZ - radius],
+            ],
+            [0.707, 0, -0.707],
+            color,
+          );
+          pushIndependentQuad(
+            bucket,
+            [
+              [localX + radius, bottom, localZ - radius],
+              [localX - radius, bottom, localZ + radius],
+              [localX - radius, top, localZ + radius],
+              [localX + radius, top, localZ - radius],
+            ],
+            [-0.707, 0, -0.707],
+            color,
+          );
+          quadCount += 2;
+          sourceFaceCount += 2;
+          continue;
+        }
+
+        if (!isFluidBlock(block)) continue;
         const worldX = chunkX * CHUNK_SIZE + localX;
         const worldZ = chunkZ * CHUNK_SIZE + localZ;
-        const brightness = lightLevelToBrightness(
-          sampleWorldLight(worldX, localY, worldZ),
+        const aboveSame =
+          sampleLocalBlock(localX, localY + 1, localZ) === block;
+        const top = localY + (aboveSame ? 0.5 : FLUID_SURFACE_OFFSET);
+        const bottom = localY - 0.5;
+        const bucket = getBucket(
+          buckets,
+          getBlockFaceTexture(block, 1, true),
         );
-        const bottom = localY - 0.48;
-        const top = localY + 0.48;
-        const radius = 0.28;
-        pushTorchQuad(torchBucket, [
-          [localX - radius, bottom, localZ - radius],
-          [localX + radius, bottom, localZ + radius],
-          [localX + radius, top, localZ + radius],
-          [localX - radius, top, localZ - radius],
-        ], brightness);
-        pushTorchQuad(torchBucket, [
-          [localX + radius, bottom, localZ - radius],
-          [localX - radius, bottom, localZ + radius],
-          [localX - radius, top, localZ + radius],
-          [localX + radius, top, localZ - radius],
-        ], brightness);
-        quadCount += 2;
-        sourceFaceCount += 2;
+
+        for (const [dx, dy, dz, axis, positive] of fluidDirections) {
+          const neighbor = sampleLocalBlock(
+            localX + dx,
+            localY + dy,
+            localZ + dz,
+          );
+          if (neighbor === block || isFullCubeBlock(neighbor)) continue;
+          if (isFluidBlock(neighbor) && block > neighbor) continue;
+          const brightness = lightLevelToBrightness(
+            sampleWorldLight(worldX + dx, localY + dy, worldZ + dz),
+          );
+          const [red, green, blue] = getBlockFaceColor(
+            block,
+            axis,
+            positive,
+            worldX,
+            localY,
+            worldZ,
+          );
+          const color = [
+            red * brightness,
+            green * brightness,
+            blue * brightness,
+          ] as const;
+          let corners: readonly VectorTuple[];
+          let normal: VectorTuple;
+          if (dy > 0) {
+            corners = [
+              [localX - 0.5, top, localZ - 0.5],
+              [localX + 0.5, top, localZ - 0.5],
+              [localX + 0.5, top, localZ + 0.5],
+              [localX - 0.5, top, localZ + 0.5],
+            ];
+            normal = [0, 1, 0];
+          } else if (dy < 0) {
+            corners = [
+              [localX - 0.5, bottom, localZ + 0.5],
+              [localX + 0.5, bottom, localZ + 0.5],
+              [localX + 0.5, bottom, localZ - 0.5],
+              [localX - 0.5, bottom, localZ - 0.5],
+            ];
+            normal = [0, -1, 0];
+          } else if (dx !== 0) {
+            const x = localX + dx * 0.5;
+            corners = dx > 0
+              ? [
+                  [x, bottom, localZ + 0.5],
+                  [x, bottom, localZ - 0.5],
+                  [x, top, localZ - 0.5],
+                  [x, top, localZ + 0.5],
+                ]
+              : [
+                  [x, bottom, localZ - 0.5],
+                  [x, bottom, localZ + 0.5],
+                  [x, top, localZ + 0.5],
+                  [x, top, localZ - 0.5],
+                ];
+            normal = [dx, 0, 0];
+          } else {
+            const z = localZ + dz * 0.5;
+            corners = dz > 0
+              ? [
+                  [localX - 0.5, bottom, z],
+                  [localX + 0.5, bottom, z],
+                  [localX + 0.5, top, z],
+                  [localX - 0.5, top, z],
+                ]
+              : [
+                  [localX + 0.5, bottom, z],
+                  [localX - 0.5, bottom, z],
+                  [localX - 0.5, top, z],
+                  [localX + 0.5, top, z],
+                ];
+            normal = [0, 0, dz];
+          }
+          pushIndependentQuad(bucket, corners, normal, color, true);
+          quadCount += 1;
+          sourceFaceCount += 1;
+        }
       }
     }
   }

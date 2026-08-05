@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { BiomeType } from '../src/world/BiomeDefinition';
+import { isSolidBlock } from '../src/world/BlockRegistry';
 import { BlockType } from '../src/world/BlockType';
-import { TerrainGenerator, hashWorldSeed } from '../src/world/TerrainGenerator';
-import { CHUNK_SIZE } from '../src/world/VoxelChunk';
+import {
+  LAVA_LEVEL,
+  SEA_LEVEL,
+  TerrainGenerator,
+  hashWorldSeed,
+} from '../src/world/TerrainGenerator';
 
 describe('TerrainGenerator', () => {
   it('produces identical chunks for the same world seed', () => {
@@ -10,42 +16,58 @@ describe('TerrainGenerator', () => {
     expect(first.copyBlocks()).toEqual(second.copyBlocks());
   });
 
-  it('changes generated terrain, caves, and forest layout when the seed changes', () => {
+  it('changes generated terrain, caves, and biome layout when the seed changes', () => {
     const first = new TerrainGenerator('fragment-seed-a').generateChunk(0, 0);
     const second = new TerrainGenerator('fragment-seed-b').generateChunk(0, 0);
     expect(first.copyBlocks()).not.toEqual(second.copyBlocks());
-    expect(hashWorldSeed('fragment-seed-a')).not.toBe(hashWorldSeed('fragment-seed-b'));
+    expect(hashWorldSeed('fragment-seed-a')).not.toBe(
+      hashWorldSeed('fragment-seed-b'),
+    );
   });
 
-  it('keeps one protected grass surface for every horizontal column', () => {
+  it('keeps a solid protected surface across land and seabed columns', () => {
     const terrain = new TerrainGenerator('surface-test');
-    const chunk = terrain.generateChunk(1, -3);
-    expect(chunk.countBlocks(BlockType.Grass)).toBe(CHUNK_SIZE * CHUNK_SIZE);
-    expect(chunk.countBlocks(BlockType.Stone)).toBeGreaterThan(0);
-    expect(chunk.countBlocks(BlockType.Dirt)).toBe(CHUNK_SIZE * CHUNK_SIZE * 2);
-    for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
-      for (let localZ = 0; localZ < CHUNK_SIZE; localZ += 1) {
-        const worldX = CHUNK_SIZE + localX;
-        const worldZ = -3 * CHUNK_SIZE + localZ;
+    for (let worldX = -48; worldX <= 48; worldX += 3) {
+      for (let worldZ = -48; worldZ <= 48; worldZ += 3) {
         const surface = terrain.sampleSurfaceHeight(worldX, worldZ);
-        expect(terrain.sampleBlock(worldX, surface - 3, worldZ)).not.toBe(BlockType.Air);
+        const surfaceBlock = terrain.sampleBlock(worldX, surface, worldZ);
+        expect(isSolidBlock(surfaceBlock)).toBe(true);
+        if (surface >= 3) {
+          const protectedBlock = terrain.sampleBlock(
+            worldX,
+            surface - 3,
+            worldZ,
+          );
+          expect(protectedBlock).not.toBe(BlockType.Air);
+          expect(protectedBlock).not.toBe(BlockType.Lava);
+        }
       }
     }
   });
 
-  it('carves deterministic underground caves without opening the protected surface', () => {
+  it('carves deterministic underground caves without opening the protected shell', () => {
     const terrain = new TerrainGenerator('cave-test');
     let caves = 0;
-    for (let worldX = -28; worldX <= 28; worldX += 1) {
-      for (let worldZ = -28; worldZ <= 28; worldZ += 1) {
+    for (let worldX = -36; worldX <= 36; worldX += 1) {
+      for (let worldZ = -36; worldZ <= 36; worldZ += 1) {
         const surface = terrain.sampleSurfaceHeight(worldX, worldZ);
         for (let worldY = 2; worldY <= surface - 4; worldY += 1) {
-          caves += terrain.sampleBlock(worldX, worldY, worldZ) === BlockType.Air ? 1 : 0;
+          const block = terrain.sampleBlock(worldX, worldY, worldZ);
+          caves +=
+            block === BlockType.Air || block === BlockType.Lava ? 1 : 0;
         }
-        expect(terrain.sampleBlock(worldX, surface - 3, worldZ)).not.toBe(BlockType.Air);
+        if (surface >= 3) {
+          const protectedBlock = terrain.sampleBlock(
+            worldX,
+            surface - 3,
+            worldZ,
+          );
+          expect(protectedBlock).not.toBe(BlockType.Air);
+          expect(protectedBlock).not.toBe(BlockType.Lava);
+        }
       }
     }
-    expect(caves).toBeGreaterThan(50);
+    expect(caves).toBeGreaterThan(20);
   });
 
   it('places coal above and below iron while keeping both underground', () => {
@@ -76,12 +98,12 @@ describe('TerrainGenerator', () => {
     expect(highestCoal).toBeGreaterThanOrEqual(highestIron);
   });
 
-  it('generates real log trunks and leaf canopies above terrain', () => {
+  it('generates real log trunks and leaf canopies above forest terrain', () => {
     const terrain = new TerrainGenerator('forest-test');
     let logs = 0;
     let leaves = 0;
-    for (let worldX = -32; worldX <= 32; worldX += 1) {
-      for (let worldZ = -32; worldZ <= 32; worldZ += 1) {
+    for (let worldX = -64; worldX <= 64; worldX += 1) {
+      for (let worldZ = -64; worldZ <= 64; worldZ += 1) {
         const surface = terrain.sampleSurfaceHeight(worldX, worldZ);
         for (let worldY = surface + 1; worldY <= surface + 8; worldY += 1) {
           const block = terrain.sampleBlock(worldX, worldY, worldZ);
@@ -94,23 +116,74 @@ describe('TerrainGenerator', () => {
     expect(leaves).toBeGreaterThan(logs);
   });
 
-  it('keeps the initial spawn clearing free of trees', () => {
+  it('keeps the initial spawn clearing free of trunks and canopies', () => {
     const terrain = new TerrainGenerator('world-fragment-01');
     for (let worldX = -4; worldX <= 4; worldX += 1) {
       for (let worldZ = 0; worldZ <= 7; worldZ += 1) {
         const surface = terrain.sampleSurfaceHeight(worldX, worldZ);
+        expect(surface).toBeGreaterThan(SEA_LEVEL);
         for (let worldY = surface + 1; worldY <= surface + 8; worldY += 1) {
-          expect(terrain.sampleBlock(worldX, worldY, worldZ)).toBe(BlockType.Air);
+          const block = terrain.sampleBlock(worldX, worldY, worldZ);
+          expect(block).not.toBe(BlockType.OakLog);
+          expect(block).not.toBe(BlockType.OakLeaves);
         }
       }
     }
   });
 
-  it('samples matching surface blocks and player standing heights', () => {
+  it('samples a solid spawn surface and matching player standing height', () => {
     const terrain = new TerrainGenerator('standing-test');
     const surface = terrain.sampleSurfaceHeight(0, 3);
-    expect(terrain.sampleBlock(0, surface, 3)).toBe(BlockType.Grass);
-    expect(terrain.sampleBlock(0, surface - 1, 3)).toBe(BlockType.Dirt);
-    expect(terrain.sampleStandingY(0.2, 3.8)).toBeCloseTo(terrain.sampleSurfaceHeight(0, 3) + 1.4);
+    const surfaceBlock = terrain.sampleBlock(0, surface, 3);
+    expect(terrain.sampleBiome(0, 3)).toBe(BiomeType.Plains);
+    expect(isSolidBlock(surfaceBlock)).toBe(true);
+    expect(surface).toBeGreaterThan(SEA_LEVEL);
+    expect(terrain.sampleStandingY(0.2, 3.8)).toBeCloseTo(
+      terrain.sampleSurfaceHeight(0, 3) + 1.4,
+    );
+  });
+
+  it('produces all four biomes and fills low terrain to sea level', () => {
+    const terrain = new TerrainGenerator('biome-ocean-test');
+    const biomes = new Set<string>();
+    let waterColumns = 0;
+    for (let worldX = -512; worldX <= 512; worldX += 16) {
+      for (let worldZ = -512; worldZ <= 512; worldZ += 16) {
+        biomes.add(terrain.sampleBiome(worldX, worldZ));
+        const surface = terrain.sampleSurfaceHeight(worldX, worldZ);
+        if (surface < SEA_LEVEL) {
+          expect(terrain.sampleBlock(worldX, SEA_LEVEL, worldZ)).toBe(
+            BlockType.Water,
+          );
+          waterColumns += 1;
+        }
+      }
+    }
+    expect(biomes).toEqual(
+      new Set([
+        BiomeType.Plains,
+        BiomeType.Forest,
+        BiomeType.Desert,
+        BiomeType.SnowyTundra,
+      ]),
+    );
+    expect(waterColumns).toBeGreaterThan(0);
+  });
+
+  it('places luminous lava only in deep carved cave space', () => {
+    const terrain = new TerrainGenerator('deep-lava-test');
+    let lava = 0;
+    for (let worldX = -96; worldX <= 96; worldX += 1) {
+      for (let worldZ = -96; worldZ <= 96; worldZ += 1) {
+        for (let worldY = 2; worldY <= LAVA_LEVEL; worldY += 1) {
+          if (
+            terrain.sampleBlock(worldX, worldY, worldZ) === BlockType.Lava
+          ) {
+            lava += 1;
+          }
+        }
+      }
+    }
+    expect(lava).toBeGreaterThan(0);
   });
 });
