@@ -211,7 +211,7 @@ export function isFoodItem(item: ItemType | null): boolean {
   return item !== null && getItemDefinition(item).kind === 'food';
 }
 
-export function itemFromBlock(block: BlockTypeValue): ItemType | null {
+export function itemFromBlock(block: number): ItemType | null {
   switch (block) {
     case BlockType.Grass: return ItemType.GrassBlock;
     case BlockType.Dirt: return ItemType.DirtBlock;
@@ -226,7 +226,9 @@ export function itemFromBlock(block: BlockTypeValue): ItemType | null {
     case BlockType.IronOre: return ItemType.IronOreBlock;
     case BlockType.Furnace: return ItemType.FurnaceBlock;
     case BlockType.Torch: return ItemType.TorchBlock;
-    case BlockType.Air: return null;
+    case BlockType.Air:
+    default:
+      return null;
   }
 }
 
