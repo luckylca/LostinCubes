@@ -5,7 +5,9 @@ import type {
   PlayerMotorConfig,
   PlayerVector,
 } from '../../player/KinematicPlayerMotor';
+import { syncSurvivalHud } from '../../ui/SurvivalHudRuntime';
 import {
+  getSurvivalBiomeLabel,
   isPlayerHeadSubmerged,
   isPlayerHeadSuffocating,
   sampleSurvivalEnvironment,
@@ -372,6 +374,7 @@ export class LocalGameSession implements GameSession {
       damageTaken: this.#damageTaken,
       deathCount: this.#deathCount,
     };
+    syncSurvivalHud(player, getSurvivalBiomeLabel(player.position));
     return {
       tick,
       worldSeed: this.#worldSeed,
