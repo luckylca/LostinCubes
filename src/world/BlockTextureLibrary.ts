@@ -21,18 +21,11 @@ export enum BlockTexture {
   FurnaceTop = 14,
   FurnaceSide = 15,
   FurnaceFront = 16,
+  Cobblestone = 17,
+  Torch = 18,
 }
 
-export const BLOCK_TEXTURE_COUNT = 17;
-
-export interface BlockTexturePixels {
-  readonly pixels: Uint8Array;
-  readonly hasAlpha: boolean;
-}
-
-type Rgba = readonly [number, number, number, number?];
-
-const TEXTURE_IDS: readonly BlockTexture[] = [
+export const BLOCK_TEXTURE_KINDS: readonly BlockTexture[] = [
   BlockTexture.GrassTop,
   BlockTexture.GrassSide,
   BlockTexture.Dirt,
@@ -50,7 +43,18 @@ const TEXTURE_IDS: readonly BlockTexture[] = [
   BlockTexture.FurnaceTop,
   BlockTexture.FurnaceSide,
   BlockTexture.FurnaceFront,
+  BlockTexture.Cobblestone,
+  BlockTexture.Torch,
 ];
+
+export const BLOCK_TEXTURE_COUNT = BLOCK_TEXTURE_KINDS.length;
+
+export interface BlockTexturePixels {
+  readonly pixels: Uint8Array;
+  readonly hasAlpha: boolean;
+}
+
+type Rgba = readonly [number, number, number, number?];
 
 function clampByte(value: number): number {
   return Math.min(Math.max(Math.round(value), 0), 255);
@@ -114,7 +118,9 @@ function drawSpeckles(
     const y = Math.floor(hash(index, 7, seed) * BLOCK_TEXTURE_SIZE);
     const color = colors[index % colors.length] ?? [255, 255, 255];
     setPixel(pixels, x, y, color);
-    if (hash(index, 11, seed) > 0.62) setPixel(pixels, x + 1, y, tint(color, 0.88));
+    if (hash(index, 11, seed) > 0.62) {
+      setPixel(pixels, x + 1, y, tint(color, 0.88));
+    }
   }
 }
 
@@ -133,6 +139,23 @@ function drawPlanks(pixels: Uint8Array): void {
 function drawStone(pixels: Uint8Array, seed: number, base: Rgba): void {
   fillNoise(pixels, base, seed, 0.1);
   drawSpeckles(pixels, seed + 1, 16, [tint(base, 0.72), tint(base, 1.18)]);
+}
+
+function drawCobblestone(pixels: Uint8Array): void {
+  drawStone(pixels, 89, [119, 123, 121]);
+  const mortar: Rgba = [67, 70, 69];
+  for (const y of [0, 5, 10, 15]) {
+    for (let x = 0; x < 16; x += 1) setPixel(pixels, x, y, mortar);
+  }
+  for (let row = 0; row < 3; row += 1) {
+    const yStart = row * 5;
+    const offsets = row % 2 === 0 ? [0, 7, 14] : [3, 10];
+    for (const x of offsets) {
+      for (let y = yStart; y < Math.min(yStart + 5, 16); y += 1) {
+        setPixel(pixels, x, y, mortar);
+      }
+    }
+  }
 }
 
 function createPixels(texture: BlockTexture): BlockTexturePixels {
@@ -160,10 +183,17 @@ function createPixels(texture: BlockTexture): BlockTexturePixels {
     case BlockTexture.Stone:
       drawStone(pixels, 19, [132, 136, 133]);
       break;
+    case BlockTexture.Cobblestone:
+      drawCobblestone(pixels);
+      break;
     case BlockTexture.RuneStone:
       drawStone(pixels, 23, [48, 73, 63]);
-      for (let step = 2; step < 14; step += 1) setPixel(pixels, step, 8, [55, 215, 140]);
-      for (let step = 4; step < 12; step += 1) setPixel(pixels, 8, step, [55, 215, 140]);
+      for (let step = 2; step < 14; step += 1) {
+        setPixel(pixels, step, 8, [55, 215, 140]);
+      }
+      for (let step = 4; step < 12; step += 1) {
+        setPixel(pixels, 8, step, [55, 215, 140]);
+      }
       break;
     case BlockTexture.OakLogTop:
       fillNoise(pixels, [167, 121, 67], 29, 0.1);
@@ -185,7 +215,9 @@ function createPixels(texture: BlockTexture): BlockTexturePixels {
     case BlockTexture.OakLogSide:
       fillNoise(pixels, [94, 59, 28], 31, 0.12);
       for (let x = 1; x < 16; x += 4) {
-        for (let y = 0; y < 16; y += 1) setPixel(pixels, x, y, y % 5 === 0 ? [61, 35, 17] : [120, 76, 34]);
+        for (let y = 0; y < 16; y += 1) {
+          setPixel(pixels, x, y, y % 5 === 0 ? [61, 35, 17] : [120, 76, 34]);
+        }
       }
       break;
     case BlockTexture.OakLeaves:
@@ -266,13 +298,27 @@ function createPixels(texture: BlockTexture): BlockTexturePixels {
         }
       }
       break;
+    case BlockTexture.Torch:
+      hasAlpha = true;
+      for (let y = 0; y < 16; y += 1) {
+        for (let x = 0; x < 16; x += 1) setPixel(pixels, x, y, [0, 0, 0, 0]);
+      }
+      for (let y = 3; y < 16; y += 1) {
+        const color: Rgba = y < 6 ? [255, 199, 55, 255] : [126, 79, 31, 255];
+        for (let x = 6; x <= 9; x += 1) setPixel(pixels, x, y, color);
+      }
+      setPixel(pixels, 5, 2, [255, 126, 28, 220]);
+      setPixel(pixels, 10, 2, [255, 126, 28, 220]);
+      setPixel(pixels, 7, 1, [255, 234, 119, 255]);
+      setPixel(pixels, 8, 1, [255, 234, 119, 255]);
+      break;
   }
 
   return { pixels, hasAlpha };
 }
 
 const TEXTURE_CACHE = new Map<BlockTexture, BlockTexturePixels>(
-  TEXTURE_IDS.map((texture) => [texture, createPixels(texture)]),
+  BLOCK_TEXTURE_KINDS.map((texture) => [texture, createPixels(texture)]),
 );
 const FALLBACK_TEXTURE = createPixels(BlockTexture.Stone);
 
@@ -294,6 +340,8 @@ export function getBlockFaceTexture(
       return BlockTexture.Dirt;
     case BlockType.Stone:
       return BlockTexture.Stone;
+    case BlockType.Cobblestone:
+      return BlockTexture.Cobblestone;
     case BlockType.RuneStone:
       return BlockTexture.RuneStone;
     case BlockType.OakLog:
@@ -314,6 +362,8 @@ export function getBlockFaceTexture(
       if (axis === 1) return BlockTexture.FurnaceTop;
       if (axis === 2 && positive) return BlockTexture.FurnaceFront;
       return BlockTexture.FurnaceSide;
+    case BlockType.Torch:
+      return BlockTexture.Torch;
     case BlockType.Air:
       return BlockTexture.Stone;
   }
