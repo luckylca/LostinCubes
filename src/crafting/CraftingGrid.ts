@@ -297,7 +297,7 @@ export class CraftingGrid {
 
     while (crafts < boundedMaximum) {
       const match = findCraftingMatch(this.#size, this.snapshot, recipes);
-      if (match === null || match.recipe.id !== firstMatch.recipe.id) break;
+      if (match?.recipe.id !== firstMatch.recipe.id) break;
       const currentCount = nextCursor?.count ?? 0;
       if (
         currentCount + match.recipe.output.count >
