@@ -197,35 +197,35 @@ export function buildChunkLightField(
   }
 
   const propagate = (levels: Uint8Array, queue: GrowingIntQueue): void => {
-    while (true) {
-      const sourceIndex = queue.shift();
-      if (sourceIndex === null) break;
+    let sourceIndex = queue.shift();
+    while (sourceIndex !== null) {
       const sourceLevel = levels[sourceIndex] ?? 0;
-      if (sourceLevel <= 1) continue;
+      if (sourceLevel > 1) {
+        const sourceY = Math.floor(sourceIndex / layerSize);
+        const inLayer = sourceIndex - sourceY * layerSize;
+        const localZ = Math.floor(inLayer / sizeX);
+        const localX = inLayer - localZ * sizeX;
+        const sourceX = minimumX + localX;
+        const sourceZ = minimumZ + localZ;
 
-      const sourceY = Math.floor(sourceIndex / layerSize);
-      const inLayer = sourceIndex - sourceY * layerSize;
-      const localZ = Math.floor(inLayer / sizeX);
-      const localX = inLayer - localZ * sizeX;
-      const sourceX = minimumX + localX;
-      const sourceZ = minimumZ + localZ;
-
-      for (const [offsetX, offsetY, offsetZ] of neighborOffsets) {
-        const targetX = sourceX + offsetX;
-        const targetY = sourceY + offsetY;
-        const targetZ = sourceZ + offsetZ;
-        if (!contains(targetX, targetY, targetZ)) continue;
-        const opacity = getBlockLightOpacity(
-          sampleBlock(targetX, targetY, targetZ),
-        );
-        if (opacity >= MAXIMUM_LIGHT_LEVEL) continue;
-        const propagated = sourceLevel - Math.max(opacity, 1);
-        if (propagated <= 0) continue;
-        const targetIndex = indexOf(targetX, targetY, targetZ);
-        if (propagated <= (levels[targetIndex] ?? 0)) continue;
-        levels[targetIndex] = propagated;
-        queue.push(targetIndex);
+        for (const [offsetX, offsetY, offsetZ] of neighborOffsets) {
+          const targetX = sourceX + offsetX;
+          const targetY = sourceY + offsetY;
+          const targetZ = sourceZ + offsetZ;
+          if (!contains(targetX, targetY, targetZ)) continue;
+          const opacity = getBlockLightOpacity(
+            sampleBlock(targetX, targetY, targetZ),
+          );
+          if (opacity >= MAXIMUM_LIGHT_LEVEL) continue;
+          const propagated = sourceLevel - Math.max(opacity, 1);
+          if (propagated <= 0) continue;
+          const targetIndex = indexOf(targetX, targetY, targetZ);
+          if (propagated <= (levels[targetIndex] ?? 0)) continue;
+          levels[targetIndex] = propagated;
+          queue.push(targetIndex);
+        }
       }
+      sourceIndex = queue.shift();
     }
   };
 
