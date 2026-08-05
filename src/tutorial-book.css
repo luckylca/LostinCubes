@@ -1,0 +1,232 @@
+.tutorial-book {
+  position: relative;
+  flex: none;
+  pointer-events: auto;
+}
+
+.tutorial-book > summary {
+  display: block;
+  padding: 0.55rem 0.78rem;
+  border: 1px solid rgb(235 220 167 / 38%);
+  border-radius: 999px;
+  color: #fff2bd;
+  background: rgb(38 27 15 / 86%);
+  box-shadow: 0 0.45rem 1.2rem rgb(0 0 0 / 28%);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  list-style: none;
+  user-select: none;
+}
+
+.tutorial-book > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tutorial-book[open] > summary {
+  border-color: rgb(255 229 145 / 72%);
+  background: #4b321b;
+}
+
+.tutorial-book-shell {
+  position: fixed;
+  top: max(4.7rem, calc(env(safe-area-inset-top) + 4rem));
+  right: max(1rem, env(safe-area-inset-right));
+  z-index: 28;
+  width: min(31rem, calc(100vw - 2rem));
+  min-height: 25rem;
+  padding: 1rem;
+  border: 0.32rem solid #4b321f;
+  border-radius: 0.45rem 1rem 1rem 0.45rem;
+  color: #382714;
+  background:
+    linear-gradient(90deg, rgb(95 58 28 / 18%), transparent 8% 92%, rgb(95 58 28 / 14%)),
+    repeating-linear-gradient(0deg, rgb(86 55 25 / 3%) 0 1px, transparent 1px 5px),
+    #efe0b7;
+  box-shadow:
+    inset 0.35rem 0 0 rgb(92 55 28 / 18%),
+    0 1.4rem 4rem rgb(0 0 0 / 52%);
+}
+
+.tutorial-book-shell > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tutorial-book-pages {
+  min-height: 20rem;
+}
+
+.tutorial-page {
+  display: none;
+  align-content: start;
+  gap: 0.75rem;
+  min-height: 20rem;
+  padding: 1.15rem 1.25rem 0.8rem 1.55rem;
+  border: 1px solid rgb(94 60 30 / 22%);
+  background: rgb(255 249 222 / 42%);
+  box-shadow: inset 0.2rem 0 0 rgb(115 72 34 / 12%);
+}
+
+#tutorial-page-1:checked ~ .tutorial-book-pages .tutorial-page-1,
+#tutorial-page-2:checked ~ .tutorial-book-pages .tutorial-page-2,
+#tutorial-page-3:checked ~ .tutorial-book-pages .tutorial-page-3,
+#tutorial-page-4:checked ~ .tutorial-book-pages .tutorial-page-4 {
+  display: grid;
+}
+
+.tutorial-page h2 {
+  margin: 0;
+  color: #3f2913;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 1.55rem;
+}
+
+.tutorial-page p,
+.tutorial-page li,
+.tutorial-page dd,
+.tutorial-page dt {
+  font-size: 0.82rem;
+  line-height: 1.58;
+}
+
+.tutorial-page p,
+.tutorial-page ol,
+.tutorial-page ul,
+.tutorial-page dl {
+  margin: 0;
+}
+
+.tutorial-page ol,
+.tutorial-page ul {
+  display: grid;
+  gap: 0.42rem;
+  padding-left: 1.25rem;
+}
+
+.tutorial-page dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.tutorial-page dl div {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.48rem 0.58rem;
+  border-bottom: 1px solid rgb(94 60 30 / 22%);
+}
+
+.tutorial-page dt {
+  color: #73502c;
+  font-weight: 800;
+}
+
+.tutorial-page dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.tutorial-kicker {
+  color: #8b6237;
+  font-size: 0.65rem !important;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.tutorial-page-turn {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: auto;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgb(94 60 30 / 20%);
+}
+
+.tutorial-page-turn label,
+.tutorial-page-tabs label {
+  cursor: pointer;
+  font-weight: 800;
+  user-select: none;
+}
+
+.tutorial-page-turn label:hover,
+.tutorial-page-tabs label:hover {
+  color: #8d4e18;
+}
+
+.tutorial-page-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 0.45rem;
+  padding-top: 0.7rem;
+}
+
+.tutorial-page-tabs label {
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 1px solid rgb(76 47 23 / 34%);
+  border-radius: 50%;
+  background: rgb(255 250 226 / 48%);
+  font-size: 0.72rem;
+}
+
+#tutorial-page-1:checked ~ .tutorial-page-tabs label[for="tutorial-page-1"],
+#tutorial-page-2:checked ~ .tutorial-page-tabs label[for="tutorial-page-2"],
+#tutorial-page-3:checked ~ .tutorial-page-tabs label[for="tutorial-page-3"],
+#tutorial-page-4:checked ~ .tutorial-page-tabs label[for="tutorial-page-4"] {
+  color: #fff3c4;
+  background: #69401f;
+}
+
+@media (max-width: 980px) {
+  .desktop-help {
+    display: none;
+  }
+
+  .tutorial-book {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 620px) {
+  .tutorial-book-shell {
+    top: max(3.8rem, calc(env(safe-area-inset-top) + 3.2rem));
+    right: 0.5rem;
+    width: calc(100vw - 1rem);
+    min-height: 22rem;
+    padding: 0.65rem;
+  }
+
+  .tutorial-book-pages,
+  .tutorial-page {
+    min-height: 17.5rem;
+  }
+
+  .tutorial-page {
+    gap: 0.5rem;
+    padding: 0.8rem 0.85rem 0.6rem 1rem;
+  }
+
+  .tutorial-page h2 {
+    font-size: 1.25rem;
+  }
+
+  .tutorial-page p,
+  .tutorial-page li,
+  .tutorial-page dd,
+  .tutorial-page dt {
+    font-size: 0.72rem;
+  }
+
+  .tutorial-page dl {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.2rem;
+  }
+}

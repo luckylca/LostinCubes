@@ -36,17 +36,76 @@
           <span class="hud-label">坐标</span>
           <strong id="hud-position">0.0, 2.9, 3.5</strong>
         </div>
-        <p class="desktop-help">点击锁定鼠标 · WASD 移动 · 左键挖掘 · 右键使用/放置 · E 背包 · 滚轮/1–9 快捷栏 · Shift 冲刺 · Space 跳跃 · F5/V 视角 · Esc 暂停</p>
-        <details id="survival-guide" class="survival-guide" open>
-          <summary>新手路线：工作台与熔炉怎么做</summary>
-          <ol>
-            <li><strong>砍树：</strong>左键持续破坏树干，捡起橡木原木。</li>
-            <li><strong>真实合成：</strong>按 E 打开随身 2×2；把材料放进格子，配方成立后从右侧输出槽取走结果。配方书只负责自动摆放。</li>
-            <li><strong>制作工作台：</strong>1 原木做 4 木板，再用 4 木板填满 2×2，得到工作台；放进快捷栏并右键地面放置。</li>
-            <li><strong>制作熔炉：</strong>用木镐挖石头会掉落圆石；在工作台 3×3 中用八块圆石围一圈、中间留空。</li>
-            <li><strong>照明与冶炼：</strong>煤炭放在木棍上方可制作 4 个火把；火把提供方块光。熔炉上格装粗铁、下格装煤炭、右格取铁锭。</li>
-          </ol>
-          <p class="guide-warning">工作台和熔炉不会自然出现在出生点，必须先合成、放进快捷栏并亲自放置。</p>
+        <p class="desktop-help">WASD 移动 · E 背包 · Esc 释放鼠标</p>
+        <details id="survival-guide" class="tutorial-book">
+          <summary aria-label="打开教程书">📖 教程书</summary>
+          <div class="tutorial-book-shell">
+            <input type="radio" name="tutorial-page" id="tutorial-page-1" checked />
+            <input type="radio" name="tutorial-page" id="tutorial-page-2" />
+            <input type="radio" name="tutorial-page" id="tutorial-page-3" />
+            <input type="radio" name="tutorial-page" id="tutorial-page-4" />
+
+            <div class="tutorial-book-pages">
+              <article class="tutorial-page tutorial-page-1">
+                <p class="tutorial-kicker">第 1 页</p>
+                <h2>基础操作</h2>
+                <dl>
+                  <div><dt>移动</dt><dd>WASD</dd></div>
+                  <div><dt>跳跃 / 冲刺</dt><dd>Space / Shift</dd></div>
+                  <div><dt>破坏 / 使用</dt><dd>左键 / 右键</dd></div>
+                  <div><dt>背包 / 视角</dt><dd>E / F5 或 V</dd></div>
+                </dl>
+                <p>按住左键持续挖掘。准星裂纹填满时方块会立刻消失并生成掉落。</p>
+                <nav class="tutorial-page-turn"><span></span><label for="tutorial-page-2">下一页 ›</label></nav>
+              </article>
+
+              <article class="tutorial-page tutorial-page-2">
+                <p class="tutorial-kicker">第 2 页</p>
+                <h2>工作台与真实合成</h2>
+                <ol>
+                  <li>砍树并捡起橡木原木。</li>
+                  <li>按 E，在随身 2×2 中把原木做成木板。</li>
+                  <li>四块木板填满 2×2，得到工作台。</li>
+                  <li>把工作台放进快捷栏，对地面右键放置。</li>
+                </ol>
+                <p>配方书会尽量把可用材料全部铺入格子。单击输出做一次，按住连续制作，Shift+点击快速做满。</p>
+                <nav class="tutorial-page-turn"><label for="tutorial-page-1">‹ 上一页</label><label for="tutorial-page-3">下一页 ›</label></nav>
+              </article>
+
+              <article class="tutorial-page tutorial-page-3">
+                <p class="tutorial-kicker">第 3 页</p>
+                <h2>工具、火把与熔炉</h2>
+                <ol>
+                  <li>木镐挖天然石头会掉圆石。</li>
+                  <li>八块圆石围一圈、中间留空，可合成熔炉。</li>
+                  <li>煤炭放在木棍上方，一次得到四个火把。</li>
+                  <li>熔炉上格粗铁、下格煤炭、右格取铁锭。</li>
+                </ol>
+                <p>火把发出 14 级方块光，燃烧中的熔炉发出 13 级方块光。</p>
+                <nav class="tutorial-page-turn"><label for="tutorial-page-2">‹ 上一页</label><label for="tutorial-page-4">下一页 ›</label></nav>
+              </article>
+
+              <article class="tutorial-page tutorial-page-4">
+                <p class="tutorial-kicker">第 4 页</p>
+                <h2>生存提示</h2>
+                <ul>
+                  <li>危险坠落会扣除生命。</li>
+                  <li>夜晚会出现夜行者，斧头近战伤害较高。</li>
+                  <li>苹果可以恢复四点生命。</li>
+                  <li>死亡后物品会掉在死亡位置。</li>
+                  <li>世界、背包、掉落和熔炉状态都会自动保存。</li>
+                </ul>
+                <nav class="tutorial-page-turn"><label for="tutorial-page-3">‹ 上一页</label><label for="tutorial-page-1">回到封面 ↺</label></nav>
+              </article>
+            </div>
+
+            <div class="tutorial-page-tabs" aria-label="教程页码">
+              <label for="tutorial-page-1">1</label>
+              <label for="tutorial-page-2">2</label>
+              <label for="tutorial-page-3">3</label>
+              <label for="tutorial-page-4">4</label>
+            </div>
+          </div>
         </details>
       </aside>
 

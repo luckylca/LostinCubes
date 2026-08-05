@@ -163,6 +163,8 @@ export class InventoryView {
   #cursorStack: InventorySlotSnapshot | null = null;
   #station: CraftingStation = 'inventory';
   #open = false;
+  #craftRepeatDelay: number | null = null;
+  #craftRepeatInterval: number | null = null;
 
   public constructor(
     root: HTMLElement,
@@ -189,9 +191,13 @@ export class InventoryView {
     this.#root
       .querySelector<HTMLElement>('[data-inventory-close]')
       ?.addEventListener('click', () => this.close());
+    window.addEventListener('pointerup', this.#stopCraftingRepeat);
+    window.addEventListener('pointercancel', this.#stopCraftingRepeat);
+    window.addEventListener('blur', this.#stopCraftingRepeat);
   }
 
   public open(station: CraftingStation = 'inventory'): void {
+    this.#stopCraftingRepeat();
     const nextSize = station === 'crafting-table' ? 3 : 2;
     if (station !== 'furnace' && this.#crafting.size !== nextSize) {
       if (!this.#crafting.returnAll(this.#inventory)) {
@@ -207,15 +213,16 @@ export class InventoryView {
     document.body.classList.add('inventory-open');
     this.#message.textContent =
       station === 'crafting-table'
-        ? '把材料摆进 3×3 格子，再从输出槽取走结果；左键整组，右键单个。'
+        ? '3×3 合成：单击做一次，按住输出连续制作，Shift+点击快速做满。'
         : station === 'furnace'
-          ? '上格放粗铁、下格放燃料、右格取铁锭；燃烧中的熔炉会照亮周围。'
-          : '把材料摆进随身 2×2 格子，再点击输出槽完成制作。';
+          ? '上格粗铁、下格煤炭、右格取铁锭。'
+          : '2×2 合成：单击做一次，按住输出连续制作，Shift+点击快速做满。';
     this.render();
   }
 
   public close(): boolean {
     if (!this.#open) return true;
+    this.#stopCraftingRepeat();
     if (this.#station !== 'furnace' && !this.#crafting.returnAll(this.#inventory)) {
       this.#message.textContent =
         '背包没有空间，请先清出位置再收回合成格材料。';
@@ -285,6 +292,10 @@ export class InventoryView {
   }
 
   public dispose(): void {
+    this.#stopCraftingRepeat();
+    window.removeEventListener('pointerup', this.#stopCraftingRepeat);
+    window.removeEventListener('pointercancel', this.#stopCraftingRepeat);
+    window.removeEventListener('blur', this.#stopCraftingRepeat);
     this.#crafting.returnAll(this.#inventory);
     this.#returnCursorToInventory();
     document.body.classList.remove('inventory-open');
@@ -318,7 +329,19 @@ export class InventoryView {
     this.#afterStackInteraction();
   };
 
+  readonly #stopCraftingRepeat = (): void => {
+    if (this.#craftRepeatDelay !== null) {
+      window.clearTimeout(this.#craftRepeatDelay);
+      this.#craftRepeatDelay = null;
+    }
+    if (this.#craftRepeatInterval !== null) {
+      window.clearInterval(this.#craftRepeatInterval);
+      this.#craftRepeatInterval = null;
+    }
+  };
+
   #afterStackInteraction(): void {
+    this.#stopCraftingRepeat();
     this.#message.textContent =
       this.#cursorStack === null
         ? '物品已放入槽位。'
@@ -339,13 +362,13 @@ export class InventoryView {
     const manual = document.createElement('section');
     manual.className = 'manual-crafting';
     manual.innerHTML = [
-      '<header><div><strong>手动合成</strong><small>材料位置会真实参与匹配</small></div></header>',
+      '<header><div><strong>手动合成</strong><small>格子中的堆叠可以连续制作</small></div></header>',
       '<div class="manual-crafting-machine">',
       `<div class="crafting-input-grid crafting-grid-${String(this.#crafting.size)}" data-crafting-grid aria-label="${String(this.#crafting.size)}乘${String(this.#crafting.size)}合成格"></div>`,
       '<span class="crafting-output-arrow" aria-hidden="true">→</span>',
       '<button type="button" class="inventory-slot crafting-output-slot" data-crafting-output aria-label="合成输出"></button>',
       '</div>',
-      '<p class="crafting-hint">配方书按钮只会帮你摆放材料；最终仍需点击输出槽。</p>',
+      '<p class="crafting-hint">单击制作一次；按住输出槽连续制作；Shift+点击一次做到当前输出堆叠上限。</p>',
     ].join('');
     const inputGrid = manual.querySelector<HTMLElement>('[data-crafting-grid]');
     const craftingSnapshot = this.#crafting.snapshot;
@@ -381,13 +404,18 @@ export class InventoryView {
       setItemPresentation(outputButton, output);
       outputButton.disabled = match === null;
       outputButton.dataset.recipeId = match?.recipe.id ?? '';
-      outputButton.addEventListener('click', () => this.#takeCraftingOutput());
+      outputButton.addEventListener('pointerdown', (event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        this.#startCraftingOutput(event.shiftKey);
+      });
     }
     this.#recipes.append(manual);
 
     const book = document.createElement('section');
     book.className = 'recipe-book-section';
-    book.innerHTML = '<header><strong>配方书</strong><small>仅在合成格为空时自动摆放</small></header>';
+    book.innerHTML = '<header><strong>配方书</strong><small>空合成格时会尽量铺入全部可制作材料</small></header>';
     const list = document.createElement('div');
     list.className = 'recipe-list';
     for (const recipe of recipes) {
@@ -420,25 +448,44 @@ export class InventoryView {
 
   #fillRecipe(recipe: CraftingRecipe): void {
     if (!this.#crafting.fillFromRecipe(recipe, this.#inventory)) return;
-    this.#message.textContent = `已把 ${recipe.label} 的材料摆入合成格，请取右侧输出。`;
+    this.#message.textContent = `已把 ${recipe.label} 的可用材料尽量铺入合成格。`;
     this.#callbacks.onChanged();
     this.render();
   }
 
-  #takeCraftingOutput(): void {
+  #startCraftingOutput(craftMaximum: boolean): void {
+    this.#stopCraftingRepeat();
+    if (craftMaximum) {
+      this.#takeCraftingOutput(Number.POSITIVE_INFINITY);
+      return;
+    }
+    if (!this.#takeCraftingOutput(1)) return;
+    this.#craftRepeatDelay = window.setTimeout(() => {
+      this.#craftRepeatDelay = null;
+      this.#craftRepeatInterval = window.setInterval(() => {
+        if (!this.#takeCraftingOutput(1)) this.#stopCraftingRepeat();
+      }, 90);
+    }, 320);
+  }
+
+  #takeCraftingOutput(maximumCrafts: number): boolean {
     const result = this.#crafting.takeOutput(
       this.#cursorStack,
       getVisibleRecipes(this.#station),
+      maximumCrafts,
     );
-    if (!result.crafted || result.recipe === null) return;
+    if (!result.crafted || result.recipe === null) return false;
     this.#cursorStack = result.cursor;
-    this.#message.textContent = `已制作：${result.recipe.label}`;
+    const outputCount = result.recipe.output.count * result.crafts;
+    this.#message.textContent = `已制作：${result.recipe.label} ×${String(outputCount)}`;
     this.#callbacks.onChanged();
     this.#callbacks.onCrafted(result.recipe);
     this.render();
+    return true;
   }
 
   #renderFurnace(): void {
+    this.#stopCraftingRepeat();
     this.#recipes.replaceChildren();
     const state = this.#callbacks.getFurnaceState?.() ?? null;
     if (state === null) {

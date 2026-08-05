@@ -20,7 +20,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
       count: 0,
       durability: null,
     }));
-    slots[0] = { item: 'oak-log-block', count: 2, durability: null };
+    slots[0] = { item: 'oak-log-block', count: 10, durability: null };
     slots[1] = { item: 'oak-planks-block', count: 4, durability: null };
     slots[2] = { item: 'stick', count: 4, durability: null };
     slots[3] = { item: 'cobblestone-block', count: 8, durability: null };
@@ -55,8 +55,18 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   const guide = page.locator('#survival-guide');
   await expect(guide).toBeVisible();
-  await expect(guide).toContainText('工作台与熔炉怎么做');
-  await expect(guide).toContainText('八块圆石围一圈');
+  await expect(guide).not.toHaveAttribute('open', '');
+  await expect(guide.locator('summary')).toContainText('教程书');
+  await guide.locator('summary').click();
+  await expect(guide).toHaveAttribute('open', '');
+  await expect(guide.locator('.tutorial-page-1')).toBeVisible();
+  await guide.locator('label[for="tutorial-page-2"]').first().click();
+  await expect(guide.locator('.tutorial-page-2')).toBeVisible();
+  await expect(guide.locator('.tutorial-page-2')).toContainText('按住连续制作');
+  await expect(guide.locator('.tutorial-page-1')).toBeHidden();
+  await guide.locator('summary').click();
+  await expect(guide).not.toHaveAttribute('open', '');
+
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
   await expect(page.locator('#hotbar .hotbar-slot').first()).toHaveAttribute(
     'aria-label',
@@ -124,23 +134,31 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await page.locator('.recipe-card[data-recipe-id="oak-planks"]').click();
   await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
     'aria-label',
-    /橡木原木 × 1/,
+    /橡木原木 × 10/,
   );
   await expect(page.locator('[data-crafting-output]')).toHaveAttribute(
     'aria-label',
     /橡木木板 × 4/,
   );
   await expect(page.locator('[data-inventory-cursor]')).toBeHidden();
+
   await page.locator('[data-crafting-output]').click();
   await expect(page.locator('[data-inventory-cursor]')).toBeVisible();
-  await page.locator('[data-inventory-index="7"]').click();
-  await expect(page.locator('[data-inventory-index="7"]')).toHaveAttribute(
+  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
     'aria-label',
-    /橡木木板 × 4/,
+    /橡木原木 × 9/,
   );
+
+  await page.locator('[data-crafting-output]').click({ modifiers: ['Shift'] });
+  await expect(page.locator('[data-inventory-cursor] strong')).toHaveText('40');
   await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
     'aria-label',
     '空槽',
+  );
+  await page.locator('[data-inventory-index="7"]').click();
+  await expect(page.locator('[data-inventory-index="7"]')).toHaveAttribute(
+    'aria-label',
+    /橡木木板 × 40/,
   );
 
   await page.keyboard.press('e');
