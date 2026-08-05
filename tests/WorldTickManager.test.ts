@@ -6,6 +6,10 @@ import {
   type RandomTickWorld,
 } from '../src/world/WorldTickManager';
 
+function coordinateKey(worldX: number, worldY: number, worldZ: number): string {
+  return `${String(worldX)},${String(worldY)},${String(worldZ)}`;
+}
+
 class UniformTickWorld implements RandomTickWorld {
   public readonly worldSeed = 'bounded-random-tick-test';
   readonly #initial: BlockTypeValue;
@@ -23,7 +27,9 @@ class UniformTickWorld implements RandomTickWorld {
     worldZ: number,
   ): BlockTypeValue {
     this.sampleCalls += 1;
-    return this.#changed.get(`${worldX},${worldY},${worldZ}`) ?? this.#initial;
+    return (
+      this.#changed.get(coordinateKey(worldX, worldY, worldZ)) ?? this.#initial
+    );
   }
 
   public isSolidAt(): boolean {
@@ -37,7 +43,7 @@ class UniformTickWorld implements RandomTickWorld {
     block: BlockTypeValue,
   ): boolean {
     this.setCalls += 1;
-    this.#changed.set(`${worldX},${worldY},${worldZ}`, block);
+    this.#changed.set(coordinateKey(worldX, worldY, worldZ), block);
     return true;
   }
 }
