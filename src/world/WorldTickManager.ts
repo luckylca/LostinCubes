@@ -2,7 +2,6 @@ import { getBlockDefinition, isFullCubeBlock } from './BlockRegistry';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { CHUNK_HEIGHT } from './VoxelChunk';
-import type { VoxelWorldData } from './VoxelWorldData';
 
 const RANDOM_TICK_INTERVAL_SECONDS = 0.25;
 const RANDOM_SAMPLES_PER_BATCH = 4;
@@ -10,6 +9,18 @@ const HORIZONTAL_RADIUS = 12;
 const VERTICAL_RADIUS = 9;
 const LEAF_LOG_RADIUS = 4;
 const SAPLING_GROWTH_CHANCE = 1 / 28;
+
+export interface RandomTickWorld {
+  readonly worldSeed: string;
+  sampleBlock(worldX: number, worldY: number, worldZ: number): BlockTypeValue;
+  isSolidAt(worldX: number, worldY: number, worldZ: number): boolean;
+  setBlock(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    block: BlockTypeValue,
+  ): boolean;
+}
 
 export interface WorldTickChange {
   readonly worldX: number;
@@ -32,19 +43,15 @@ function hashSeed(value: string): number {
   return hash >>> 0;
 }
 
-/**
- * Runs a fixed, tiny random-tick budget around the player. There are no
- * per-block timers and no world-wide scans: four candidate coordinates are
- * sampled every quarter second, regardless of world size.
- */
+/** Fixed tiny random-tick budget around the player; never scans the world. */
 export class WorldTickManager {
-  readonly #world: VoxelWorldData;
+  readonly #world: RandomTickWorld;
   readonly #onBlockChanged: ((change: WorldTickChange) => void) | undefined;
   #state: number;
   #elapsed = 0;
 
   public constructor(
-    world: VoxelWorldData,
+    world: RandomTickWorld,
     options: WorldTickManagerOptions = {},
   ) {
     this.#world = world;
@@ -62,20 +69,20 @@ export class WorldTickManager {
     this.#elapsed += stepSeconds;
     let changed = 0;
     let batches = 0;
-    while (
-      this.#elapsed >= RANDOM_TICK_INTERVAL_SECONDS &&
-      batches < 2
-    ) {
+    while (this.#elapsed >= RANDOM_TICK_INTERVAL_SECONDS && batches < 2) {
       this.#elapsed -= RANDOM_TICK_INTERVAL_SECONDS;
       batches += 1;
       for (let sample = 0; sample < RANDOM_SAMPLES_PER_BATCH; sample += 1) {
         const worldX =
-          Math.floor(playerX) + this.#nextInteger(-HORIZONTAL_RADIUS, HORIZONTAL_RADIUS);
+          Math.floor(playerX) +
+          this.#nextInteger(-HORIZONTAL_RADIUS, HORIZONTAL_RADIUS);
         const worldZ =
-          Math.floor(playerZ) + this.#nextInteger(-HORIZONTAL_RADIUS, HORIZONTAL_RADIUS);
+          Math.floor(playerZ) +
+          this.#nextInteger(-HORIZONTAL_RADIUS, HORIZONTAL_RADIUS);
         const worldY = Math.min(
           Math.max(
-            Math.floor(playerY) + this.#nextInteger(-VERTICAL_RADIUS, VERTICAL_RADIUS),
+            Math.floor(playerY) +
+              this.#nextInteger(-VERTICAL_RADIUS, VERTICAL_RADIUS),
             0,
           ),
           CHUNK_HEIGHT - 1,
@@ -106,7 +113,11 @@ export class WorldTickManager {
         if (this.#hasAdjacentSupport(worldX, worldY, worldZ)) return false;
         return this.#replace(worldX, worldY, worldZ, BlockType.Air);
       case BlockType.Grass:
-        if (!isFullCubeBlock(this.#world.sampleBlock(worldX, worldY + 1, worldZ))) {
+        if (
+          !isFullCubeBlock(
+            this.#world.sampleBlock(worldX, worldY + 1, worldZ),
+          )
+        ) {
           return false;
         }
         return this.#replace(worldX, worldY, worldZ, BlockType.Dirt);
@@ -119,8 +130,9 @@ export class WorldTickManager {
   }
 
   #canReceiveGrass(worldX: number, worldY: number, worldZ: number): boolean {
-    const above = this.#world.sampleBlock(worldX, worldY + 1, worldZ);
-    if (isFullCubeBlock(above)) return false;
+    if (isFullCubeBlock(this.#world.sampleBlock(worldX, worldY + 1, worldZ))) {
+      return false;
+    }
     for (let offsetZ = -1; offsetZ <= 1; offsetZ += 1) {
       for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
         if (offsetX === 0 && offsetZ === 0) continue;
@@ -188,7 +200,10 @@ export class WorldTickManager {
             worldY + y,
             worldZ + z,
           );
-          if (!getBlockDefinition(block).replaceable && block !== BlockType.OakLeaves) {
+          if (
+            !getBlockDefinition(block).replaceable &&
+            block !== BlockType.OakLeaves
+          ) {
             return false;
           }
         }
@@ -197,25 +212,16 @@ export class WorldTickManager {
 
     let changed = false;
     for (let y = 0; y < trunkHeight; y += 1) {
-      changed = this.#replace(
-        worldX,
-        worldY + y,
-        worldZ,
-        BlockType.OakLog,
-      ) || changed;
+      changed =
+        this.#replace(worldX, worldY + y, worldZ, BlockType.OakLog) ||
+        changed;
     }
     const trunkTop = worldY + trunkHeight - 1;
     for (let vertical = -2; vertical <= 1; vertical += 1) {
       const radius = vertical === -2 || vertical === 1 ? 1 : 2;
       for (let z = -radius; z <= radius; z += 1) {
         for (let x = -radius; x <= radius; x += 1) {
-          if (
-            radius === 2 &&
-            Math.abs(x) === 2 &&
-            Math.abs(z) === 2
-          ) {
-            continue;
-          }
+          if (radius === 2 && Math.abs(x) === 2 && Math.abs(z) === 2) continue;
           const targetY = trunkTop + vertical;
           const current = this.#world.sampleBlock(
             worldX + x,
@@ -223,12 +229,13 @@ export class WorldTickManager {
             worldZ + z,
           );
           if (getBlockDefinition(current).replaceable) {
-            changed = this.#replace(
-              worldX + x,
-              targetY,
-              worldZ + z,
-              BlockType.OakLeaves,
-            ) || changed;
+            changed =
+              this.#replace(
+                worldX + x,
+                targetY,
+                worldZ + z,
+                BlockType.OakLeaves,
+              ) || changed;
           }
         }
       }
