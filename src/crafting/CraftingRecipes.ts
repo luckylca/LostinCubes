@@ -9,10 +9,11 @@ export interface CraftingRecipe {
   readonly id: string;
   readonly label: string;
   readonly description: string;
-  readonly station: CraftingStation;
+  readonly station: Exclude<CraftingStation, 'furnace'>;
   readonly gridSize: 2 | 3;
   readonly pattern: readonly (readonly CraftingPatternCell[])[];
   readonly ingredients: readonly ItemRequirement[];
+  readonly allowMirror?: boolean;
   readonly output: {
     readonly item: ItemTypeValue;
     readonly count: number;
@@ -25,7 +26,7 @@ const personalRecipes: readonly CraftingRecipe[] = [
   {
     id: 'oak-planks',
     label: '橡木木板 ×4',
-    description: '把一块原木放入随身 2×2 合成区。',
+    description: '把一块原木放进任意一个随身合成格。',
     station: 'inventory',
     gridSize: 2,
     pattern: [[ItemType.OakLogBlock, EMPTY], [EMPTY, EMPTY]],
@@ -55,20 +56,33 @@ const personalRecipes: readonly CraftingRecipe[] = [
     ingredients: [{ item: ItemType.OakPlanksBlock, count: 4 }],
     output: { item: ItemType.CraftingTableBlock, count: 1 },
   },
+  {
+    id: 'torches',
+    label: '火把 ×4',
+    description: '煤炭放在木棍上方。火把会发出 14 级方块光。',
+    station: 'inventory',
+    gridSize: 2,
+    pattern: [[ItemType.Coal, EMPTY], [ItemType.Stick, EMPTY]],
+    ingredients: [
+      { item: ItemType.Coal, count: 1 },
+      { item: ItemType.Stick, count: 1 },
+    ],
+    output: { item: ItemType.TorchBlock, count: 4 },
+  },
 ];
 
 const furnaceRecipe: CraftingRecipe = {
   id: 'furnace',
   label: '熔炉',
-  description: '在工作台 3×3 合成区用八块石头围一圈，中间留空。',
+  description: '在工作台 3×3 中用八块圆石围一圈，中间留空。',
   station: 'crafting-table',
   gridSize: 3,
   pattern: [
-    [ItemType.StoneBlock, ItemType.StoneBlock, ItemType.StoneBlock],
-    [ItemType.StoneBlock, EMPTY, ItemType.StoneBlock],
-    [ItemType.StoneBlock, ItemType.StoneBlock, ItemType.StoneBlock],
+    [ItemType.CobblestoneBlock, ItemType.CobblestoneBlock, ItemType.CobblestoneBlock],
+    [ItemType.CobblestoneBlock, EMPTY, ItemType.CobblestoneBlock],
+    [ItemType.CobblestoneBlock, ItemType.CobblestoneBlock, ItemType.CobblestoneBlock],
   ],
-  ingredients: [{ item: ItemType.StoneBlock, count: 8 }],
+  ingredients: [{ item: ItemType.CobblestoneBlock, count: 8 }],
   output: { item: ItemType.FurnaceBlock, count: 1 },
 };
 
@@ -116,7 +130,7 @@ const toolRecipes = (['pickaxe', 'shovel', 'axe'] as const).flatMap(
       {
         id: 'stone',
         label: '石',
-        material: ItemType.StoneBlock,
+        material: ItemType.CobblestoneBlock,
         output:
           kind === 'pickaxe'
             ? ItemType.StonePickaxe
@@ -140,7 +154,7 @@ const toolRecipes = (['pickaxe', 'shovel', 'axe'] as const).flatMap(
     return tiers.map((tier) => ({
       id: `${tier.id}-${kind}`,
       label: `${tier.label}${label}`,
-      description: `${String(materialCount)} 个${tier.label === '木' ? '木板' : tier.label === '石' ? '石头' : '铁锭'}和两根木棍，按经典工具形状排列。`,
+      description: `${String(materialCount)} 个${tier.label === '木' ? '木板' : tier.label === '石' ? '圆石' : '铁锭'}和两根木棍，按经典工具形状摆放。`,
       station: 'crafting-table',
       gridSize: 3,
       pattern: toolPattern(kind, tier.material),
@@ -148,6 +162,7 @@ const toolRecipes = (['pickaxe', 'shovel', 'axe'] as const).flatMap(
         { item: tier.material, count: materialCount },
         { item: ItemType.Stick, count: 2 },
       ],
+      allowMirror: kind === 'axe',
       output: { item: tier.output, count: 1 },
     }));
   },
@@ -164,9 +179,7 @@ export function getVisibleRecipes(
 ): readonly CraftingRecipe[] {
   return CRAFTING_RECIPES.filter((recipe) => {
     if (station === 'inventory') return recipe.station === 'inventory';
-    if (station === 'crafting-table') {
-      return recipe.station === 'inventory' || recipe.station === 'crafting-table';
-    }
+    if (station === 'crafting-table') return true;
     return false;
   });
 }
