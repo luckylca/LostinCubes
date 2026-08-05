@@ -11,30 +11,11 @@ import {
 import type { Mesh, Scene } from '@babylonjs/core';
 import type { ChunkMaterialRange } from './ChunkMeshBuilder';
 import {
+  BLOCK_TEXTURE_KINDS,
   BLOCK_TEXTURE_SIZE,
   BlockTexture,
   getBlockTexturePixels,
 } from './BlockTextureLibrary';
-
-const TEXTURE_KINDS: readonly BlockTexture[] = [
-  BlockTexture.GrassTop,
-  BlockTexture.GrassSide,
-  BlockTexture.Dirt,
-  BlockTexture.Stone,
-  BlockTexture.RuneStone,
-  BlockTexture.OakLogTop,
-  BlockTexture.OakLogSide,
-  BlockTexture.OakLeaves,
-  BlockTexture.OakPlanks,
-  BlockTexture.CraftingTableTop,
-  BlockTexture.CraftingTableSide,
-  BlockTexture.CraftingTableFront,
-  BlockTexture.CoalOre,
-  BlockTexture.IronOre,
-  BlockTexture.FurnaceTop,
-  BlockTexture.FurnaceSide,
-  BlockTexture.FurnaceFront,
-];
 
 /** Shared nearest-neighbor pixel materials used by every streamed chunk. */
 export class VoxelMaterialLibrary {
@@ -44,7 +25,7 @@ export class VoxelMaterialLibrary {
   public constructor(scene: Scene) {
     this.#multiMaterial = new MultiMaterial('voxel-world-materials', scene);
 
-    for (const textureKind of TEXTURE_KINDS) {
+    for (const textureKind of BLOCK_TEXTURE_KINDS) {
       const source = getBlockTexturePixels(textureKind);
       const texture = RawTexture.CreateRGBATexture(
         source.pixels,
@@ -70,10 +51,14 @@ export class VoxelMaterialLibrary {
       material.diffuseColor = Color3.White();
       material.specularColor = Color3.Black();
       material.emissiveColor =
-        textureKind === BlockTexture.RuneStone
-          ? new Color3(0.035, 0.1, 0.065)
-          : new Color3(0.018, 0.022, 0.02);
-      material.backFaceCulling = textureKind !== BlockTexture.OakLeaves;
+        textureKind === BlockTexture.Torch
+          ? new Color3(0.62, 0.31, 0.05)
+          : textureKind === BlockTexture.RuneStone
+            ? new Color3(0.035, 0.1, 0.065)
+            : new Color3(0.018, 0.022, 0.02);
+      material.backFaceCulling =
+        textureKind !== BlockTexture.OakLeaves &&
+        textureKind !== BlockTexture.Torch;
       if (source.hasAlpha) {
         material.useAlphaFromDiffuseTexture = true;
         material.transparencyMode = Material.MATERIAL_ALPHATEST;

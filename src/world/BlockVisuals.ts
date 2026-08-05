@@ -28,11 +28,7 @@ function getDirectionalShade(axis: number, positive: boolean): number {
   return positive ? 0.94 : 0.76;
 }
 
-/**
- * Vertex colors now act as lighting tint over the generated pixel textures.
- * The texture owns the material identity; this function only provides stable
- * face-direction shading and subtle coordinate variation.
- */
+/** Vertex colors provide stable directional tint over pixel textures. */
 export function getBlockFaceColor(
   block: BlockTypeValue,
   axis: number,
@@ -44,8 +40,9 @@ export function getBlockFaceColor(
   const multiplier =
     getDirectionalShade(axis, positive) *
     coordinateVariation(worldX, worldY, worldZ, block);
-  const runeBoost = block === BlockType.RuneStone ? 1.035 : 1;
-  const value = clampChannel(multiplier * runeBoost);
+  const emissionBoost =
+    block === BlockType.RuneStone || block === BlockType.Torch ? 1.035 : 1;
+  const value = clampChannel(multiplier * emissionBoost);
   return [value, value, value];
 }
 
@@ -57,6 +54,8 @@ export function getBlockItemColor(block: BlockTypeValue): BlockRgb {
       return [0.48, 0.32, 0.2];
     case BlockType.Stone:
       return [0.53, 0.55, 0.54];
+    case BlockType.Cobblestone:
+      return [0.45, 0.47, 0.46];
     case BlockType.RuneStone:
       return [0.16, 0.43, 0.3];
     case BlockType.OakLog:
@@ -73,6 +72,8 @@ export function getBlockItemColor(block: BlockTypeValue): BlockRgb {
       return [0.58, 0.43, 0.33];
     case BlockType.Furnace:
       return [0.38, 0.4, 0.39];
+    case BlockType.Torch:
+      return [0.93, 0.66, 0.23];
     case BlockType.Air:
       return [0, 0, 0];
   }

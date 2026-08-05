@@ -1,4 +1,5 @@
 import type { FurnaceViewState } from '../crafting/FurnaceManager';
+import { CraftingGrid } from '../crafting/CraftingGrid';
 import { getVisibleRecipes } from '../crafting/CraftingRecipes';
 import type {
   CraftingRecipe,
@@ -32,15 +33,6 @@ export interface InventoryViewCallbacks {
 
 function createEmptyStack(): InventorySlotSnapshot {
   return { item: null, count: 0, durability: null };
-}
-
-function createOutputStack(recipe: CraftingRecipe): InventorySlotSnapshot {
-  const definition = getItemDefinition(recipe.output.item);
-  return {
-    item: recipe.output.item,
-    count: recipe.output.count,
-    durability: definition.maximumDurability,
-  };
 }
 
 function stackDescription(stack: InventorySlotSnapshot): string {
@@ -119,11 +111,11 @@ function createSlotButton(
   index: number,
   stack: InventorySlotSnapshot,
   onInteract: (index: number, secondary: boolean) => void,
+  className = 'inventory-slot',
 ): HTMLButtonElement {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'inventory-slot';
-  button.dataset.inventoryIndex = String(index);
+  button.className = className;
   button.innerHTML = [
     '<span class="inventory-item" aria-hidden="true"></span>',
     '<span class="inventory-count"></span>',
@@ -167,6 +159,7 @@ export class InventoryView {
   readonly #hotbar: HTMLElement;
   readonly #recipes: HTMLElement;
   readonly #cursor: HTMLElement;
+  readonly #crafting = new CraftingGrid(2);
   #cursorStack: InventorySlotSnapshot | null = null;
   #station: CraftingStation = 'inventory';
   #open = false;
@@ -199,6 +192,14 @@ export class InventoryView {
   }
 
   public open(station: CraftingStation = 'inventory'): void {
+    const nextSize = station === 'crafting-table' ? 3 : 2;
+    if (station !== 'furnace' && this.#crafting.size !== nextSize) {
+      if (!this.#crafting.returnAll(this.#inventory)) {
+        this.#message.textContent = '背包没有空间，无法切换合成区域。';
+        return;
+      }
+      this.#crafting.reset(nextSize);
+    }
     this.#station = station;
     this.#open = true;
     this.#root.hidden = false;
@@ -206,18 +207,24 @@ export class InventoryView {
     document.body.classList.add('inventory-open');
     this.#message.textContent =
       station === 'crafting-table'
-        ? '这是放置在世界中的工作台：使用 3×3 配方制作工具和熔炉。'
+        ? '把材料摆进 3×3 格子，再从输出槽取走结果；左键整组，右键单个。'
         : station === 'furnace'
-          ? '像经典熔炉一样：上格放粗铁、下格放煤炭、右格取铁锭；关闭界面后继续燃烧。'
-          : '这是随身 2×2 合成：先把原木做成木板，再用四块木板制作工作台。';
+          ? '上格放粗铁、下格放燃料、右格取铁锭；燃烧中的熔炉会照亮周围。'
+          : '把材料摆进随身 2×2 格子，再点击输出槽完成制作。';
     this.render();
   }
 
   public close(): boolean {
     if (!this.#open) return true;
+    if (this.#station !== 'furnace' && !this.#crafting.returnAll(this.#inventory)) {
+      this.#message.textContent =
+        '背包没有空间，请先清出位置再收回合成格材料。';
+      this.render();
+      return false;
+    }
     if (!this.#returnCursorToInventory()) {
       this.#message.textContent =
-        '背包没有空间，请先把手中的物品放入一个槽位。';
+        '背包没有空间，请先把鼠标上的物品放入一个槽位。';
       return false;
     }
     this.#open = false;
@@ -240,26 +247,27 @@ export class InventoryView {
     this.#storage.replaceChildren();
     this.#hotbar.replaceChildren();
     for (let index = 0; index < STORAGE_SLOT_COUNT; index += 1) {
-      this.#storage.append(
-        createSlotButton(
-          index,
-          snapshot.slots[index] ?? createEmptyStack(),
-          this.#interactSlot,
-        ),
+      const button = createSlotButton(
+        index,
+        snapshot.slots[index] ?? createEmptyStack(),
+        this.#interactInventorySlot,
       );
+      button.dataset.inventoryIndex = String(index);
+      this.#storage.append(button);
     }
     for (let slot = 0; slot < HOTBAR_SLOT_COUNT; slot += 1) {
       const index = HOTBAR_START_INDEX + slot;
       const button = createSlotButton(
         index,
         snapshot.slots[index] ?? createEmptyStack(),
-        this.#interactSlot,
+        this.#interactInventorySlot,
       );
+      button.dataset.inventoryIndex = String(index);
       button.dataset.hotbarNumber = String(slot + 1);
       if (slot === snapshot.selectedSlot) button.classList.add('is-selected');
       this.#hotbar.append(button);
     }
-    this.#renderRecipes();
+    this.#renderCraftingOrFurnace();
     this.#renderCursor();
   }
 
@@ -277,6 +285,7 @@ export class InventoryView {
   }
 
   public dispose(): void {
+    this.#crafting.returnAll(this.#inventory);
     this.#returnCursorToInventory();
     document.body.classList.remove('inventory-open');
     this.#root.hidden = true;
@@ -285,36 +294,110 @@ export class InventoryView {
     this.#recipes.replaceChildren();
   }
 
-  readonly #interactSlot = (index: number, secondary: boolean): void => {
+  readonly #interactInventorySlot = (
+    index: number,
+    secondary: boolean,
+  ): void => {
     this.#cursorStack = this.#inventory.interactSlot(
       index,
       this.#cursorStack,
       secondary,
     );
-    this.#message.textContent =
-      this.#cursorStack === null
-        ? '物品已放入背包。'
-        : `手持：${stackDescription(this.#cursorStack)}`;
-    this.#callbacks.onChanged();
-    this.render();
+    this.#afterStackInteraction();
   };
 
-  #renderRecipes(): void {
+  readonly #interactCraftingSlot = (
+    index: number,
+    secondary: boolean,
+  ): void => {
+    this.#cursorStack = this.#crafting.interactSlot(
+      index,
+      this.#cursorStack,
+      secondary,
+    );
+    this.#afterStackInteraction();
+  };
+
+  #afterStackInteraction(): void {
+    this.#message.textContent =
+      this.#cursorStack === null
+        ? '物品已放入槽位。'
+        : `鼠标手持：${stackDescription(this.#cursorStack)}`;
+    this.#callbacks.onChanged();
+    this.render();
+  }
+
+  #renderCraftingOrFurnace(): void {
     if (this.#station === 'furnace') {
       this.#renderFurnace();
       return;
     }
     this.#recipes.replaceChildren();
-    for (const recipe of getVisibleRecipes(this.#station)) {
+    const recipes = getVisibleRecipes(this.#station);
+    const match = this.#crafting.getMatch(recipes);
+
+    const manual = document.createElement('section');
+    manual.className = 'manual-crafting';
+    manual.innerHTML = [
+      '<header><div><strong>手动合成</strong><small>材料位置会真实参与匹配</small></div></header>',
+      '<div class="manual-crafting-machine">',
+      `<div class="crafting-input-grid crafting-grid-${String(this.#crafting.size)}" data-crafting-grid aria-label="${String(this.#crafting.size)}乘${String(this.#crafting.size)}合成格"></div>`,
+      '<span class="crafting-output-arrow" aria-hidden="true">→</span>',
+      '<button type="button" class="inventory-slot crafting-output-slot" data-crafting-output aria-label="合成输出"></button>',
+      '</div>',
+      '<p class="crafting-hint">配方书按钮只会帮你摆放材料；最终仍需点击输出槽。</p>',
+    ].join('');
+    const inputGrid = manual.querySelector<HTMLElement>('[data-crafting-grid]');
+    const craftingSnapshot = this.#crafting.snapshot;
+    for (let index = 0; index < craftingSnapshot.length; index += 1) {
+      const button = createSlotButton(
+        index,
+        craftingSnapshot[index] ?? createEmptyStack(),
+        this.#interactCraftingSlot,
+        'inventory-slot crafting-input-slot',
+      );
+      button.dataset.craftingIndex = String(index);
+      inputGrid?.append(button);
+    }
+
+    const outputButton = manual.querySelector<HTMLButtonElement>(
+      '[data-crafting-output]',
+    );
+    if (outputButton !== null) {
+      const output =
+        match === null
+          ? createEmptyStack()
+          : {
+              item: match.recipe.output.item,
+              count: match.recipe.output.count,
+              durability: getItemDefinition(match.recipe.output.item)
+                .maximumDurability,
+            };
+      outputButton.innerHTML = [
+        '<span class="inventory-item" aria-hidden="true"></span>',
+        '<span class="inventory-count"></span>',
+        '<span class="inventory-durability" aria-hidden="true"><span></span></span>',
+      ].join('');
+      setItemPresentation(outputButton, output);
+      outputButton.disabled = match === null;
+      outputButton.dataset.recipeId = match?.recipe.id ?? '';
+      outputButton.addEventListener('click', () => this.#takeCraftingOutput());
+    }
+    this.#recipes.append(manual);
+
+    const book = document.createElement('section');
+    book.className = 'recipe-book-section';
+    book.innerHTML = '<header><strong>配方书</strong><small>仅在合成格为空时自动摆放</small></header>';
+    const list = document.createElement('div');
+    list.className = 'recipe-list';
+    for (const recipe of recipes) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'recipe-card';
       button.dataset.recipeId = recipe.id;
       button.dataset.gridSize = String(recipe.gridSize);
-      const craftable =
-        this.#inventory.hasItems(recipe.ingredients) &&
-        this.#cursorCanAccept(recipe);
-      button.disabled = !craftable;
+      button.disabled =
+        !this.#crafting.isEmpty || !this.#inventory.hasItems(recipe.ingredients);
       button.innerHTML = [
         '<span class="recipe-copy">',
         `<strong>${recipe.label}</strong>`,
@@ -328,9 +411,31 @@ export class InventoryView {
         '</span>',
         `<span class="recipe-shape">${recipePatternMarkup(recipe)}</span>`,
       ].join('');
-      button.addEventListener('click', () => this.#craft(recipe));
-      this.#recipes.append(button);
+      button.addEventListener('click', () => this.#fillRecipe(recipe));
+      list.append(button);
     }
+    book.append(list);
+    this.#recipes.append(book);
+  }
+
+  #fillRecipe(recipe: CraftingRecipe): void {
+    if (!this.#crafting.fillFromRecipe(recipe, this.#inventory)) return;
+    this.#message.textContent = `已把 ${recipe.label} 的材料摆入合成格，请取右侧输出。`;
+    this.#callbacks.onChanged();
+    this.render();
+  }
+
+  #takeCraftingOutput(): void {
+    const result = this.#crafting.takeOutput(
+      this.#cursorStack,
+      getVisibleRecipes(this.#station),
+    );
+    if (!result.crafted || result.recipe === null) return;
+    this.#cursorStack = result.cursor;
+    this.#message.textContent = `已制作：${result.recipe.label}`;
+    this.#callbacks.onChanged();
+    this.#callbacks.onCrafted(result.recipe);
+    this.render();
   }
 
   #renderFurnace(): void {
@@ -359,7 +464,7 @@ export class InventoryView {
       '</div>',
       '<div class="furnace-meter-row"><span>燃料燃烧</span><div class="furnace-meter"><span data-furnace-burn></span></div><strong data-furnace-burn-label></strong></div>',
       '<div class="furnace-meter-row"><span>铁锭进度</span><div class="furnace-meter"><span data-furnace-smelt></span></div><strong data-furnace-smelt-label></strong></div>',
-      '<p class="furnace-hint">1 个煤炭燃烧 12 秒；1 个铁锭需要 4 秒。关闭熔炉界面后世界继续运行。</p>',
+      '<p class="furnace-hint">煤炭燃烧 12 秒；铁锭需要 4 秒。燃烧中的熔炉会发出 13 级方块光。</p>',
     ].join('');
 
     const burnFill = panel.querySelector<HTMLElement>('[data-furnace-burn]');
@@ -407,34 +512,6 @@ export class InventoryView {
       });
     }
     this.#recipes.append(panel);
-  }
-
-  #craft(recipe: CraftingRecipe): void {
-    if (
-      !this.#inventory.hasItems(recipe.ingredients) ||
-      !this.#cursorCanAccept(recipe)
-    ) {
-      return;
-    }
-    if (!this.#inventory.consumeItems(recipe.ingredients)) return;
-    const output = createOutputStack(recipe);
-    this.#cursorStack =
-      this.#cursorStack === null
-        ? output
-        : { ...this.#cursorStack, count: this.#cursorStack.count + output.count };
-    this.#message.textContent = `已制作：${recipe.label}`;
-    this.#callbacks.onChanged();
-    this.#callbacks.onCrafted(recipe);
-    this.render();
-  }
-
-  #cursorCanAccept(recipe: CraftingRecipe): boolean {
-    if (this.#cursorStack === null) return true;
-    if (this.#cursorStack.item !== recipe.output.item) return false;
-    return (
-      this.#cursorStack.count + recipe.output.count <=
-      getItemDefinition(recipe.output.item).maximumStack
-    );
   }
 
   #returnCursorToInventory(): boolean {

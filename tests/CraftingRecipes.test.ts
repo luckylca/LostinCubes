@@ -20,6 +20,7 @@ describe('crafting recipes', () => {
       'oak-planks',
       'sticks',
       'crafting-table',
+      'torches',
     ]);
     expect(
       getVisibleRecipes('crafting-table').some(
@@ -37,7 +38,7 @@ describe('crafting recipes', () => {
     );
   });
 
-  it('uses Minecraft-style 2x2 workbench and 3x3 furnace shapes', () => {
+  it('uses classic 2x2 workbench, torch, and 3x3 furnace shapes', () => {
     const table = requireRecipe('crafting-table');
     expect(table.gridSize).toBe(2);
     expect(table.pattern).toEqual([
@@ -45,12 +46,17 @@ describe('crafting recipes', () => {
       [ItemType.OakPlanksBlock, ItemType.OakPlanksBlock],
     ]);
 
+    expect(requireRecipe('torches').pattern).toEqual([
+      [ItemType.Coal, null],
+      [ItemType.Stick, null],
+    ]);
+
     const furnace = requireRecipe('furnace');
     expect(furnace.gridSize).toBe(3);
     expect(furnace.pattern).toEqual([
-      [ItemType.StoneBlock, ItemType.StoneBlock, ItemType.StoneBlock],
-      [ItemType.StoneBlock, null, ItemType.StoneBlock],
-      [ItemType.StoneBlock, ItemType.StoneBlock, ItemType.StoneBlock],
+      [ItemType.CobblestoneBlock, ItemType.CobblestoneBlock, ItemType.CobblestoneBlock],
+      [ItemType.CobblestoneBlock, null, ItemType.CobblestoneBlock],
+      [ItemType.CobblestoneBlock, ItemType.CobblestoneBlock, ItemType.CobblestoneBlock],
     ]);
   });
 
@@ -61,7 +67,7 @@ describe('crafting recipes', () => {
       [null, ItemType.Stick, null],
     ]);
     expect(requireRecipe('stone-shovel').pattern).toEqual([
-      [null, ItemType.StoneBlock, null],
+      [null, ItemType.CobblestoneBlock, null],
       [null, ItemType.Stick, null],
       [null, ItemType.Stick, null],
     ]);
@@ -70,12 +76,13 @@ describe('crafting recipes', () => {
       [ItemType.IronIngot, ItemType.Stick, null],
       [null, ItemType.Stick, null],
     ]);
+    expect(requireRecipe('iron-axe').allowMirror).toBe(true);
   });
 
-  it('supports the log to stone-tool progression with inventory consumption', () => {
+  it('supports the log to cobblestone-tool progression with inventory consumption', () => {
     const inventory = new PlayerInventory();
     inventory.addItem(ItemType.OakLogBlock, 3);
-    inventory.addItem(ItemType.StoneBlock, 3);
+    inventory.addItem(ItemType.CobblestoneBlock, 3);
     const planks = requireRecipe('oak-planks');
     const sticks = requireRecipe('sticks');
     const stonePickaxe = requireRecipe('stone-pickaxe');
@@ -88,7 +95,7 @@ describe('crafting recipes', () => {
     inventory.addItem(stonePickaxe.output.item, stonePickaxe.output.count);
     expect(inventory.countItem(ItemType.StonePickaxe)).toBe(1);
     expect(inventory.countItem(ItemType.Stick)).toBe(2);
-    expect(inventory.countItem(ItemType.StoneBlock)).toBe(0);
+    expect(inventory.countItem(ItemType.CobblestoneBlock)).toBe(0);
   });
 
   it('keeps all tool recipes at the workbench', () => {

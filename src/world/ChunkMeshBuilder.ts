@@ -1,10 +1,15 @@
-import { BlockType, isSolidBlock } from './BlockType';
+import {
+  isFullCubeBlock,
+  shouldMergeBlockFaces,
+} from './BlockRegistry';
+import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { getBlockFaceColor } from './BlockVisuals';
 import {
   getBlockFaceTexture,
   type BlockTexture,
 } from './BlockTextureLibrary';
+import { lightLevelToBrightness, MAXIMUM_LIGHT_LEVEL } from './VoxelLightEngine';
 import { CHUNK_HEIGHT, CHUNK_SIZE } from './VoxelChunk';
 
 type VectorTuple = readonly [number, number, number];
@@ -32,6 +37,12 @@ export type WorldBlockSampler = (
   worldY: number,
   worldZ: number,
 ) => BlockTypeValue;
+
+export type WorldLightSampler = (
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+) => number;
 
 interface MaterialBucket {
   readonly texture: BlockTexture;
@@ -86,6 +97,17 @@ function createBucket(texture: BlockTexture): MaterialBucket {
   };
 }
 
+function getBucket(
+  buckets: Map<BlockTexture, MaterialBucket>,
+  texture: BlockTexture,
+): MaterialBucket {
+  const existing = buckets.get(texture);
+  if (existing !== undefined) return existing;
+  const created = createBucket(texture);
+  buckets.set(texture, created);
+  return created;
+}
+
 function pushQuadUvs(
   target: number[],
   axis: number,
@@ -109,14 +131,57 @@ function pushQuadUvs(
   }
 }
 
+function pushQuadIndices(
+  target: number[],
+  firstVertex: number,
+  positive: boolean,
+): void {
+  if (positive) {
+    target.push(
+      firstVertex,
+      firstVertex + 2,
+      firstVertex + 1,
+      firstVertex,
+      firstVertex + 3,
+      firstVertex + 2,
+    );
+  } else {
+    target.push(
+      firstVertex,
+      firstVertex + 1,
+      firstVertex + 2,
+      firstVertex,
+      firstVertex + 2,
+      firstVertex + 3,
+    );
+  }
+}
+
+function pushTorchQuad(
+  bucket: MaterialBucket,
+  corners: readonly VectorTuple[],
+  brightness: number,
+): void {
+  const firstVertex = bucket.positions.length / 3;
+  for (const corner of corners) {
+    bucket.positions.push(corner[0], corner[1], corner[2]);
+    bucket.normals.push(0, 1, 0);
+    bucket.colors.push(brightness, brightness, brightness, 1);
+  }
+  bucket.uvs.push(0, 1, 1, 1, 1, 0, 0, 0);
+  pushQuadIndices(bucket.indices, firstVertex, true);
+}
+
 /**
- * Builds a greedy-meshed chunk with repeated 16×16 pixel textures. Faces are
- * still merged geometrically, then grouped into bounded material sub-ranges.
+ * Builds one chunk mesh. Full cubes use greedy meshing; registered cross-shape
+ * blocks are appended as bounded two-sided quads. Vertex color includes the
+ * chunk's classic 0-15 sky/block light field.
  */
 export function buildChunkMeshData(
   chunkX: number,
   chunkZ: number,
   sampleWorldBlock: WorldBlockSampler,
+  sampleWorldLight: WorldLightSampler = () => MAXIMUM_LIGHT_LEVEL,
 ): ChunkMeshData {
   const buckets = new Map<BlockTexture, MaterialBucket>();
   const mask = new Int16Array(MAXIMUM_MASK_SIZE);
@@ -160,15 +225,15 @@ export function buildChunkMeshData(
             coordinate[1] + neighborOffset[1],
             coordinate[2] + neighborOffset[2],
           );
-          const nearSolid = isSolidBlock(blockNear);
-          const farSolid = isSolidBlock(blockFar);
+          const nearCube = isFullCubeBlock(blockNear);
+          const farCube = isFullCubeBlock(blockFar);
 
           let encodedFace = 0;
-          if (nearSolid !== farSolid) {
-            if (nearSolid && slice >= 0 && slice < dimensionAxis) {
+          if (nearCube !== farCube) {
+            if (nearCube && slice >= 0 && slice < dimensionAxis) {
               encodedFace = blockNear;
             } else if (
-              farSolid &&
+              farCube &&
               slice + 1 >= 0 &&
               slice + 1 < dimensionAxis
             ) {
@@ -190,7 +255,7 @@ export function buildChunkMeshData(
           }
 
           const block = Math.abs(encodedFace) as BlockTypeValue;
-          const mergeFace = block !== BlockType.OakLeaves;
+          const mergeFace = shouldMergeBlockFaces(block);
           let width = 1;
           if (mergeFace) {
             while (
@@ -239,61 +304,85 @@ export function buildChunkMeshData(
             cornerV,
           ];
           const texture = getBlockFaceTexture(block, axis, positive);
-          let bucket = buckets.get(texture);
-          if (bucket === undefined) {
-            bucket = createBucket(texture);
-            buckets.set(texture, bucket);
-          }
+          const bucket = getBucket(buckets, texture);
           const firstVertex = bucket.positions.length / 3;
           const normalX = axis === 0 ? (positive ? 1 : -1) : 0;
           const normalY = axis === 1 ? (positive ? 1 : -1) : 0;
           const normalZ = axis === 2 ? (positive ? 1 : -1) : 0;
-          const worldColorX =
-            chunkX * CHUNK_SIZE + Math.floor(base[0] + 0.5);
-          const worldColorY = Math.floor(base[1] + 0.5);
-          const worldColorZ =
-            chunkZ * CHUNK_SIZE + Math.floor(base[2] + 0.5);
+
+          const blockCoordinate: MutableVector = [0, 0, 0];
+          setComponent(blockCoordinate, axis, positive ? slice : slice + 1);
+          setComponent(blockCoordinate, axisU, column);
+          setComponent(blockCoordinate, axisV, row);
+          const worldBlockX = chunkX * CHUNK_SIZE + blockCoordinate[0];
+          const worldBlockY = blockCoordinate[1];
+          const worldBlockZ = chunkZ * CHUNK_SIZE + blockCoordinate[2];
+          const outsideX = worldBlockX + normalX;
+          const outsideY = worldBlockY + normalY;
+          const outsideZ = worldBlockZ + normalZ;
+          const brightness = lightLevelToBrightness(
+            sampleWorldLight(outsideX, outsideY, outsideZ),
+          );
           const [red, green, blue] = getBlockFaceColor(
             block,
             axis,
             positive,
-            worldColorX,
-            worldColorY,
-            worldColorZ,
+            worldBlockX,
+            worldBlockY,
+            worldBlockZ,
           );
 
           for (const corner of corners) {
             bucket.positions.push(corner[0], corner[1], corner[2]);
             bucket.normals.push(normalX, normalY, normalZ);
-            bucket.colors.push(red, green, blue, 1);
+            bucket.colors.push(
+              red * brightness,
+              green * brightness,
+              blue * brightness,
+              1,
+            );
           }
           pushQuadUvs(bucket.uvs, axis, width, height, positive);
-
-          // Babylon's default left-handed scene uses clockwise front faces.
-          if (positive) {
-            bucket.indices.push(
-              firstVertex,
-              firstVertex + 2,
-              firstVertex + 1,
-              firstVertex,
-              firstVertex + 3,
-              firstVertex + 2,
-            );
-          } else {
-            bucket.indices.push(
-              firstVertex,
-              firstVertex + 1,
-              firstVertex + 2,
-              firstVertex,
-              firstVertex + 2,
-              firstVertex + 3,
-            );
-          }
+          pushQuadIndices(bucket.indices, firstVertex, positive);
 
           quadCount += 1;
           sourceFaceCount += width * height;
           column += width;
         }
+      }
+    }
+  }
+
+  const torchBucket = getBucket(
+    buckets,
+    getBlockFaceTexture(BlockType.Torch, 1, true),
+  );
+  for (let localY = 0; localY < CHUNK_HEIGHT; localY += 1) {
+    for (let localZ = 0; localZ < CHUNK_SIZE; localZ += 1) {
+      for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
+        if (sampleLocalBlock(localX, localY, localZ) !== BlockType.Torch) continue;
+        const worldX = chunkX * CHUNK_SIZE + localX;
+        const worldZ = chunkZ * CHUNK_SIZE + localZ;
+        const brightness = lightLevelToBrightness(
+          sampleWorldLight(worldX, localY, worldZ),
+        );
+        const bottom = localY - 0.48;
+        const top = localY + 0.48;
+        const radius = 0.28;
+        pushTorchQuad(torchBucket, [
+          [localX - radius, bottom, localZ - radius],
+          [localX + radius, bottom, localZ + radius],
+          [localX + radius, top, localZ + radius],
+          [localX - radius, top, localZ - radius],
+        ], brightness);
+        pushTorchQuad(torchBucket, [
+          [localX + radius, bottom, localZ - radius],
+          [localX - radius, bottom, localZ + radius],
+          [localX - radius, top, localZ + radius],
+          [localX + radius, top, localZ - radius],
+        ], brightness);
+        quadCount += 2;
+        sourceFaceCount += 2;
       }
     }
   }
@@ -304,9 +393,9 @@ export function buildChunkMeshData(
   const colors: number[] = [];
   const uvs: number[] = [];
   const materialRanges: ChunkMaterialRange[] = [];
-  const orderedBuckets = [...buckets.values()].sort(
-    (left, right) => left.texture - right.texture,
-  );
+  const orderedBuckets = [...buckets.values()]
+    .filter((bucket) => bucket.indices.length > 0)
+    .sort((left, right) => left.texture - right.texture);
 
   for (const bucket of orderedBuckets) {
     const vertexOffset = positions.length / 3;

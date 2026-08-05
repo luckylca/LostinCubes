@@ -1,11 +1,19 @@
-import { ItemType } from '../inventory/ItemDefinitions';
-import type { InventorySlotSnapshot, PlayerInventory } from '../inventory/PlayerInventory';
+import {
+  getFuelSeconds,
+  ItemType,
+} from '../inventory/ItemDefinitions';
+import type {
+  InventorySlotSnapshot,
+  PlayerInventory,
+} from '../inventory/PlayerInventory';
+import { syncBurningFurnaceLights } from '../world/FurnaceLightRuntime';
 
 const STORAGE_PREFIX = 'lost-in-cubes:furnaces:';
 const MAXIMUM_FURNACES = 128;
 const MAXIMUM_SLOT_COUNT = 64;
-export const FURNACE_BURN_SECONDS_PER_COAL = 12;
+export const FURNACE_BURN_SECONDS_PER_COAL = getFuelSeconds(ItemType.Coal);
 export const FURNACE_SMELT_SECONDS = 4;
+export const FURNACE_LIGHT_LEVEL = 13;
 
 export interface FurnacePosition {
   readonly x: number;
@@ -70,6 +78,7 @@ export class FurnaceManager {
     this.#worldSeed = worldSeed;
     this.#storage = storage;
     this.#restore();
+    this.#syncLightSources();
   }
 
   public getState(position: FurnacePosition): FurnaceViewState {
@@ -190,7 +199,10 @@ export class FurnaceManager {
       }
     }
 
-    if (changed) this.#revision += 1;
+    if (changed) {
+      this.#revision += 1;
+      this.#syncLightSources();
+    }
   }
 
   public drain(position: FurnacePosition): readonly InventorySlotSnapshot[] {
@@ -199,6 +211,7 @@ export class FurnaceManager {
     if (state === undefined) return [];
     this.#states.delete(key);
     this.#revision += 1;
+    this.#syncLightSources();
     const stacks: InventorySlotSnapshot[] = [];
     if (state.inputCount > 0) {
       stacks.push({ item: ItemType.RawIron, count: state.inputCount, durability: null });
@@ -231,6 +244,20 @@ export class FurnaceManager {
 
   public get furnaceCount(): number {
     return this.#states.size;
+  }
+
+  public get burningPositions(): readonly FurnacePosition[] {
+    const positions: FurnacePosition[] = [];
+    for (const state of this.#states.values()) {
+      if (state.burnSecondsRemaining > 0) {
+        positions.push({ x: state.x, y: state.y, z: state.z });
+      }
+    }
+    return positions;
+  }
+
+  #syncLightSources(): void {
+    syncBurningFurnaceLights(this.burningPositions, FURNACE_LIGHT_LEVEL);
   }
 
   #ensure(position: FurnacePosition): MutableFurnaceState {

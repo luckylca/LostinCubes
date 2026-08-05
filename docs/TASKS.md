@@ -48,27 +48,56 @@
 - [x] Migrate legacy nine-slot saves into the expanded hotbar
 - [x] Generate deterministic oak trees with real log and leaf voxels
 - [x] Add oak logs, leaves, planks, sticks, and crafting tables
-- [x] Add personal recipe-book crafting for planks, sticks, and crafting tables
-- [x] Display personal recipes as 2×2 shapes and workbench recipes as classic 3×3 shapes
-- [x] Add an in-game workbench/furnace progression guide and familiar furnace slot layout
 - [x] Add placed crafting-table interaction and tool recipes
-- [x] Add wooden axes and full stone tool tier
+- [x] Add wooden axes and full stone and iron tool tiers
 - [x] Add tier- and material-aware mining speeds and durability
 - [x] Add deterministic underground caves with a protected surface shell
 - [x] Add coal and iron ore depth bands with tool-tier harvest rules
 - [x] Generalize pooled drops and save migration to blocks, materials, food, and durability-preserving tools
 - [x] Add coordinate-scoped furnaces with fuel, timed smelting, output storage, persistence, and break recovery
-- [x] Add full iron tools
-- [x] Add fixed-step health, fall damage, void death, and automatic respawn
-- [x] Persist health, world time, and respawn count per world
-- [x] Drop the complete inventory at the recorded death position without repairing tools
-- [x] Add deterministic apples, held-food presentation, consumption, and healing
+- [x] Add fixed-step health, fall damage, void death, automatic respawn, and full inventory death drops
+- [x] Add deterministic apples, consumption, and healing
 - [x] Add a fixed-step day/night cycle with dynamic sky, fog, and sunlight
-- [x] Add pooled night enemies, terrain pursuit, attack cooldowns, melee combat, and loot
-- [ ] Add save metadata and multiple world slots
-- [ ] Add additional biomes and structures
-- [ ] Add leaf decay, saplings, and tree regrowth
-- [ ] Add full drag distribution and shift-click inventory shortcuts
-- [ ] Add distance-tiered chunk rendering or LOD
-- [ ] Capture representative desktop and Android performance profiles
-- [ ] Add hunger, armor, ranged combat, and additional enemy types
+- [x] Add pooled night enemies, pursuit, attack cooldowns, melee combat, and loot
+
+## Classic survival rebuild — three compressed batches
+
+### Batch 1 — core rules, crafting, and voxel light
+
+- [x] Centralize block collision, targeting, render shape, hardness, resistance, tool requirement, opacity, and luminance in one registry
+- [x] Preserve existing numeric block identifiers and append save-compatible cobblestone and torch blocks
+- [x] Make mined stone drop cobblestone and use cobblestone in stone-tool and furnace recipes
+- [x] Replace instant recipe-button crafting with real interactive 2×2 and 3×3 grids
+- [x] Match shaped recipes at any valid offset and support mirrored axe recipes
+- [x] Require players to take items from a real output slot; keep the recipe book only as an optional placement helper
+- [x] Return crafting-grid and cursor stacks safely when closing, blocking close instead of deleting overflow
+- [x] Add classic coal-over-stick torch crafting
+- [x] Add bounded 0–15 sky light and block light with opacity-aware six-neighbor propagation
+- [x] Bake voxel light into chunk vertex colors in the terrain Worker
+- [x] Add targetable, non-solid, alpha-tested cross-quad torches with level-14 emission
+- [x] Add rune-stone emission and transition-driven level-13 burning-furnace light
+- [x] Rebuild affected neighboring chunks when light sources or opacity change
+- [x] Preserve legacy inventory, voxel, drop, furnace, and survival snapshots
+
+### Batch 2 — world generation and complete survival movement
+
+- [ ] Add a deterministic biome climate map and classic grassland, forest, desert, and snowy surface rules
+- [ ] Add sea level, bounded water and lava blocks, fluid surfaces, and fluid-aware light opacity
+- [ ] Add beaches, clay/sand/gravel deposits, flowers, tall grass, and biome-specific tree density
+- [ ] Add classic-style cave carving, ore passes, springs, dungeons, and cross-chunk structures under one population pipeline
+- [ ] Add swimming, buoyancy, water drag, drowning, lava damage, extinguishing, and air supply
+- [ ] Add sneaking with ledge prevention, ladders, suffocation, knockback, and hurt invulnerability frames
+- [ ] Add leaf decay, saplings, deterministic tree regrowth, and scheduled/random block ticks
+- [ ] Add quality controls and representative Android performance profiles for fluids and voxel lighting
+
+### Batch 3 — unified entities and persistent worlds
+
+- [ ] Replace separate enemy/drop/projectile lifecycles with one bounded entity registry and spatial query layer
+- [ ] Add zombie, skeleton, spider, and creeper behavior plus passive animals
+- [ ] Add arrows, bows, TNT, explosions, entity collision, knockback, drops, and damage attribution
+- [ ] Add classic hostile/passive spawn caps, light-level rules, despawn rules, and daytime burning
+- [ ] Add world selection, seed entry, metadata, rename/delete, and multiple isolated save slots
+- [ ] Persist player position/state, furnaces, scheduled ticks, and persistent entities with version migration
+- [ ] Add hunger, armor, ranged combat, and death/respawn options
+- [ ] Add full drag distribution, double-click collection, and shift-click inventory shortcuts
+- [ ] Add distance-tiered chunk rendering or LOD and final desktop/Android performance captures

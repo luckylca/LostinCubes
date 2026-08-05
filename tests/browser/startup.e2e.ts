@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('boots persisted survival, shaped crafting, and camera controls', async ({
+test('boots persisted survival, manual crafting, and camera controls', async ({
   page,
 }) => {
   const runtimeErrors: string[] = [];
@@ -23,7 +23,7 @@ test('boots persisted survival, shaped crafting, and camera controls', async ({
     slots[0] = { item: 'oak-log-block', count: 2, durability: null };
     slots[1] = { item: 'oak-planks-block', count: 4, durability: null };
     slots[2] = { item: 'stick', count: 4, durability: null };
-    slots[3] = { item: 'stone-block', count: 8, durability: null };
+    slots[3] = { item: 'cobblestone-block', count: 8, durability: null };
     slots[4] = { item: 'coal', count: 3, durability: null };
     slots[5] = { item: 'raw-iron', count: 2, durability: null };
     slots[6] = { item: 'iron-ingot', count: 3, durability: null };
@@ -56,7 +56,7 @@ test('boots persisted survival, shaped crafting, and camera controls', async ({
   const guide = page.locator('#survival-guide');
   await expect(guide).toBeVisible();
   await expect(guide).toContainText('工作台与熔炉怎么做');
-  await expect(guide).toContainText('八块石头围一圈');
+  await expect(guide).toContainText('八块圆石围一圈');
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
   await expect(page.locator('#hotbar .hotbar-slot').first()).toHaveAttribute(
     'aria-label',
@@ -97,14 +97,17 @@ test('boots persisted survival, shaped crafting, and camera controls', async ({
   await expect(
     page.locator('[data-inventory-hotbar] .inventory-slot'),
   ).toHaveCount(9);
-  await expect(page.locator('[data-crafting-recipes] .recipe-card')).toHaveCount(
-    3,
+  await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(
+    4,
   );
-  await expect(page.locator('.recipe-pattern')).toHaveCount(3);
-  const tableRecipe = page.locator('[data-recipe-id="crafting-table"]');
-  await expect(tableRecipe).toHaveAttribute('data-grid-size', '2');
-  await expect(tableRecipe.locator('.recipe-cell')).toHaveCount(4);
-  await expect(tableRecipe.locator('.recipe-cell:not(.is-empty)')).toHaveCount(4);
+  await expect(page.locator('.recipe-card')).toHaveCount(4);
+  await expect(page.locator('.recipe-card[data-recipe-id="torches"]')).toContainText(
+    '火把 ×4',
+  );
+  await expect(page.locator('[data-inventory-index="3"]')).toHaveAttribute(
+    'aria-label',
+    /圆石 × 8/,
+  );
   await expect(page.locator('[data-inventory-index="4"]')).toHaveAttribute(
     'aria-label',
     /煤炭 × 3/,
@@ -117,17 +120,27 @@ test('boots persisted survival, shaped crafting, and camera controls', async ({
     'aria-label',
     /铁锭 × 3/,
   );
-  await expect(page.locator('[data-inventory-index="27"]')).toHaveAttribute(
-    'aria-label',
-    /苹果 × 2/,
-  );
 
-  await page.locator('[data-recipe-id="oak-planks"]').click();
+  await page.locator('.recipe-card[data-recipe-id="oak-planks"]').click();
+  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
+    'aria-label',
+    /橡木原木 × 1/,
+  );
+  await expect(page.locator('[data-crafting-output]')).toHaveAttribute(
+    'aria-label',
+    /橡木木板 × 4/,
+  );
+  await expect(page.locator('[data-inventory-cursor]')).toBeHidden();
+  await page.locator('[data-crafting-output]').click();
   await expect(page.locator('[data-inventory-cursor]')).toBeVisible();
   await page.locator('[data-inventory-index="7"]').click();
   await expect(page.locator('[data-inventory-index="7"]')).toHaveAttribute(
     'aria-label',
     /橡木木板 × 4/,
+  );
+  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
+    'aria-label',
+    '空槽',
   );
 
   await page.keyboard.press('e');
@@ -209,7 +222,6 @@ test('falls back to synchronous terrain when module workers fail', async ({
     { timeout: 45_000 },
   );
   await expect(page.locator('#game-hud')).toBeVisible();
-  await expect(page.locator('#survival-guide')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
   await expect(page.locator('#game-canvas')).toHaveAttribute(

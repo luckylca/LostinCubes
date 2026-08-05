@@ -1,14 +1,20 @@
 import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
-import { BlockType, isSolidBlock } from './BlockType';
-import type { SerializedBlockModification } from './ChunkBuildProtocol';
+import { isSolidBlock } from './BlockRegistry';
+import { BlockType } from './BlockType';
+import type {
+  SerializedBlockModification,
+  SerializedLightEmitter,
+} from './ChunkBuildProtocol';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { TerrainGenerator } from './TerrainGenerator';
 import {
   CHUNK_HEIGHT,
+  CHUNK_SIZE,
   createChunkKey,
   worldToChunkCoordinate,
 } from './VoxelChunk';
+import { LIGHT_PROPAGATION_RADIUS, MAXIMUM_LIGHT_LEVEL } from './VoxelLightEngine';
 
 const PLAYER_FOOT_OFFSET = 0.9;
 const DATABASE_NAME = 'lost-in-cubes-worlds';
@@ -81,8 +87,9 @@ function isPersistedBlockModification(
 }
 
 /**
- * Owns deterministic terrain plus the sparse player-authored delta layer.
- * Generated terrain is never copied into memory; only changed blocks are kept.
+ * Owns deterministic terrain plus sparse player-authored edits and transient
+ * coordinate-scoped light emitters. Generated terrain is never copied into
+ * memory; only changes and active machine light are retained.
  */
 export class VoxelWorldData {
   public readonly worldSeed: string;
@@ -92,6 +99,7 @@ export class VoxelWorldData {
     string,
     Map<string, SerializedBlockModification>
   >();
+  readonly #dynamicLights = new Map<string, SerializedLightEmitter>();
   #database: IDBPDatabase<WorldDatabase> | null = null;
 
   public constructor(worldSeed: string) {
@@ -209,6 +217,29 @@ export class VoxelWorldData {
     return true;
   }
 
+  public setDynamicLight(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    rawLevel: number,
+  ): boolean {
+    validateCoordinate(worldX, 'worldX');
+    validateCoordinate(worldY, 'worldY');
+    validateCoordinate(worldZ, 'worldZ');
+    const level = Number.isFinite(rawLevel)
+      ? Math.min(Math.max(Math.floor(rawLevel), 0), MAXIMUM_LIGHT_LEVEL)
+      : 0;
+    const key = createBlockKey(worldX, worldY, worldZ);
+    const previous = this.#dynamicLights.get(key)?.[3] ?? 0;
+    if (previous === level) return false;
+    if (level <= 0 || worldY < 0 || worldY >= CHUNK_HEIGHT) {
+      this.#dynamicLights.delete(key);
+    } else {
+      this.#dynamicLights.set(key, [worldX, worldY, worldZ, level]);
+    }
+    return true;
+  }
+
   public getBuildModifications(
     chunkX: number,
     chunkZ: number,
@@ -227,13 +258,42 @@ export class VoxelWorldData {
     return result;
   }
 
+  public getBuildLightEmitters(
+    chunkX: number,
+    chunkZ: number,
+  ): SerializedLightEmitter[] {
+    const minimumX = chunkX * CHUNK_SIZE - LIGHT_PROPAGATION_RADIUS;
+    const minimumZ = chunkZ * CHUNK_SIZE - LIGHT_PROPAGATION_RADIUS;
+    const maximumX =
+      (chunkX + 1) * CHUNK_SIZE - 1 + LIGHT_PROPAGATION_RADIUS;
+    const maximumZ =
+      (chunkZ + 1) * CHUNK_SIZE - 1 + LIGHT_PROPAGATION_RADIUS;
+    const result: SerializedLightEmitter[] = [];
+    for (const emitter of this.#dynamicLights.values()) {
+      if (
+        emitter[0] >= minimumX &&
+        emitter[0] <= maximumX &&
+        emitter[2] >= minimumZ &&
+        emitter[2] <= maximumZ
+      ) {
+        result.push(emitter);
+      }
+    }
+    return result;
+  }
+
   public get modificationCount(): number {
     return this.#modifications.size;
+  }
+
+  public get dynamicLightCount(): number {
+    return this.#dynamicLights.size;
   }
 
   public dispose(): void {
     this.#database?.close();
     this.#database = null;
+    this.#dynamicLights.clear();
   }
 
   #setMemoryModification(

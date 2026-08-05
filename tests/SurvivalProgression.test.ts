@@ -9,6 +9,17 @@ import {
 import { BlockType } from '../src/world/BlockType';
 
 describe('survival mining progression', () => {
+  it('turns natural stone into cobblestone only with a suitable pickaxe', () => {
+    expect(getBlockDropItem(BlockType.Stone, null)).toBeNull();
+    expect(getBlockDropItem(BlockType.Stone, ItemType.WoodenAxe)).toBeNull();
+    expect(getBlockDropItem(BlockType.Stone, ItemType.WoodenPickaxe)).toBe(
+      ItemType.CobblestoneBlock,
+    );
+    expect(getBlockDropItem(BlockType.Cobblestone, ItemType.WoodenPickaxe)).toBe(
+      ItemType.CobblestoneBlock,
+    );
+  });
+
   it('requires a pickaxe for coal and a stone-tier pickaxe for raw iron', () => {
     expect(getBlockDropItem(BlockType.CoalOre, null)).toBeNull();
     expect(getBlockDropItem(BlockType.CoalOre, ItemType.WoodenAxe)).toBeNull();

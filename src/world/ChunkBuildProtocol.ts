@@ -8,6 +8,13 @@ export type SerializedBlockModification = readonly [
   block: BlockType,
 ];
 
+export type SerializedLightEmitter = readonly [
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+  level: number,
+];
+
 export interface ChunkBuildRequest {
   readonly type: 'build-chunk';
   readonly requestId: number;
@@ -15,6 +22,7 @@ export interface ChunkBuildRequest {
   readonly chunkX: number;
   readonly chunkZ: number;
   readonly modifications: readonly SerializedBlockModification[];
+  readonly lightEmitters?: readonly SerializedLightEmitter[];
 }
 
 export interface ChunkBuildSuccess {

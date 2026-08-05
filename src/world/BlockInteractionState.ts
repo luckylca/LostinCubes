@@ -1,3 +1,4 @@
+import { getBlockDefinition } from './BlockRegistry';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 
@@ -21,20 +22,10 @@ export interface BlockInteractionTimingResult {
 }
 
 export function getBlockBreakDuration(block: BlockTypeValue): number {
-  switch (block) {
-    case BlockType.Grass: return 0.45;
-    case BlockType.Dirt: return 0.5;
-    case BlockType.OakLeaves: return 0.22;
-    case BlockType.OakLog: return 1.15;
-    case BlockType.OakPlanks: return 0.85;
-    case BlockType.CraftingTable: return 1;
-    case BlockType.Stone: return 1.35;
-    case BlockType.CoalOre: return 1.7;
-    case BlockType.IronOre: return 2.2;
-    case BlockType.Furnace: return 1.8;
-    case BlockType.RuneStone: return 2.1;
-    case BlockType.Air: return Number.POSITIVE_INFINITY;
-  }
+  if (block === BlockType.Air) return Number.POSITIVE_INFINITY;
+  const hardness = getBlockDefinition(block).hardness;
+  if (hardness <= 0) return 0.05;
+  return Math.max(hardness * 0.9, 0.08);
 }
 
 export class BlockInteractionState {

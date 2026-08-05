@@ -7,11 +7,15 @@ import {
   ChunkWorkerPool,
 } from './ChunkWorkerPool';
 import {
+  registerFurnaceLightRuntime,
+  unregisterFurnaceLightRuntime,
+} from './FurnaceLightRuntime';
+import {
   CHUNK_SIZE,
   createChunkKey,
   worldToChunkCoordinate,
-  worldToLocalCoordinate,
 } from './VoxelChunk';
+import { buildChunkLightField } from './VoxelLightEngine';
 import { VoxelMaterialLibrary } from './VoxelMaterialLibrary';
 import type { VoxelWorldData } from './VoxelWorldData';
 
@@ -72,6 +76,7 @@ export class VoxelWorldRenderer {
     this.#world = world;
     this.#renderRadius = renderRadius;
     this.#materials = new VoxelMaterialLibrary(scene);
+    registerFurnaceLightRuntime(world, this);
   }
 
   public async initialize(playerX: number, playerZ: number): Promise<void> {
@@ -121,24 +126,18 @@ export class VoxelWorldRenderer {
     }
     const chunkX = worldToChunkCoordinate(worldX);
     const chunkZ = worldToChunkCoordinate(worldZ);
-    const localX = worldToLocalCoordinate(worldX);
-    const localZ = worldToLocalCoordinate(worldZ);
 
-    // The owning chunk is rebuilt immediately on the main thread. This keeps
-    // removal/placement, particles, and audio in the same visible frame. Only
-    // boundary neighbors remain asynchronous because they are not the block's
-    // primary visible surface.
+    // The owning chunk disappears/appears immediately. A block can also alter
+    // sky or emitted light up to 15 cells away, so its eight neighboring chunks
+    // are rebuilt asynchronously instead of only face-sharing boundary chunks.
     this.#rebuildChunkImmediately(chunkX, chunkZ);
-    if (localX === 0) {
-      this.#invalidateChunk(chunkX - 1, chunkZ);
-    } else if (localX === CHUNK_SIZE - 1) {
-      this.#invalidateChunk(chunkX + 1, chunkZ);
-    }
-    if (localZ === 0) {
-      this.#invalidateChunk(chunkX, chunkZ - 1);
-    } else if (localZ === CHUNK_SIZE - 1) {
-      this.#invalidateChunk(chunkX, chunkZ + 1);
-    }
+    this.#invalidateLightingNeighborhood(chunkX, chunkZ, false);
+  }
+
+  public invalidateLightEmitter(worldX: number, worldZ: number): void {
+    const chunkX = worldToChunkCoordinate(worldX);
+    const chunkZ = worldToChunkCoordinate(worldZ);
+    this.#invalidateLightingNeighborhood(chunkX, chunkZ, true);
   }
 
   public afterNextBlockUpdate(
@@ -189,6 +188,7 @@ export class VoxelWorldRenderer {
   public dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    unregisterFurnaceLightRuntime(this);
     this.#workers.dispose();
     for (const chunk of this.#chunks.values()) {
       chunk.mesh.dispose(false, false);
@@ -199,6 +199,19 @@ export class VoxelWorldRenderer {
     this.#completed.length = 0;
     this.#afterUpdate.clear();
     this.#materials.dispose();
+  }
+
+  #invalidateLightingNeighborhood(
+    centerChunkX: number,
+    centerChunkZ: number,
+    includeCenter: boolean,
+  ): void {
+    for (let offsetZ = -1; offsetZ <= 1; offsetZ += 1) {
+      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+        if (!includeCenter && offsetX === 0 && offsetZ === 0) continue;
+        this.#invalidateChunk(centerChunkX + offsetX, centerChunkZ + offsetZ);
+      }
+    }
   }
 
   #updateDesiredKeys(centerChunkX: number, centerChunkZ: number): void {
@@ -272,11 +285,19 @@ export class VoxelWorldRenderer {
     if (!this.#desiredKeys.has(key) || this.#disposed) return;
 
     const startedAt = performance.now();
+    const sampleBlock = (sampleX: number, sampleY: number, sampleZ: number) =>
+      this.#world.sampleBlock(sampleX, sampleY, sampleZ);
+    const lighting = buildChunkLightField(
+      chunkX,
+      chunkZ,
+      sampleBlock,
+      this.#world.getBuildLightEmitters(chunkX, chunkZ),
+    );
     const meshData = buildChunkMeshData(
       chunkX,
       chunkZ,
-      (sampleX, sampleY, sampleZ) =>
-        this.#world.sampleBlock(sampleX, sampleY, sampleZ),
+      sampleBlock,
+      lighting.sampleCombined,
     );
     this.#applyChunk(key, revision, {
       type: 'chunk-built',
@@ -331,6 +352,7 @@ export class VoxelWorldRenderer {
         chunkX,
         chunkZ,
         modifications: this.#world.getBuildModifications(chunkX, chunkZ),
+        lightEmitters: this.#world.getBuildLightEmitters(chunkX, chunkZ),
       },
       { jobKey: key, priority },
     );
