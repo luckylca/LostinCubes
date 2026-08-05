@@ -1,9 +1,10 @@
 import type { BlockType } from './BlockType';
-import { buildChunkMeshData } from './ChunkMeshBuilder';
 import type {
   ChunkBuildRequest,
   ChunkBuildSuccess,
 } from './ChunkBuildProtocol';
+import { buildChunkMeshData } from './ChunkMeshBuilder';
+import { ChunkVoxelCache } from './ChunkVoxelCache';
 import { TerrainGenerator } from './TerrainGenerator';
 import { buildChunkLightField } from './VoxelLightEngine';
 
@@ -25,7 +26,7 @@ export function executeChunkBuild(
     modifications.set(createModificationKey(worldX, worldY, worldZ), block);
   }
 
-  const sampleWorldBlock = (
+  const sampleProceduralBlock = (
     worldX: number,
     worldY: number,
     worldZ: number,
@@ -35,16 +36,26 @@ export function executeChunkBuild(
     );
     return modified ?? generator.sampleBlock(worldX, worldY, worldZ);
   };
+
+  // One chunk light field spans 46×32×46 cells. Materializing that bounded
+  // volume once avoids repeatedly evaluating terrain noise, caves, ores, and
+  // tree placement during the sky pass, block-light pass, propagation, and
+  // greedy mesh pass.
+  const voxels = new ChunkVoxelCache(
+    request.chunkX,
+    request.chunkZ,
+    sampleProceduralBlock,
+  );
   const lighting = buildChunkLightField(
     request.chunkX,
     request.chunkZ,
-    sampleWorldBlock,
+    voxels.sample,
     request.lightEmitters ?? [],
   );
   const meshData = buildChunkMeshData(
     request.chunkX,
     request.chunkZ,
-    sampleWorldBlock,
+    voxels.sample,
     lighting.sampleCombined,
   );
 
