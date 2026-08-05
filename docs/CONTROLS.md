@@ -8,188 +8,157 @@
 | Fallback look | Hold and drag when pointer lock is unavailable |
 | Move | WASD |
 | Look | Move the captured mouse |
-| Jump | Space |
+| Jump / swim upward | Space |
 | Sprint | Left or right Shift |
+| Sneak / prevent ledge fall / dive | Left or right Ctrl |
+| Climb ladder upward | Move forward or hold Space |
+| Climb ladder downward | Move backward or hold Ctrl |
 | Switch camera | F5 or V |
 | Open or close inventory | E |
 | Close inventory / release mouse / pause | Escape |
 | Mine a targeted block | Hold left mouse button or Q |
 | Melee attack when no block is targeted | Press left mouse button or Q |
-| Use a targeted block / place the selected block | Right mouse button |
+| Use a targeted block / place selected block | Right mouse button |
 | Eat selected food when no block is targeted | Right mouse button |
 | Select hotbar slot | 1–9 or mouse wheel |
 
-When an inventory, workbench, or furnace screen is open, movement, looking, mining, placement, enemies, furnaces, player physics, ground-drop physics, damage, and world time are frozen. E or Escape closes the current screen.
+When an inventory, workbench, or furnace screen is open, movement, looking, mining, placement, enemies, furnaces, player physics, ground-drop physics, random block ticks, damage, and world time are frozen. E or Escape closes the current screen.
+
+## Movement and environment
+
+The same kinematic voxel body is used on land, in fluids, and on ladders.
+
+- Walking resolves X and Z separately for wall sliding and uses bounded substeps to prevent tunneling.
+- Automatic stepping is limited to 0.6 blocks; a full block uses a real jump or auto-jump arc.
+- Holding Ctrl reduces horizontal speed and prevents a grounded player from stepping into unsupported space.
+- Water reduces horizontal speed, applies vertical drag, and cancels accumulated fall damage.
+- Hold Space while in water to swim upward; hold Ctrl to dive.
+- Lava is slower than water and causes periodic damage.
+- Ladders are non-solid, targetable blocks. Moving forward or holding Space climbs; moving backward or holding Ctrl descends.
+- Entering water, lava, or a ladder cancels the current dangerous-fall accumulation.
+
+The compact environment HUD shows the current biome and only adds a special state when relevant: land, sneak, water, underwater, lava, or ladder. The canvas also exposes `data-biome`, `data-environment`, and `data-player-air` for diagnostics and browser tests.
+
+## Oxygen, damage, and recovery
+
+- Maximum health is 20.
+- Maximum oxygen is 300 units.
+- The body may be in water without losing oxygen; oxygen drains only when the head is submerged.
+- Oxygen drains at 20 units per active gameplay second and recovers at 80 units per second after surfacing.
+- Drowning begins after oxygen reaches zero and deals periodic damage.
+- Lava and head-inside-solid-block suffocation also deal periodic damage.
+- Falls, enemies, drowning, lava, and suffocation share a short hurt-invulnerability window, preventing multiple sources from stacking every fixed step.
+- Apples restore four health and are consumed only below full health.
+- Lethal damage or falling below the world respawns the player at the original safe spawn with full health and oxygen.
+- Death moves all 36 inventory slots into the bounded ground-drop pool; overflow returns to inventory rather than being deleted.
+
+Health, day time, and death count persist for the current world. Oxygen is restored on reload rather than persisted separately.
+
+## Biomes, oceans, and underground hazards
+
+The deterministic world now contains four climate-driven biomes:
+
+- Plains: open grassland with sparse trees, tall grass, and flowers.
+- Forest: denser oak trees and undergrowth.
+- Desert: sand surface with little vegetation.
+- Snowy tundra: snow surface with sparse trees.
+
+The initial spawn remains a dry plains clearing above sea level. Away from spawn:
+
+- Low terrain fills with static water to sea level 8.
+- Beaches and seabeds use sand, gravel, and clay patches.
+- Caves remain below a protected surface shell.
+- Coal generates through height 22.
+- Iron generates at height 12 and below.
+- Deep carved caves may contain luminous lava at height 4 and below.
+
+Water and lava currently represent generated static fluid volumes. They have shared chunk geometry, opacity, lighting, collision queries, and survival effects, but do not yet flow and cannot be collected with buckets.
+
+## Plants, leaf decay, and regrowth
+
+Nearby world updates use a small fixed random-tick budget rather than scanning the world.
+
+- Leaves retain themselves while an oak log is within the support radius.
+- Unsupported leaves decay gradually.
+- Breaking leaves has a low chance to drop an oak sapling.
+- Saplings placed on grass or dirt can grow into a full oak tree when enough space exists.
+- Tall grass, flowers, saplings, and ladders remove themselves after losing required support.
+- Covered grass converts to dirt; exposed dirt near grass may spread back to grass.
+
+A tree growth event may modify many voxels, but renderer invalidation is deduplicated by touched chunk.
 
 ## Real 2×2 and 3×3 crafting
 
-Crafting now uses actual grid state instead of instantly subtracting ingredients from the backpack.
+Crafting uses actual grid state instead of instantly subtracting ingredients from the backpack.
 
 1. Press E to open the personal 2×2 grid.
-2. Left-click to move whole stacks; right-click to take half or place one item.
-3. Arrange ingredients in the grid. A shaped recipe may be moved to any valid offset inside the current grid.
-4. When the arrangement matches, the result appears in the output slot.
-5. Click the output slot to consume one item from every occupied recipe cell and take the result onto the cursor.
-6. Place the cursor stack into inventory or continue crafting while the same recipe remains valid.
+2. Left-click moves whole stacks; right-click takes half or places one item.
+3. Arrange ingredients in the grid. Shaped recipes may use any valid offset.
+4. Matching results appear in the output slot.
+5. Click once to craft once, hold to craft repeatedly, or Shift-click to craft until materials or stack space run out.
+6. Closing safely returns grid and cursor stacks; closing is blocked rather than deleting overflow.
 
-The recipe book is optional. Clicking a recipe-book card only moves one recipe layer from inventory into an empty crafting grid. It never creates the output directly.
+The recipe book is optional. It fills an empty grid with as many complete recipe layers as the inventory supports, but never creates the output directly.
 
-Closing the screen attempts to return every crafting-grid and cursor stack to inventory. Closing is blocked when insufficient space remains; items are never silently deleted.
+Personal recipes include planks, sticks, the crafting table, and torches. A placed crafting table opens the 3×3 grid for tools, the furnace, and ladders.
 
-Personal 2×2 recipes include:
+Classic ladder recipe:
 
-- One oak log anywhere → four oak planks.
-- Two oak planks vertically → four sticks.
-- Four oak planks filling 2×2 → one crafting table.
-- Coal above a stick → four torches.
+```text
+stick   empty   stick
+stick   stick   stick
+stick   empty   stick
+```
 
-Place a crafting table and right-click it to use the 3×3 grid. The 3×3 grid supports the familiar pickaxe, shovel, axe, and furnace shapes. Axe recipes also match their horizontal mirror.
+Seven sticks produce three ladders.
 
-## Classic resource progression
+## Resource and furnace progression
 
-- Empty hand and block items mine at base speed.
-- Shovels accelerate grass and dirt.
+- Shovels accelerate grass, dirt, sand, gravel, clay, and snow.
 - Pickaxes accelerate stone, cobblestone, rune stone, ores, and furnaces.
-- Axes accelerate logs, planks, and crafting tables.
-- Wooden tools provide a 3.4× matching-tool multiplier and 59 durability.
-- Stone tools provide a 5.2× multiplier and 131 durability.
-- Iron tools provide a 7.2× multiplier and 250 durability.
-- Leaves break quickly without requiring a special tool.
-- Mining duration comes from the block registry hardness rather than duplicated per-feature constants.
-- Mismatched tools receive no mining bonus but still lose durability after a successful break.
-- Mining tools lose one durability only when a block is actually removed.
+- Axes accelerate logs, planks, crafting tables, and ladders.
+- Wooden tools: 3.4× matching speed, 59 durability.
+- Stone tools: 5.2× matching speed, 131 durability.
+- Iron tools: 7.2× matching speed, 250 durability.
+- Natural stone drops cobblestone only with a suitable pickaxe.
+- Coal requires a wooden-or-better pickaxe.
+- Iron requires a stone-or-better pickaxe.
+- Mismatched tools gain no speed bonus and still lose durability after a successful break.
 
-Stone now follows the classic collection loop:
+The furnace is eight cobblestone around an empty center. Each placed furnace owns input, fuel, output, burn time, and smelt progress. Coal burns for 12 seconds; one iron ingot requires four burning seconds. A burning furnace emits level-13 light.
 
-1. Craft a wooden pickaxe.
-2. Mine natural stone with a suitable pickaxe.
-3. The block drops cobblestone rather than a natural-stone block.
-4. Use cobblestone for stone tools and the furnace recipe.
+## Camera, targeting, and combat
 
-The furnace recipe is eight cobblestone surrounding an empty center in the 3×3 workbench grid.
+- First- and third-person modes share authoritative yaw and pitch.
+- Pitch reaches effectively ±90 degrees for direct upward or downward targeting.
+- Block interaction starts at standing eye height and uses voxel DDA with 4.5-block reach.
+- Non-solid targetable blocks such as torches, ladders, flowers, and saplings remain selectable.
+- Third person uses a right-shoulder camera, real-hit marker, and obstruction shortening.
+- Night stalkers spawn in darkness, pursue the player, attack on cooldown, and despawn in daylight or at excessive distance.
+- Melee uses the same eye direction; tools lose durability only when a hit connects.
 
-## Voxel sky light and block light
-
-Chunks now contain a classic integer light field:
-
-- Sky light ranges from 0 to 15.
-- Block light ranges from 0 to 15.
-- Opaque blocks stop direct sky light.
-- Open cave entrances allow light to spread sideways and downward one level per voxel.
-- Leaves reduce light by one level while still allowing partial daylight.
-- Torch light starts at level 14.
-- Rune stone emits level 10.
-- A burning furnace emits level 13 and removes that light when fuel expires or the furnace is broken.
-- Final visible brightness uses the greater of sky light and block light.
-
-Light is computed in the chunk Worker over a bounded 15-block border, then baked into chunk vertex colors. Adding/removing a light source or changing an opaque block invalidates the affected neighboring chunk area.
-
-Torches are targetable but non-solid. Their world model uses crossed alpha-tested pixel quads rather than a full collision cube.
-
-## Furnace operation
-
-Each placed furnace owns coordinate-scoped input, fuel, output, burn time, and smelt progress.
-
-1. Put rough iron into the upper slot.
-2. Put coal into the lower fuel slot.
-3. Close the menu so fixed-step world simulation resumes.
-4. Reopen the furnace and take iron ingots from the right output slot.
-
-Rules:
-
-- Coal burns for 12 seconds.
-- One iron ingot requires four burning seconds.
-- One coal can therefore smelt up to three ingots.
-- Input, fuel, and output each hold up to 64 items.
-- A burning fuel item continues its cycle if input runs out or output fills.
-- Breaking a furnace returns remaining input, unused fuel, completed output, and the furnace block.
-- Furnace state is saved every two seconds and on page exit.
-- Burning light changes are transition-driven; progress ticks do not continuously remesh chunks.
-
-## Camera and targeting
-
-- First- and third-person modes share authoritative player yaw and pitch.
-- Pitch reaches effectively ±90 degrees, so the player can mine directly below or above.
-- Block interaction starts at standing eye height and uses voxel DDA with a 4.5-block reach.
-- Targeting uses the block registry, allowing non-solid interactive blocks such as torches to be selected.
-- First person uses a center crosshair and camera-parented held item.
-- Third person uses a right-shoulder camera, projected real-hit marker, and item attached to the right hand.
-- Melee uses the same player-eye direction and selects the nearest enemy inside a bounded 3.25-block view capsule.
-- Camera obstruction shortens the third-person boom before solid world geometry.
-
-## Movement, health, death, and time
-
-- X and Z movement resolve independently for wall sliding.
-- Movement uses bounded substeps to prevent tunneling.
-- Automatic step height is limited to 0.6 blocks.
-- A full one-block obstacle uses a real jump or auto-jump arc.
-- Two-block walls and low ceilings stop auto-jump.
-- Safe falls cause no damage; dangerous landing speed removes health only after floor contact.
-- Maximum health is 20.
-- Lethal damage or falling below the world records the death position, respawns at the original spawn, and restores full health.
-- On death, all 36 inventory slots become ground drops at the death point. Damaged tools keep exact durability.
-- If the 96-entity drop pool is full, remaining stacks return to inventory rather than being deleted.
-- The HUD shows health, 24-hour world time, active night enemies, and accumulated respawns.
-- One full day/night cycle lasts three active gameplay minutes.
-- Health, day time, and respawn count restore on reload for the same world.
-
-## Caves and ores
-
-Oak trees, caves, coal, and iron are deterministic parts of the seeded world. Caves remain below a protected surface shell.
-
-- Coal can generate through height 22 and requires a wooden-or-better pickaxe for its coal drop.
-- Iron is restricted to height 12 and below and requires a stone-or-better pickaxe for rough iron.
-- Breaking an ore with an insufficient or mismatched tool may remove it without producing the resource.
-- Use HUD coordinates to judge mining depth.
-
-## Food and recovery
-
-- Some oak leaves deterministically drop apples when broken.
-- Apples stack to 16.
-- Select an apple, aim away from blocks, and right-click to eat it.
-- An apple restores four health and is consumed only below full health.
-- Night enemies can also drop an occasional apple.
-
-## Night enemies and melee combat
-
-- Night stalkers spawn only during the dark portion of the day cycle.
-- At most ten are active at once.
-- They appear roughly 10–18 blocks from the player, follow terrain standing height, pursue, and despawn in daylight or at excessive distance.
-- A nearby stalker deals three damage with an individual 1.15-second attack cooldown.
-- Empty hand and non-tool items deal two damage.
-- Axes deal the most melee damage; pickaxes and shovels deal less by material tier.
-- Tools lose one durability only after a melee hit connects.
-- Stalkers have 12 health and drop coal; some kills also produce an apple.
-
-## Inventory and ground drops
+## Inventory, drops, and persistence
 
 The inventory contains 27 storage slots plus nine hotbar slots.
 
-- Left-click takes a whole stack, merges matching stacks, or swaps different stacks.
-- Right-click takes half a stack or places one item.
-- Most blocks/materials stack to 64; apples stack to 16; tools occupy one slot.
-- Ground drops support blocks, materials, food, and durability-preserving tools.
-- Drops merge only when item identity and durability match.
-- Drops fall onto voxels, rotate, bob, attract toward the player, and remain when inventory is full.
-- A fixed pool provides at most 96 visible drop entities.
-- Drop snapshots save every two seconds and on page exit.
-- Old numeric block-only snapshots migrate through runtime-validated block mapping; malformed historical IDs are ignored.
+- Most blocks and materials stack to 64; apples stack to 16; tools occupy one slot.
+- Ground drops preserve identity and tool durability, merge compatible stacks, fall onto solid voxels, and remain when inventory is full.
+- At most 96 visible drops are active.
+- Sparse world edits are stored in IndexedDB by world seed.
+- Inventory, drops, furnaces, health, time, and death count use versioned world-scoped snapshots.
+- Existing numeric block IDs 0–13 remain unchanged; environmental blocks append IDs 14–23.
+- Invalid historical records are clamped or ignored.
+
+The new terrain generator intentionally changes regenerated terrain for the same seed. Sparse edits remain readable, but an old edited world can contain floating or embedded edits relative to the new biome terrain.
 
 ## Mobile controls
 
-Landscape and narrow-screen layouts provide movement, mining/attack, use/eat, inventory, sprint, jump, camera, pause, drag-to-look, and a horizontally scrollable hotbar. Multi-touch uses independent pointer IDs for movement, camera, actions, and hotbar selection.
-
-## Persistence
-
-- Sparse world edits are stored in IndexedDB by world seed.
-- Deterministic terrain, caves, ores, trees, and apple decisions are regenerated rather than stored.
-- Inventory, selected slot, item counts, and tool durability use a versioned world-scoped snapshot.
-- Ground drops use a separate bounded durability-aware snapshot.
-- Furnace states use coordinate-scoped world snapshots.
-- Health, day time, and respawn count use a survival snapshot.
-- Existing numeric block IDs 0–11 remain unchanged; cobblestone and torch append IDs 12 and 13.
-- Invalid inventory, survival, furnace, voxel, and drop data is clamped or ignored during restore.
+Landscape and narrow-screen layouts provide independent buttons for movement, mining/attack, use/eat, inventory, sprint, sneak/dive, jump/swim-up, camera, and pause. The canvas supports drag-to-look and the hotbar remains horizontally scrollable.
 
 ## Current limits
 
-Batch 1 establishes classic rules, real shaped crafting, and voxel lighting. Water/lava, biomes, swimming, sneaking, ladders, scheduled block ticks, broader mobs, projectiles, TNT, world slots, and persistent entities belong to batches 2 and 3. There is still no hunger, armor, ranged combat, complex enemy pathfinding, or persistent enemy state.
+- Water and lava are static generated volumes with no source levels or flow simulation.
+- There are no buckets, springs, ice, freezing, falling sand/gravel, fire, or extinguishing.
+- Ladders use crossed pixel quads and do not yet store a wall-facing block state.
+- Dungeons and a separate population pipeline are deferred.
+- Hunger, armor, ranged combat, TNT, broader mobs, world slots, and persistent entities belong to Batch 3.
