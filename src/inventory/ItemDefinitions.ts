@@ -47,6 +47,7 @@ export type ItemType = (typeof ItemType)[keyof typeof ItemType];
 export type ToolKind = BlockToolKind;
 export type ToolTier = 'wood' | 'stone' | 'iron';
 export type ItemRgb = readonly [red: number, green: number, blue: number];
+export type RandomSource = () => number;
 
 export interface ItemDefinition {
   readonly label: string;
@@ -63,6 +64,8 @@ export interface ItemDefinition {
   readonly fuelSeconds: number;
   readonly color: ItemRgb;
 }
+
+const LEAF_SAPLING_DROP_CHANCE = 0.05;
 
 function blockDefinition(
   label: string,
@@ -536,12 +539,18 @@ function canHarvestBlock(
 export function getBlockDropItem(
   block: BlockTypeValue,
   heldItem: ItemType | null,
+  random: RandomSource = Math.random,
 ): ItemType | null {
   if (!canHarvestBlock(block, heldItem)) return null;
   if (block === BlockType.Stone) return ItemType.CobblestoneBlock;
   if (block === BlockType.CoalOre) return ItemType.Coal;
   if (block === BlockType.IronOre) return ItemType.RawIron;
-  if (block === BlockType.TallGrass || block === BlockType.OakLeaves) return null;
+  if (block === BlockType.OakLeaves) {
+    return random() < LEAF_SAPLING_DROP_CHANCE
+      ? ItemType.OakSaplingBlock
+      : null;
+  }
+  if (block === BlockType.TallGrass) return null;
   return itemFromBlock(block);
 }
 
