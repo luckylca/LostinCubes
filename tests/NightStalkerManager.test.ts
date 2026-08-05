@@ -4,26 +4,18 @@ import { NightStalkerManager } from '../src/entities/NightStalkerManager';
 import type { PlayerState } from '../src/game/session/GameSession';
 import { ItemType } from '../src/inventory/ItemDefinitions';
 import type { VoxelWorldData } from '../src/world/VoxelWorldData';
+import { createTestPlayerState } from './TestPlayerState';
 
 function createPlayer(
-  overrides: Partial<PlayerState> = {},
+  overrides: Parameters<typeof createTestPlayerState>[0] = {},
 ): PlayerState {
-  return {
+  return createTestPlayerState({
     position: { x: 0, y: 1.4, z: 0 },
-    verticalVelocity: 0,
-    horizontalSpeed: 0,
-    sprinting: false,
-    grounded: true,
     yaw: 0,
     pitch: 0,
     cameraMode: 'first-person',
-    paused: false,
-    health: 20,
-    maximumHealth: 20,
-    damageTaken: 0,
-    deathCount: 0,
     ...overrides,
-  };
+  });
 }
 
 function createFlatWorld(): VoxelWorldData {
