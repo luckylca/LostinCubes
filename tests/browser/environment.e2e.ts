@@ -31,7 +31,9 @@ test('presents biome, oxygen, sneak, and survival tutorial state', async ({
 
   const guide = page.locator('#survival-guide');
   await guide.locator('summary').click();
-  await guide.locator('label[for="tutorial-page-4"]').click();
+  await guide
+    .locator('.tutorial-page-tabs label[for="tutorial-page-4"]')
+    .click();
   const survivalPage = guide.locator('.tutorial-page-4');
   await expect(survivalPage).toBeVisible();
   await expect(survivalPage).toContainText('氧气');
