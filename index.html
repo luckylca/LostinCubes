@@ -36,7 +36,11 @@
           <span class="hud-label">坐标</span>
           <strong id="hud-position">0.0, 2.9, 3.5</strong>
         </div>
-        <p class="desktop-help">WASD 移动 · E 背包 · Esc 释放鼠标</p>
+        <div class="hud-pill survival-environment-pill">
+          <span class="hud-label">环境</span>
+          <strong id="survival-environment-status">平原 · 陆地</strong>
+        </div>
+        <p class="desktop-help">WASD 移动 · Shift 冲刺 · Ctrl 潜行/下潜 · E 背包</p>
         <details id="survival-guide" class="tutorial-book">
           <summary aria-label="打开教程书">📖 教程书</summary>
           <div class="tutorial-book-shell">
@@ -52,10 +56,11 @@
                 <dl>
                   <div><dt>移动</dt><dd>WASD</dd></div>
                   <div><dt>跳跃 / 冲刺</dt><dd>Space / Shift</dd></div>
+                  <div><dt>潜行 / 下潜</dt><dd>Ctrl</dd></div>
                   <div><dt>破坏 / 使用</dt><dd>左键 / 右键</dd></div>
                   <div><dt>背包 / 视角</dt><dd>E / F5 或 V</dd></div>
                 </dl>
-                <p>按住左键持续挖掘。准星裂纹填满时方块会立刻消失并生成掉落。</p>
+                <p>潜行会减速，并在方块边缘阻止你直接走空。水中按 Space 上浮，Ctrl 下潜。</p>
                 <nav class="tutorial-page-turn"><span></span><label for="tutorial-page-2">下一页 ›</label></nav>
               </article>
 
@@ -74,26 +79,26 @@
 
               <article class="tutorial-page tutorial-page-3">
                 <p class="tutorial-kicker">第 3 页</p>
-                <h2>工具、火把与熔炉</h2>
+                <h2>工具、梯子与熔炉</h2>
                 <ol>
                   <li>木镐挖天然石头会掉圆石。</li>
                   <li>八块圆石围一圈、中间留空，可合成熔炉。</li>
                   <li>煤炭放在木棍上方，一次得到四个火把。</li>
-                  <li>熔炉上格粗铁、下格煤炭、右格取铁锭。</li>
+                  <li>七根木棍摆成 H 形，可合成三个梯子。</li>
                 </ol>
-                <p>火把发出 14 级方块光，燃烧中的熔炉发出 13 级方块光。</p>
+                <p>梯子上按前进或 Space 向上，Ctrl 向下。火把和燃烧熔炉会照亮洞穴。</p>
                 <nav class="tutorial-page-turn"><label for="tutorial-page-2">‹ 上一页</label><label for="tutorial-page-4">下一页 ›</label></nav>
               </article>
 
               <article class="tutorial-page tutorial-page-4">
                 <p class="tutorial-kicker">第 4 页</p>
-                <h2>生存提示</h2>
+                <h2>世界与生存</h2>
                 <ul>
-                  <li>危险坠落会扣除生命。</li>
-                  <li>夜晚会出现夜行者，斧头近战伤害较高。</li>
-                  <li>苹果可以恢复四点生命。</li>
-                  <li>死亡后物品会掉在死亡位置。</li>
-                  <li>世界、背包、掉落和熔炉状态都会自动保存。</li>
+                  <li>平原、森林、沙漠和雪原拥有不同地表与植被。</li>
+                  <li>头部没入水中后氧气会下降，耗尽后开始溺水。</li>
+                  <li>岩浆会减慢移动并持续造成伤害。</li>
+                  <li>树叶失去原木支撑后会衰减，树苗会重新长成橡树。</li>
+                  <li>危险坠落、窒息和夜行者同样会扣除生命。</li>
                 </ul>
                 <nav class="tutorial-page-turn"><label for="tutorial-page-3">‹ 上一页</label><label for="tutorial-page-1">回到封面 ↺</label></nav>
               </article>
@@ -149,6 +154,7 @@
           <button type="button" data-action="place-block">使用</button>
           <button type="button" data-action="toggle-inventory">背包</button>
           <button type="button" data-action="sprint">冲刺</button>
+          <button type="button" data-action="sneak">潜行</button>
           <button type="button" data-action="jump">跳跃</button>
           <button type="button" data-action="toggle-camera">视角</button>
           <button type="button" data-action="toggle-pause">暂停</button>
