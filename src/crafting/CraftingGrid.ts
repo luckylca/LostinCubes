@@ -15,6 +15,7 @@ export interface CraftingTakeResult {
   readonly cursor: InventorySlotSnapshot | null;
   readonly recipe: CraftingRecipe | null;
   readonly crafted: boolean;
+  readonly crafts: number;
 }
 
 interface MutableCraftingSlot {
@@ -224,8 +225,28 @@ export class CraftingGrid {
     if (!this.isEmpty || recipe.gridSize > this.#size) return false;
     const pattern = trimPattern(recipe);
     if (pattern === null) return false;
-    if (!inventory.hasItems(recipe.ingredients)) return false;
-    if (!inventory.consumeItems(recipe.ingredients)) return false;
+
+    let craftLayers = Number.POSITIVE_INFINITY;
+    for (const ingredient of recipe.ingredients) {
+      craftLayers = Math.min(
+        craftLayers,
+        Math.floor(inventory.countItem(ingredient.item) / ingredient.count),
+      );
+    }
+    for (const item of pattern.cells) {
+      if (item === null) continue;
+      craftLayers = Math.min(
+        craftLayers,
+        getItemDefinition(item).maximumStack,
+      );
+    }
+    if (!Number.isFinite(craftLayers) || craftLayers <= 0) return false;
+
+    const requirements = recipe.ingredients.map((ingredient) => ({
+      item: ingredient.item,
+      count: ingredient.count * craftLayers,
+    }));
+    if (!inventory.consumeItems(requirements)) return false;
 
     const offsetX = Math.floor((this.#size - pattern.width) / 2);
     const offsetY = Math.floor((this.#size - pattern.height) / 2);
@@ -237,7 +258,7 @@ export class CraftingGrid {
         const slot = this.#slots[index];
         if (slot === undefined) continue;
         slot.item = item;
-        slot.count = 1;
+        slot.count = craftLayers;
         slot.durability = getItemDefinition(item).maximumDurability;
       }
     }
@@ -248,39 +269,81 @@ export class CraftingGrid {
   public takeOutput(
     cursor: InventorySlotSnapshot | null,
     recipes: readonly CraftingRecipe[],
+    maximumCrafts = 1,
   ): CraftingTakeResult {
-    const match = findCraftingMatch(this.#size, this.snapshot, recipes);
-    if (match === null) return { cursor, recipe: null, crafted: false };
-    const outputDefinition = getItemDefinition(match.recipe.output.item);
-    if (
-      cursor !== null &&
-      (cursor.item !== match.recipe.output.item ||
-        cursor.count + match.recipe.output.count > outputDefinition.maximumStack)
-    ) {
-      return { cursor, recipe: match.recipe, crafted: false };
+    const firstMatch = findCraftingMatch(this.#size, this.snapshot, recipes);
+    if (firstMatch === null) {
+      return { cursor, recipe: null, crafted: false, crafts: 0 };
     }
 
-    for (const index of match.consumedSlots) {
-      const slot = this.#slots[index];
-      if (slot?.item === undefined || slot.item === null || slot.count <= 0) {
-        return { cursor, recipe: match.recipe, crafted: false };
-      }
-      slot.count -= 1;
-      if (slot.count <= 0) this.#clear(slot);
+    const outputDefinition = getItemDefinition(firstMatch.recipe.output.item);
+    if (
+      cursor !== null &&
+      cursor.item !== firstMatch.recipe.output.item
+    ) {
+      return {
+        cursor,
+        recipe: firstMatch.recipe,
+        crafted: false,
+        crafts: 0,
+      };
     }
-    this.#revision += 1;
-    const output: InventorySlotSnapshot = {
-      item: match.recipe.output.item,
-      count: match.recipe.output.count,
-      durability: outputDefinition.maximumDurability,
-    };
+
+    const boundedMaximum = Number.isFinite(maximumCrafts)
+      ? Math.max(Math.floor(maximumCrafts), 0)
+      : Number.MAX_SAFE_INTEGER;
+    let nextCursor = cursor === null ? null : cloneStack(cursor);
+    let crafts = 0;
+
+    while (crafts < boundedMaximum) {
+      const match = findCraftingMatch(this.#size, this.snapshot, recipes);
+      if (match === null || match.recipe.id !== firstMatch.recipe.id) break;
+      const currentCount = nextCursor?.count ?? 0;
+      if (
+        currentCount + match.recipe.output.count >
+        outputDefinition.maximumStack
+      ) {
+        break;
+      }
+
+      let valid = true;
+      for (const index of match.consumedSlots) {
+        const slot = this.#slots[index];
+        if (slot?.item === undefined || slot.item === null || slot.count <= 0) {
+          valid = false;
+          break;
+        }
+      }
+      if (!valid) break;
+
+      for (const index of match.consumedSlots) {
+        const slot = this.#slots[index];
+        if (slot === undefined) continue;
+        slot.count -= 1;
+        if (slot.count <= 0) this.#clear(slot);
+      }
+
+      if (nextCursor === null) {
+        nextCursor = {
+          item: match.recipe.output.item,
+          count: match.recipe.output.count,
+          durability: outputDefinition.maximumDurability,
+        };
+      } else {
+        nextCursor = {
+          ...nextCursor,
+          count: nextCursor.count + match.recipe.output.count,
+        };
+      }
+      crafts += 1;
+    }
+
+    if (crafts > 0) this.#revision += 1;
     return {
-      cursor:
-        cursor === null
-          ? output
-          : { ...cursor, count: cursor.count + output.count },
-      recipe: match.recipe,
-      crafted: true,
+      cursor: nextCursor,
+      recipe: firstMatch.recipe,
+      crafted: crafts > 0,
+      crafts,
     };
   }
 
