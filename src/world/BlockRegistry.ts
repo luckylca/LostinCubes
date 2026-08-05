@@ -158,7 +158,7 @@ const DEFINITIONS: Readonly<Record<BlockTypeValue, BlockDefinition>> = {
 };
 
 export function getBlockDefinition(block: BlockTypeValue): BlockDefinition {
-  return DEFINITIONS[block] ?? DEFINITIONS[BlockType.Air];
+  return DEFINITIONS[block];
 }
 
 export function isSolidBlock(block: BlockTypeValue): boolean {
