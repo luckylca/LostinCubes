@@ -9,23 +9,15 @@ import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '../src/game/session/GameSession';
 import { ItemType } from '../src/inventory/ItemDefinitions';
 import { HeldItemModel } from '../src/player/HeldItemModel';
+import { createTestPlayerState } from './TestPlayerState';
 
 function createPlayer(cameraMode: PlayerState['cameraMode']): PlayerState {
-  return {
+  return createTestPlayerState({
     position: { x: 0, y: 1.4, z: 0 },
-    verticalVelocity: 0,
-    horizontalSpeed: 0,
-    sprinting: false,
-    grounded: true,
     yaw: 0,
     pitch: 0,
     cameraMode,
-    paused: false,
-    health: 20,
-    maximumHealth: 20,
-    damageTaken: 0,
-    deathCount: 0,
-  };
+  });
 }
 
 const IDLE_ACTION = {
