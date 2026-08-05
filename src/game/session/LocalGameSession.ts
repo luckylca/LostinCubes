@@ -1,7 +1,10 @@
 import type { PlayerInputCommand } from '../commands/PlayerInputCommand';
 import { createNeutralPlayerInput } from '../commands/PlayerInputCommand';
 import { KinematicPlayerMotor } from '../../player/KinematicPlayerMotor';
-import type { PlayerMotorConfig } from '../../player/KinematicPlayerMotor';
+import type {
+  PlayerMotorConfig,
+  PlayerVector,
+} from '../../player/KinematicPlayerMotor';
 import type { SurvivalSnapshot } from './SurvivalPersistence';
 import type {
   CameraMode,
@@ -17,10 +20,25 @@ export const PLAYER_LOOK_PITCH_LIMIT = Math.PI / 2 - 0.003;
 const MINIMUM_PITCH = -PLAYER_LOOK_PITCH_LIMIT;
 const MAXIMUM_PITCH = PLAYER_LOOK_PITCH_LIMIT;
 export const PLAYER_MAXIMUM_HEALTH = 20;
+export const PLAYER_MAXIMUM_AIR_SUPPLY = 300;
+const AIR_UNITS_PER_SECOND = 20;
+const AIR_RECOVERY_UNITS_PER_SECOND = 80;
 const SAFE_LANDING_SPEED = 8;
 const FALL_DAMAGE_PER_SPEED = 1.65;
 const VOID_DEATH_Y = -20;
 const DAY_LENGTH_SECONDS = 180;
+const HURT_INVULNERABILITY_SECONDS = 0.5;
+const DROWNING_INTERVAL_SECONDS = 1;
+const DROWNING_DAMAGE = 2;
+const LAVA_DAMAGE_INTERVAL_SECONDS = 0.75;
+const LAVA_DAMAGE = 4;
+const SUFFOCATION_INTERVAL_SECONDS = 0.75;
+const SUFFOCATION_DAMAGE = 1;
+
+export interface LocalGameSessionConfig extends Partial<PlayerMotorConfig> {
+  readonly isHeadSubmergedAt?: (position: PlayerVector) => boolean;
+  readonly isHeadSuffocatingAt?: (position: PlayerVector) => boolean;
+}
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
@@ -33,6 +51,8 @@ function isPlayerInputCommand(command: GameCommand): command is PlayerInputComma
 export class LocalGameSession implements GameSession {
   readonly #worldSeed: string;
   readonly #motor: KinematicPlayerMotor;
+  readonly #isHeadSubmergedAt: (position: PlayerVector) => boolean;
+  readonly #isHeadSuffocatingAt: (position: PlayerVector) => boolean;
   #worldState: WorldState;
   #pendingCommand: PlayerInputCommand | null = null;
   #heldCommand = createNeutralPlayerInput(0);
@@ -47,13 +67,21 @@ export class LocalGameSession implements GameSession {
   #maximumFallSpeed = 0;
   #dayTime = 0.28;
   #lastDeathPosition: VectorState | null = null;
+  #airSupply = PLAYER_MAXIMUM_AIR_SUPPLY;
+  #submerged = false;
+  #hurtCooldown = 0;
+  #drowningElapsed = 0;
+  #lavaElapsed = 0;
+  #suffocationElapsed = 0;
 
   public constructor(
     worldSeed: string,
-    motorConfig: Partial<PlayerMotorConfig> = {},
+    config: LocalGameSessionConfig = {},
   ) {
     this.#worldSeed = worldSeed;
-    this.#motor = new KinematicPlayerMotor(motorConfig);
+    this.#motor = new KinematicPlayerMotor(config);
+    this.#isHeadSubmergedAt = config.isHeadSubmergedAt ?? (() => false);
+    this.#isHeadSuffocatingAt = config.isHeadSuffocatingAt ?? (() => false);
     this.#worldState = this.#createWorldState(0);
   }
 
@@ -70,6 +98,12 @@ export class LocalGameSession implements GameSession {
     this.#maximumFallSpeed = 0;
     this.#dayTime = 0.28;
     this.#lastDeathPosition = null;
+    this.#airSupply = PLAYER_MAXIMUM_AIR_SUPPLY;
+    this.#submerged = false;
+    this.#hurtCooldown = 0;
+    this.#drowningElapsed = 0;
+    this.#lavaElapsed = 0;
+    this.#suffocationElapsed = 0;
     this.#pendingCommand = null;
     this.#heldCommand = createNeutralPlayerInput(0);
     this.#worldState = this.#createWorldState(0);
@@ -96,9 +130,7 @@ export class LocalGameSession implements GameSession {
 
   public restoreSurvival(snapshot: SurvivalSnapshot | null): void {
     if (snapshot === null) return;
-    this.#health = Math.round(
-      clamp(snapshot.health, 1, PLAYER_MAXIMUM_HEALTH),
-    );
+    this.#health = Math.round(clamp(snapshot.health, 1, PLAYER_MAXIMUM_HEALTH));
     this.#dayTime = ((snapshot.dayTime % 1) + 1) % 1;
     this.#deathCount = Math.max(Math.floor(snapshot.deathCount), 0);
     this.#worldState = this.#createWorldState(this.#worldState.tick);
@@ -106,7 +138,7 @@ export class LocalGameSession implements GameSession {
 
   public damagePlayer(amount: number): number {
     const before = this.#health;
-    this.#applyDamage(amount);
+    this.#applyDamage(amount, false);
     const damageDealt = before - this.#health;
     if (this.#health <= 0) this.#respawn();
     this.#worldState = this.#createWorldState(this.#worldState.tick);
@@ -152,26 +184,45 @@ export class LocalGameSession implements GameSession {
     }
 
     if (!this.#paused && !this.#menuOpen) {
+      this.#hurtCooldown = Math.max(this.#hurtCooldown - stepSeconds, 0);
       const before = this.#motor.getState();
-      if (!before.grounded && before.verticalVelocity < 0) {
+      if (
+        !before.grounded &&
+        !before.inWater &&
+        !before.inLava &&
+        !before.onLadder &&
+        before.verticalVelocity < 0
+      ) {
         this.#maximumFallSpeed = Math.max(
           this.#maximumFallSpeed,
           -before.verticalVelocity,
         );
       }
+
       const after = this.#motor.update(
         {
           moveX: command.moveX,
           moveZ: command.moveZ,
           sprint: command.sprint,
+          sneak: command.sneak,
           jump: command.jump,
           yaw: this.#yaw,
         },
         stepSeconds,
       );
-      if (!before.grounded && after.grounded) this.#resolveLanding();
+
+      if (after.inWater || after.inLava || after.onLadder) {
+        this.#maximumFallSpeed = 0;
+      } else if (!before.grounded && after.grounded) {
+        this.#resolveLanding();
+      }
+
+      this.#submerged = this.#isHeadSubmergedAt(after.position);
+      this.#updateAir(stepSeconds);
+      this.#updateEnvironmentalDamage(after.position, after.inLava, stepSeconds);
+
       if (after.position.y < VOID_DEATH_Y) {
-        this.#applyDamage(PLAYER_MAXIMUM_HEALTH);
+        this.#applyDamage(PLAYER_MAXIMUM_HEALTH, true);
       }
       this.#dayTime = (this.#dayTime + stepSeconds / DAY_LENGTH_SECONDS) % 1;
     }
@@ -184,21 +235,72 @@ export class LocalGameSession implements GameSession {
     return this.#worldState;
   }
 
+  #updateAir(stepSeconds: number): void {
+    if (this.#submerged) {
+      this.#airSupply = Math.max(
+        this.#airSupply - AIR_UNITS_PER_SECOND * stepSeconds,
+        0,
+      );
+      if (this.#airSupply <= 0) {
+        this.#drowningElapsed += stepSeconds;
+        if (this.#drowningElapsed >= DROWNING_INTERVAL_SECONDS) {
+          this.#drowningElapsed %= DROWNING_INTERVAL_SECONDS;
+          this.#applyDamage(DROWNING_DAMAGE, false);
+        }
+      }
+      return;
+    }
+    this.#drowningElapsed = 0;
+    this.#airSupply = Math.min(
+      this.#airSupply + AIR_RECOVERY_UNITS_PER_SECOND * stepSeconds,
+      PLAYER_MAXIMUM_AIR_SUPPLY,
+    );
+  }
+
+  #updateEnvironmentalDamage(
+    position: PlayerVector,
+    inLava: boolean,
+    stepSeconds: number,
+  ): void {
+    if (inLava) {
+      this.#lavaElapsed += stepSeconds;
+      if (this.#lavaElapsed >= LAVA_DAMAGE_INTERVAL_SECONDS) {
+        this.#lavaElapsed %= LAVA_DAMAGE_INTERVAL_SECONDS;
+        this.#applyDamage(LAVA_DAMAGE, false);
+      }
+    } else {
+      this.#lavaElapsed = 0;
+    }
+
+    if (this.#isHeadSuffocatingAt(position)) {
+      this.#suffocationElapsed += stepSeconds;
+      if (this.#suffocationElapsed >= SUFFOCATION_INTERVAL_SECONDS) {
+        this.#suffocationElapsed %= SUFFOCATION_INTERVAL_SECONDS;
+        this.#applyDamage(SUFFOCATION_DAMAGE, false);
+      }
+    } else {
+      this.#suffocationElapsed = 0;
+    }
+  }
+
   #resolveLanding(): void {
     const excessSpeed = this.#maximumFallSpeed - SAFE_LANDING_SPEED;
     this.#maximumFallSpeed = 0;
     if (excessSpeed <= 0) return;
     this.#applyDamage(
       Math.max(1, Math.ceil(excessSpeed * FALL_DAMAGE_PER_SPEED)),
+      false,
     );
   }
 
-  #applyDamage(amount: number): void {
+  #applyDamage(amount: number, bypassCooldown: boolean): void {
     if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!bypassCooldown && this.#hurtCooldown > 0) return;
     const damage = Math.min(Math.floor(amount), this.#health);
     if (damage <= 0) return;
     this.#health -= damage;
     this.#damageTaken += damage;
+    if (!bypassCooldown) this.#hurtCooldown = HURT_INVULNERABILITY_SECONDS;
   }
 
   #respawn(): void {
@@ -208,6 +310,12 @@ export class LocalGameSession implements GameSession {
     this.#health = PLAYER_MAXIMUM_HEALTH;
     this.#maximumFallSpeed = 0;
     this.#deathCount += 1;
+    this.#airSupply = PLAYER_MAXIMUM_AIR_SUPPLY;
+    this.#submerged = false;
+    this.#hurtCooldown = 0;
+    this.#drowningElapsed = 0;
+    this.#lavaElapsed = 0;
+    this.#suffocationElapsed = 0;
   }
 
   #consumeCommand(): PlayerInputCommand {
@@ -235,7 +343,14 @@ export class LocalGameSession implements GameSession {
       verticalVelocity: motorState.verticalVelocity,
       horizontalSpeed: motorState.horizontalSpeed,
       sprinting: motorState.sprinting,
+      sneaking: motorState.sneaking,
       grounded: motorState.grounded,
+      inWater: motorState.inWater,
+      submerged: this.#submerged,
+      inLava: motorState.inLava,
+      onLadder: motorState.onLadder,
+      airSupply: Math.round(this.#airSupply),
+      maximumAirSupply: PLAYER_MAXIMUM_AIR_SUPPLY,
       yaw: this.#yaw,
       pitch: this.#pitch,
       cameraMode: this.#cameraMode,
