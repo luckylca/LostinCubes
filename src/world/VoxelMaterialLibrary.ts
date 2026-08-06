@@ -156,7 +156,7 @@ export class VoxelMaterialLibrary {
       this.#animateFluids(deltaSeconds);
     });
     this.#removeAnimationObserver = () => {
-      if (observer !== null) scene.onBeforeRenderObservable.remove(observer);
+      scene.onBeforeRenderObservable.remove(observer);
     };
   }
 
@@ -198,9 +198,10 @@ export class VoxelMaterialLibrary {
       this.#waterFrame = waterFrame;
       const texture = this.#fluidTextures.get(BlockTexture.Water);
       if (texture !== undefined) {
-        texture.uOffset = ((waterFrame * 2) % BLOCK_TEXTURE_SIZE) /
-          BLOCK_TEXTURE_SIZE;
-        texture.vOffset = (Math.floor(waterFrame / 2) % BLOCK_TEXTURE_SIZE) /
+        texture.uOffset =
+          ((waterFrame * 2) % BLOCK_TEXTURE_SIZE) / BLOCK_TEXTURE_SIZE;
+        texture.vOffset =
+          (Math.floor(waterFrame / 2) % BLOCK_TEXTURE_SIZE) /
           BLOCK_TEXTURE_SIZE;
       }
     }
@@ -210,9 +211,10 @@ export class VoxelMaterialLibrary {
       this.#lavaFrame = lavaFrame;
       const texture = this.#fluidTextures.get(BlockTexture.Lava);
       if (texture !== undefined) {
-        texture.uOffset = (lavaFrame % BLOCK_TEXTURE_SIZE) /
-          BLOCK_TEXTURE_SIZE;
-        texture.vOffset = (Math.floor(lavaFrame / 3) % BLOCK_TEXTURE_SIZE) /
+        texture.uOffset =
+          (lavaFrame % BLOCK_TEXTURE_SIZE) / BLOCK_TEXTURE_SIZE;
+        texture.vOffset =
+          (Math.floor(lavaFrame / 3) % BLOCK_TEXTURE_SIZE) /
           BLOCK_TEXTURE_SIZE;
       }
     }
