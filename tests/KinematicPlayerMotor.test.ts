@@ -62,7 +62,7 @@ describe('KinematicPlayerMotor', () => {
     expect(motor.getState().position.y).toBeGreaterThan(0.9);
   });
 
-  it('uses fluid drag and swims upward while jump is held', () => {
+  it('uses responsive fluid movement and swims upward while jump is held', () => {
     const motor = new KinematicPlayerMotor({
       isSolidAt: () => false,
       spawnPosition: { x: 0, y: 3, z: 0 },
@@ -78,8 +78,49 @@ describe('KinematicPlayerMotor', () => {
     }
 
     expect(motor.getState().inWater).toBe(true);
-    expect(motor.getState().position.y).toBeGreaterThan(3);
-    expect(motor.getState().horizontalSpeed).toBeLessThan(3);
+    expect(motor.getState().position.y).toBeGreaterThan(4);
+    expect(motor.getState().position.z).toBeGreaterThan(2.5);
+    expect(motor.getState().horizontalSpeed).toBeCloseTo(3.2);
+  });
+
+  it('keeps swimming speed while Ctrl is held to dive', () => {
+    const motor = new KinematicPlayerMotor({
+      isSolidAt: () => false,
+      spawnPosition: { x: 0, y: 3, z: 0 },
+      environmentAt: () => ({
+        inWater: true,
+        inLava: false,
+        onLadder: false,
+      }),
+    });
+
+    for (let index = 0; index < 30; index += 1) {
+      motor.update({ ...STILL_INPUT, sneak: true, moveZ: 1 }, 1 / 60);
+    }
+
+    expect(motor.getState().horizontalSpeed).toBeCloseTo(3.2);
+    expect(motor.getState().position.z).toBeGreaterThan(1.4);
+    expect(motor.getState().position.y).toBeLessThan(3);
+  });
+
+  it('steps out of water onto a one-block bank while swimming upward', () => {
+    const motor = new KinematicPlayerMotor({
+      isSolidAt: (_worldX, worldY, worldZ) =>
+        worldY === 0 || (worldY === 1 && worldZ >= 1),
+      spawnPosition: { x: 0, y: 1.4, z: 0 },
+      environmentAt: (position) => ({
+        inWater: position.z < 0.8,
+        inLava: false,
+        onLadder: false,
+      }),
+    });
+
+    for (let index = 0; index < 45; index += 1) {
+      motor.update({ ...STILL_INPUT, jump: true, moveZ: 1 }, 1 / 60);
+    }
+
+    expect(motor.getState().position.z).toBeGreaterThan(0.6);
+    expect(motor.getState().position.y).toBeGreaterThan(2.25);
   });
 
   it('climbs and descends a ladder without normal gravity', () => {
