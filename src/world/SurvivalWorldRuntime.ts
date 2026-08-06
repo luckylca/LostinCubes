@@ -1,6 +1,7 @@
-import type {
-  PlayerEnvironmentState,
-  PlayerVector,
+import {
+  PLAYER_COLLISION_RADIUS,
+  type PlayerEnvironmentState,
+  type PlayerVector,
 } from '../player/KinematicPlayerMotor';
 import { getBiomeLabel } from './BiomeDefinition';
 import type { BiomeType } from './BiomeDefinition';
@@ -32,6 +33,15 @@ const EMPTY_ENVIRONMENT: PlayerEnvironmentState = {
   onLadder: false,
 };
 
+const BODY_SAMPLE_RADIUS = PLAYER_COLLISION_RADIUS * 0.82;
+const BODY_SAMPLE_OFFSETS = [
+  [0, 0],
+  [-BODY_SAMPLE_RADIUS, 0],
+  [BODY_SAMPLE_RADIUS, 0],
+  [0, -BODY_SAMPLE_RADIUS],
+  [0, BODY_SAMPLE_RADIUS],
+] as const;
+
 let world: SurvivalRuntimeWorld | null = null;
 let renderer: SurvivalRuntimeRenderer | null = null;
 let ticks: WorldTickManager | null = null;
@@ -43,8 +53,9 @@ function blockCoordinate(value: number): number {
 
 function sampleBodyLevels(position: PlayerVector): readonly number[] {
   return [
-    blockCoordinate(position.y - 0.65),
-    blockCoordinate(position.y + 0.05),
+    blockCoordinate(position.y - 0.68),
+    blockCoordinate(position.y),
+    blockCoordinate(position.y + 0.52),
   ];
 }
 
@@ -80,16 +91,20 @@ export function sampleSurvivalEnvironment(
   position: PlayerVector,
 ): PlayerEnvironmentState {
   if (world === null) return EMPTY_ENVIRONMENT;
-  const worldX = blockCoordinate(position.x);
-  const worldZ = blockCoordinate(position.z);
   let inWater = false;
   let inLava = false;
   let onLadder = false;
-  for (const worldY of sampleBodyLevels(position)) {
-    inWater = inWater || world.isWaterAt(worldX, worldY, worldZ);
-    inLava = inLava || world.isLavaAt(worldX, worldY, worldZ);
-    onLadder = onLadder || world.isClimbableAt(worldX, worldY, worldZ);
+
+  for (const [offsetX, offsetZ] of BODY_SAMPLE_OFFSETS) {
+    const worldX = blockCoordinate(position.x + offsetX);
+    const worldZ = blockCoordinate(position.z + offsetZ);
+    for (const worldY of sampleBodyLevels(position)) {
+      inWater = inWater || world.isWaterAt(worldX, worldY, worldZ);
+      inLava = inLava || world.isLavaAt(worldX, worldY, worldZ);
+      onLadder = onLadder || world.isClimbableAt(worldX, worldY, worldZ);
+    }
   }
+
   return { inWater, inLava, onLadder };
 }
 
