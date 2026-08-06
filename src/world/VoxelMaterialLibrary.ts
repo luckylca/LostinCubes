@@ -76,19 +76,28 @@ export class VoxelMaterialLibrary {
               ? new Color3(0.035, 0.1, 0.065)
               : new Color3(0.018, 0.022, 0.02);
 
-      if (BLENDED_TEXTURES.has(textureKind)) {
+      const blended = BLENDED_TEXTURES.has(textureKind);
+      if (blended) {
         material.useAlphaFromDiffuseTexture = true;
-        material.transparencyMode = Material.MATERIAL_ALPHABLEND;
+        material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
+        material.alphaCutOff = 0.02;
         material.needDepthPrePass = true;
-        material.alpha = textureKind === BlockTexture.Water ? 0.78 : 0.92;
+        material.separateCullingPass = true;
         material.disableDepthWrite = false;
+        // Fluid opacity is authored once in the texture. Multiplying it by a
+        // second material alpha made water nearly invisible and exaggerated
+        // transparent-face ordering artifacts.
+        material.alpha = 1;
       } else if (source.hasAlpha) {
         material.useAlphaFromDiffuseTexture = true;
         material.transparencyMode = Material.MATERIAL_ALPHATEST;
         material.alphaCutOff = 0.42;
       }
 
-      material.freeze();
+      // Frozen alpha-blended materials with a depth pre-pass can retain stale
+      // transparent render state on some Chromium/WebGL paths. Only the stable
+      // opaque and alpha-tested materials are frozen.
+      if (!blended) material.freeze();
       this.#materials.push(material);
       this.#multiMaterial.subMaterials.push(material);
     }
