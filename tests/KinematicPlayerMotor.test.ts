@@ -124,6 +124,29 @@ describe('KinematicPlayerMotor', () => {
     expect(motor.getState().position.y).toBeGreaterThan(2.25);
   });
 
+  it('exits a bank when the swimmer starts 1.4 blocks below standing height', () => {
+    const motor = new KinematicPlayerMotor({
+      maximumAutoJumpHeight: 1.45,
+      isSolidAt: (worldX, worldY, worldZ) =>
+        Math.abs(worldX) <= 2 &&
+        (worldY === -1 || (worldY === 1 && worldZ >= 1)),
+      spawnPosition: { x: 0, y: 1, z: 0 },
+      environmentAt: (position) => ({
+        inWater: position.z < 0.8,
+        inLava: false,
+        onLadder: false,
+      }),
+    });
+
+    for (let index = 0; index < 45; index += 1) {
+      motor.update({ ...STILL_INPUT, jump: true, moveZ: 1 }, 1 / 60);
+    }
+
+    expect(motor.getState().position.z).toBeGreaterThan(0.15);
+    expect(motor.getState().position.y).toBeGreaterThan(2.3);
+    expect(motor.getState().grounded).toBe(true);
+  });
+
   it('climbs and descends a ladder without normal gravity', () => {
     const motor = new KinematicPlayerMotor({
       isSolidAt: () => false,
