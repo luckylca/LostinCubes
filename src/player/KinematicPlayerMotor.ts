@@ -79,8 +79,8 @@ const DEFAULT_CONFIG: PlayerMotorConfig = {
   walkSpeed: 3.8,
   sprintSpeed: 6.2,
   sneakSpeed: 1.35,
-  waterSpeed: 2.35,
-  lavaSpeed: 1.35,
+  waterSpeed: 3.2,
+  lavaSpeed: 1.55,
   jumpSpeed: 6.4,
   gravity: -18,
   radius: PLAYER_COLLISION_RADIUS,
@@ -106,12 +106,14 @@ const SNEAK_SUPPORT_PROBE_DISTANCE = 0.12;
 const COLLISION_EPSILON = 1e-6;
 const BINARY_SEARCH_ITERATIONS = 12;
 const AUTO_JUMP_CLEARANCE_PROBE = 0.18;
-const WATER_GRAVITY = -4.2;
-const LAVA_GRAVITY = -3;
-const WATER_SWIM_ACCELERATION = 13;
-const LAVA_SWIM_ACCELERATION = 8;
-const WATER_VERTICAL_LIMIT = 3.3;
-const LAVA_VERTICAL_LIMIT = 2.2;
+const WATER_ASCEND_SPEED = 3.8;
+const WATER_DESCEND_SPEED = -3.1;
+const WATER_IDLE_SINK_SPEED = -0.18;
+const WATER_VERTICAL_RESPONSE = 8.5;
+const LAVA_ASCEND_SPEED = 2.2;
+const LAVA_DESCEND_SPEED = -1.8;
+const LAVA_IDLE_SINK_SPEED = -0.32;
+const LAVA_VERTICAL_RESPONSE = 6;
 const LADDER_CLIMB_SPEED = 2.7;
 const LADDER_DESCEND_SPEED = -2.2;
 const LADDER_IDLE_FALL_SPEED = -0.45;
@@ -209,6 +211,7 @@ export class KinematicPlayerMotor {
       movement.deltaX,
       movement.deltaZ,
       isSolidAt,
+      this.#environment.inWater && input.jump,
     );
 
     this.#horizontalSpeed = movedHorizontally ? movement.speed : 0;
@@ -288,20 +291,32 @@ export class KinematicPlayerMotor {
       this.#bodyShape,
       SUPPORT_PROBE_DISTANCE,
     );
-    this.#grounded = supported;
-    const gravity = lava ? LAVA_GRAVITY : WATER_GRAVITY;
-    const swimAcceleration = lava
-      ? LAVA_SWIM_ACCELERATION
-      : WATER_SWIM_ACCELERATION;
-    const limit = lava ? LAVA_VERTICAL_LIMIT : WATER_VERTICAL_LIMIT;
-    this.#verticalVelocity += gravity * stepSeconds;
-    if (input.jump) this.#verticalVelocity += swimAcceleration * stepSeconds;
-    if (input.sneak) this.#verticalVelocity -= swimAcceleration * 0.65 * stepSeconds;
-    const drag = Math.pow(lava ? 0.78 : 0.88, stepSeconds * 60);
-    this.#verticalVelocity = Math.min(
-      Math.max(this.#verticalVelocity * drag, -limit),
-      limit,
+    const verticalIntent = (input.jump ? 1 : 0) - (input.sneak ? 1 : 0);
+    const targetVelocity = lava
+      ? verticalIntent > 0
+        ? LAVA_ASCEND_SPEED
+        : verticalIntent < 0
+          ? LAVA_DESCEND_SPEED
+          : LAVA_IDLE_SINK_SPEED
+      : verticalIntent > 0
+        ? WATER_ASCEND_SPEED
+        : verticalIntent < 0
+          ? WATER_DESCEND_SPEED
+          : WATER_IDLE_SINK_SPEED;
+    const response = 1 - Math.exp(
+      -(lava ? LAVA_VERTICAL_RESPONSE : WATER_VERTICAL_RESPONSE) * stepSeconds,
     );
+
+    this.#verticalVelocity +=
+      (targetVelocity - this.#verticalVelocity) * response;
+
+    if (supported && verticalIntent === 0 && this.#verticalVelocity < 0) {
+      this.#verticalVelocity = 0;
+      this.#grounded = true;
+    } else {
+      this.#grounded = false;
+    }
+
     this.#moveVertical(this.#verticalVelocity * stepSeconds, isSolidAt);
   }
 
@@ -333,12 +348,12 @@ export class KinematicPlayerMotor {
     const normalizedX = inputLength > 1 ? input.moveX / inputLength : input.moveX;
     const normalizedZ = inputLength > 1 ? input.moveZ / inputLength : input.moveZ;
     const movementStrength = Math.min(inputLength, 1);
-    const baseSpeed = input.sneak
-      ? this.#config.sneakSpeed
-      : environment.inLava
-        ? this.#config.lavaSpeed
-        : environment.inWater
-          ? this.#config.waterSpeed
+    const baseSpeed = environment.inLava
+      ? this.#config.lavaSpeed
+      : environment.inWater
+        ? this.#config.waterSpeed
+        : input.sneak
+          ? this.#config.sneakSpeed
           : input.sprint
             ? this.#config.sprintSpeed
             : this.#config.walkSpeed;
@@ -361,6 +376,7 @@ export class KinematicPlayerMotor {
     deltaX: number,
     deltaZ: number,
     isSolidAt: VoxelSolidProvider,
+    allowFluidStepOut: boolean,
   ): boolean {
     const maximumDelta = Math.max(Math.abs(deltaX), Math.abs(deltaZ));
     if (maximumDelta <= 0) return false;
@@ -372,8 +388,18 @@ export class KinematicPlayerMotor {
     const stepZ = deltaZ / steps;
     let moved = false;
     for (let step = 0; step < steps; step += 1) {
-      const movedX = this.#moveHorizontalAxis('x', stepX, isSolidAt);
-      const movedZ = this.#moveHorizontalAxis('z', stepZ, isSolidAt);
+      const movedX = this.#moveHorizontalAxis(
+        'x',
+        stepX,
+        isSolidAt,
+        allowFluidStepOut,
+      );
+      const movedZ = this.#moveHorizontalAxis(
+        'z',
+        stepZ,
+        isSolidAt,
+        allowFluidStepOut,
+      );
       moved = moved || movedX || movedZ;
     }
     return moved;
@@ -383,6 +409,7 @@ export class KinematicPlayerMotor {
     axis: HorizontalAxis,
     amount: number,
     isSolidAt: VoxelSolidProvider,
+    allowFluidStepOut: boolean,
   ): boolean {
     if (Math.abs(amount) <= Number.EPSILON) return false;
     const candidate = { ...this.#position, [axis]: this.#position[axis] + amount };
@@ -390,6 +417,8 @@ export class KinematicPlayerMotor {
       if (
         this.#sneaking &&
         this.#grounded &&
+        !this.#environment.inWater &&
+        !this.#environment.inLava &&
         !voxelBodyIsSupported(
           isSolidAt,
           candidate,
@@ -403,9 +432,51 @@ export class KinematicPlayerMotor {
       return true;
     }
 
+    if (
+      allowFluidStepOut &&
+      this.#tryFluidStepOut(axis, amount, isSolidAt)
+    ) {
+      return true;
+    }
     if (!this.#grounded) return false;
     if (this.#tryStepUp(axis, amount, isSolidAt)) return true;
     if (!this.#sneaking) this.#tryAutoJump(axis, amount, isSolidAt);
+    return false;
+  }
+
+  #tryFluidStepOut(
+    axis: HorizontalAxis,
+    amount: number,
+    isSolidAt: VoxelSolidProvider,
+  ): boolean {
+    const horizontalCandidate = {
+      ...this.#position,
+      [axis]: this.#position[axis] + amount,
+    };
+    for (const lift of this.#collectStepHeights(
+      horizontalCandidate,
+      isSolidAt,
+      this.#config.maximumAutoJumpHeight,
+    )) {
+      const candidate = {
+        ...horizontalCandidate,
+        y: this.#position.y + lift,
+      };
+      if (
+        !voxelBodyCollides(isSolidAt, candidate, this.#bodyShape) &&
+        voxelBodyIsSupported(
+          isSolidAt,
+          candidate,
+          this.#bodyShape,
+          SUPPORT_PROBE_DISTANCE,
+        )
+      ) {
+        this.#position = candidate;
+        this.#grounded = true;
+        this.#verticalVelocity = 0;
+        return true;
+      }
+    }
     return false;
   }
 
