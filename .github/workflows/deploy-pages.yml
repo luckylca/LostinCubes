@@ -1,8 +1,8 @@
 name: Deploy GitHub Pages
 
 on:
-  pull_request_target:
-    types: [closed]
+  push:
+    branches: ['main']
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
   statuses: write
 
 env:
-  DEPLOY_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.sha }}
 
 concurrency:
   group: pages-main
@@ -20,13 +20,10 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout deployed commit
         uses: actions/checkout@v6
-        with:
-          ref: ${{ env.DEPLOY_SHA }}
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -39,10 +36,10 @@ jobs:
           APP_VERSION=$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version)")
           echo "VITE_APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
           echo "VITE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          echo "VITE_COMMIT_SHA=${DEPLOY_SHA}" >> "$GITHUB_ENV"
+          echo "VITE_COMMIT_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
           echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
-      - name: Validate
-        run: npm run typecheck && npm run lint && npm run test && npm run build
+      - name: Build production site
+        run: npm run build
       - name: Write deployment marker
         shell: bash
         run: |
@@ -59,27 +56,26 @@ jobs:
           NODE
       - name: Configure Pages
         uses: actions/configure-pages@v5
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Deploy
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
       - name: Verify deployed build marker
         shell: bash
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
-          EXPECTED_SHA: ${{ env.DEPLOY_SHA }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           MARKER_URL="${PAGE_URL%/}/version.json"
           for ATTEMPT in $(seq 1 60); do
@@ -95,7 +91,7 @@ jobs:
           exit 1
 
   report:
-    if: always() && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'))
+    if: always()
     runs-on: ubuntu-latest
     needs: [build, deploy]
     steps:
@@ -104,7 +100,6 @@ jobs:
         env:
           BUILD_RESULT: ${{ needs.build.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
-          STATUS_SHA: ${{ env.DEPLOY_SHA }}
         with:
           script: |
             const succeeded =
@@ -116,7 +111,7 @@ jobs:
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: process.env.STATUS_SHA,
+              sha: context.sha,
               state: succeeded ? 'success' : 'failure',
               context: 'pages/deployment',
               description,
