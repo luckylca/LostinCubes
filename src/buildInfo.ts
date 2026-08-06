@@ -76,9 +76,22 @@ function describeBuild(info: BuildInfo): string {
   return info.builtAt.length === 0 ? label : `${label}\n构建时间：${info.builtAt}`;
 }
 
+function getOrCreateBuildBadge(): HTMLElement {
+  const existing = document.querySelector<HTMLElement>('#build-version');
+  if (existing !== null) return existing;
+
+  const badge = document.createElement('div');
+  badge.id = 'build-version';
+  badge.className = 'build-version';
+  badge.setAttribute('role', 'status');
+  badge.setAttribute('aria-live', 'polite');
+  badge.textContent = '版本检查中…';
+  document.body.append(badge);
+  return badge;
+}
+
 export async function initializeBuildBadge(): Promise<void> {
-  const badge = document.querySelector<HTMLElement>('#build-version');
-  if (badge === null) return;
+  const badge = getOrCreateBuildBadge();
 
   badge.textContent = formatBuildLabel(EMBEDDED_BUILD_INFO);
   badge.title = `页面内嵌版本：${describeBuild(EMBEDDED_BUILD_INFO)}`;
