@@ -42,6 +42,7 @@ const LAVA_DAMAGE_INTERVAL_SECONDS = 0.75;
 const LAVA_DAMAGE = 4;
 const SUFFOCATION_INTERVAL_SECONDS = 0.75;
 const SUFFOCATION_DAMAGE = 1;
+const SESSION_MAXIMUM_AUTO_JUMP_HEIGHT = 1.45;
 
 export interface LocalGameSessionConfig extends Partial<PlayerMotorConfig> {
   readonly isHeadSubmergedAt?: (position: PlayerVector) => boolean;
@@ -88,6 +89,7 @@ export class LocalGameSession implements GameSession {
   ) {
     this.#worldSeed = worldSeed;
     this.#motor = new KinematicPlayerMotor({
+      maximumAutoJumpHeight: SESSION_MAXIMUM_AUTO_JUMP_HEIGHT,
       ...config,
       environmentAt: config.environmentAt ?? sampleSurvivalEnvironment,
     });
