@@ -1,8 +1,8 @@
 name: Deploy GitHub Pages
 
 on:
-  push:
-    branches: ['main']
+  pull_request_target:
+    types: [closed]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
   statuses: write
 
 env:
-  DEPLOY_SHA: ${{ github.sha }}
+  DEPLOY_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
 
 concurrency:
   group: pages-main
@@ -20,15 +20,17 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout deployed commit
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          package-manager-cache: false
       - name: Install dependencies
         run: npm ci
       - name: Prepare build metadata
@@ -63,6 +65,7 @@ jobs:
           path: dist
 
   deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -79,7 +82,7 @@ jobs:
           EXPECTED_SHA: ${{ env.DEPLOY_SHA }}
         run: |
           MARKER_URL="${PAGE_URL%/}/version.json"
-          for ATTEMPT in $(seq 1 24); do
+          for ATTEMPT in $(seq 1 60); do
             MARKER=$(curl --fail --silent --show-error --location \
               "${MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${ATTEMPT}") || true
             if printf '%s' "$MARKER" | grep -Fq "\"commit\": \"${EXPECTED_SHA}\""; then
@@ -92,7 +95,7 @@ jobs:
           exit 1
 
   report:
-    if: always()
+    if: always() && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'))
     runs-on: ubuntu-latest
     needs: [build, deploy]
     steps:
