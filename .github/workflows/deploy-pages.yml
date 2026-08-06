@@ -15,12 +15,12 @@ permissions:
 
 concurrency:
   group: pages-direct
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
     if: github.event_name != 'pull_request_target' || github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     environment:
       name: github-pages
       url: https://luckylca.github.io/LostinCubes/
