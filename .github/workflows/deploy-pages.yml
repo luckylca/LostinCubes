@@ -11,37 +11,45 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-direct
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: https://luckylca.github.io/LostinCubes/
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install dependencies
-        run: npm install
-      - name: Prepare build metadata
+      - name: Clone exact source commit
         shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          APP_VERSION=$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version)")
-          echo "VITE_APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
-          echo "VITE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          echo "VITE_COMMIT_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
-          echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
-      - name: Validate
-        run: npm run typecheck && npm run test && npm run build
-      - name: Write deployment marker
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout "https://github.com/${REPOSITORY}.git" source
+          git -C source checkout --detach "${COMMIT_SHA}"
+          echo "Checked out $(git -C source rev-parse HEAD)"
+
+      - name: Build production site
         shell: bash
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
+          set -euo pipefail
+          cd source
+          npm install
+          export VITE_APP_VERSION="$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('package.json','utf8')).version)")"
+          export VITE_BUILD_NUMBER="${BUILD_NUMBER}"
+          export VITE_COMMIT_SHA="${COMMIT_SHA}"
+          export VITE_BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          npm run typecheck
+          npm run test
+          npm run build
           node --input-type=module <<'NODE'
           import { writeFileSync } from 'node:fs';
-
           const marker = {
             version: process.env.VITE_APP_VERSION,
             build: process.env.VITE_BUILD_NUMBER,
@@ -50,20 +58,99 @@ jobs:
           };
           writeFileSync('dist/version.json', `${JSON.stringify(marker, null, 2)}\n`);
           NODE
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
+          touch dist/.nojekyll
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Package Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --dereference --hard-dereference \
+            --directory source/dist \
+            -cvf "${RUNNER_TEMP}/artifact.tar" \
+            --exclude=.git \
+            --exclude=.github \
+            --exclude='.[^/]*' \
+            .
+          test -s "${RUNNER_TEMP}/artifact.tar"
+
+      - name: Upload Pages artifact without an Action download
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLS_DIR="${RUNNER_TEMP}/pages-tools"
+          mkdir -p "${TOOLS_DIR}"
+          cd "${TOOLS_DIR}"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund @actions/artifact@6.2.1
+          cat > upload.mjs <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          import { DefaultArtifactClient } from '@actions/artifact';
+
+          const client = new DefaultArtifactClient();
+          const result = await client.uploadArtifact(
+            'github-pages',
+            [process.env.ARTIFACT_PATH],
+            process.env.RUNNER_TEMP,
+            { retentionDays: 1 },
+          );
+          if (!result.id) throw new Error('Artifact upload did not return an id.');
+          appendFileSync(process.env.GITHUB_ENV, `PAGES_ARTIFACT_ID=${result.id}\n`);
+          console.log(`Uploaded Pages artifact ${result.id}`);
+          NODE
+          ARTIFACT_PATH="${RUNNER_TEMP}/artifact.tar" node upload.mjs
+
+      - name: Create Pages deployment through the REST API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          OIDC_JSON="$(curl --fail-with-body --silent --show-error --location \
+            --retry 5 --retry-all-errors \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}")"
+          OIDC_TOKEN="$(printf '%s' "${OIDC_JSON}" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).value))")"
+          test -n "${OIDC_TOKEN}"
+
+          PAYLOAD="$(OIDC_TOKEN="${OIDC_TOKEN}" node --input-type=module <<'NODE'
+          const payload = {
+            artifact_id: Number(process.env.PAGES_ARTIFACT_ID),
+            environment: 'github-pages',
+            pages_build_version: process.env.COMMIT_SHA,
+            oidc_token: process.env.OIDC_TOKEN,
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          )"
+
+          curl --fail-with-body --silent --show-error --location \
+            --retry 5 --retry-all-errors \
+            -X POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${REPOSITORY}/pages/deployments" \
+            -d "${PAYLOAD}"
+
+      - name: Verify public version marker
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          MARKER_URL='https://luckylca.github.io/LostinCubes/version.json'
+          for ATTEMPT in $(seq 1 60); do
+            MARKER="$(curl --fail --silent --show-error --location \
+              "${MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${ATTEMPT}")" || true
+            if printf '%s' "${MARKER}" | grep -Fq "\"commit\": \"${EXPECTED_SHA}\""; then
+              echo "Verified ${EXPECTED_SHA} at ${MARKER_URL}"
+              printf '%s\n' "${MARKER}"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::The public Pages site did not report ${EXPECTED_SHA}."
+          exit 1
