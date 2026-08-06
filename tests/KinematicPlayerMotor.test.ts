@@ -142,9 +142,16 @@ describe('KinematicPlayerMotor', () => {
       motor.update({ ...STILL_INPUT, jump: true, moveZ: 1 }, 1 / 60);
     }
 
-    expect(motor.getState().position.z).toBeGreaterThan(0.15);
-    expect(motor.getState().position.y).toBeGreaterThan(2.3);
+    const exitedState = motor.getState();
+    expect(exitedState.position.z).toBeGreaterThan(0.15);
+    expect(exitedState.position.y).toBeGreaterThan(2.3);
+
+    for (let index = 0; index < 90; index += 1) {
+      motor.update(STILL_INPUT, 1 / 60);
+    }
+
     expect(motor.getState().grounded).toBe(true);
+    expect(motor.getState().position.y).toBeCloseTo(2.4, 2);
   });
 
   it('climbs and descends a ladder without normal gravity', () => {
