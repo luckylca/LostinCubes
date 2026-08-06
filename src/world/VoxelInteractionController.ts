@@ -26,6 +26,10 @@ import {
 import { BlockInteractionState } from './BlockInteractionState';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
+import {
+  canReplaceBlockForPlacement,
+  getFluidReplacementAfterBreak,
+} from './FluidRules';
 import { raycastVoxels } from './VoxelRaycast';
 import type { VoxelCoordinate, VoxelRaycastHit } from './VoxelRaycast';
 import type { VoxelWorldData } from './VoxelWorldData';
@@ -354,9 +358,16 @@ export class VoxelInteractionController {
     }
     const { x, y, z } = this.#target.block;
     const brokenBlock = this.#world.sampleBlock(x, y, z);
+    const replacement = getFluidReplacementAfterBreak(
+      (worldX, worldY, worldZ) =>
+        this.#world.sampleBlock(worldX, worldY, worldZ),
+      x,
+      y,
+      z,
+    );
     if (
       brokenBlock === BlockType.Air ||
-      !this.#world.setBlock(x, y, z, BlockType.Air)
+      !this.#world.setBlock(x, y, z, replacement)
     ) {
       return false;
     }
@@ -379,8 +390,9 @@ export class VoxelInteractionController {
       return false;
     }
     const { x, y, z } = this.#target.adjacent;
+    const existingBlock = this.#world.sampleBlock(x, y, z);
     if (
-      this.#world.sampleBlock(x, y, z) !== BlockType.Air ||
+      !canReplaceBlockForPlacement(existingBlock) ||
       blockIntersectsPlayer(x, y, z, player)
     ) {
       return false;
