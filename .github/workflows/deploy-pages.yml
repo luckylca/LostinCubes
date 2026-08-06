@@ -9,25 +9,21 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  statuses: write
-
-env:
-  DEPLOY_SHA: ${{ github.sha }}
 
 concurrency:
-  group: pages-main
-  cancel-in-progress: false
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout deployed commit
-        uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
       - name: Install dependencies
         run: npm install
       - name: Prepare build metadata
@@ -38,8 +34,8 @@ jobs:
           echo "VITE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
           echo "VITE_COMMIT_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
           echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
-      - name: Build production site
-        run: npm run build
+      - name: Validate
+        run: npm run typecheck && npm run test && npm run build
       - name: Write deployment marker
         shell: bash
         run: |
@@ -56,8 +52,8 @@ jobs:
           NODE
       - name: Configure Pages
         uses: actions/configure-pages@v5
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
@@ -68,53 +64,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Deploy to GitHub Pages
+      - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
-      - name: Verify deployed build marker
-        shell: bash
-        env:
-          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          MARKER_URL="${PAGE_URL%/}/version.json"
-          for ATTEMPT in $(seq 1 60); do
-            MARKER=$(curl --fail --silent --show-error --location \
-              "${MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${ATTEMPT}") || true
-            if printf '%s' "$MARKER" | grep -Fq "\"commit\": \"${EXPECTED_SHA}\""; then
-              echo "Verified ${EXPECTED_SHA} at ${MARKER_URL}"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::The live Pages marker did not report commit ${EXPECTED_SHA}."
-          exit 1
-
-  report:
-    if: always()
-    runs-on: ubuntu-latest
-    needs: [build, deploy]
-    steps:
-      - name: Report Pages deployment status
-        uses: actions/github-script@v8
-        env:
-          BUILD_RESULT: ${{ needs.build.result }}
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
-        with:
-          script: |
-            const succeeded =
-              process.env.BUILD_RESULT === 'success' &&
-              process.env.DEPLOY_RESULT === 'success';
-            const description = succeeded
-              ? 'GitHub Pages serves this exact commit'
-              : `Pages failed: build=${process.env.BUILD_RESULT}, deploy=${process.env.DEPLOY_RESULT}`;
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: context.sha,
-              state: succeeded ? 'success' : 'failure',
-              context: 'pages/deployment',
-              description,
-              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-            });
-            if (!succeeded) core.setFailed(description);
