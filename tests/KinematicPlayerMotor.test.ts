@@ -105,8 +105,9 @@ describe('KinematicPlayerMotor', () => {
 
   it('steps out of water onto a one-block bank while swimming upward', () => {
     const motor = new KinematicPlayerMotor({
-      isSolidAt: (_worldX, worldY, worldZ) =>
-        worldY === 0 || (worldY === 1 && worldZ >= 1),
+      isSolidAt: (worldX, worldY, worldZ) =>
+        Math.abs(worldX) <= 2 &&
+        (worldY === 0 || (worldY === 1 && worldZ >= 1)),
       spawnPosition: { x: 0, y: 1.4, z: 0 },
       environmentAt: (position) => ({
         inWater: position.z < 0.8,
