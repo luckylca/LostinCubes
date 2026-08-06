@@ -1,0 +1,98 @@
+name: Scheduled GitHub Pages Recovery
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-scheduled-recovery
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Prepare visible build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_VERSION=$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version)")
+          echo "VITE_APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "VITE_COMMIT_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+
+      - name: Build production site
+        run: npm run build
+
+      - name: Write public deployment marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync('dist/version.json', `${JSON.stringify({
+            version: process.env.VITE_APP_VERSION,
+            build: process.env.VITE_BUILD_NUMBER,
+            commit: process.env.VITE_COMMIT_SHA,
+            builtAt: process.env.VITE_BUILD_TIME,
+          }, null, 2)}\n`);
+          NODE
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Verify public version marker
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          MARKER_URL="${PAGE_URL%/}/version.json"
+          for ATTEMPT in $(seq 1 60); do
+            MARKER=$(curl --fail --silent --show-error --location \
+              "${MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${ATTEMPT}") || true
+            if printf '%s' "$MARKER" | grep -Fq "\"commit\": \"${EXPECTED_SHA}\""; then
+              printf '%s\n' "$MARKER"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Public Pages did not report ${EXPECTED_SHA}."
+          exit 1
