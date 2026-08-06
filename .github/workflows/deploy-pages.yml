@@ -26,8 +26,30 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Prepare build metadata
+        shell: bash
+        run: |
+          APP_VERSION=$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version)")
+          echo "VITE_APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "VITE_COMMIT_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
       - name: Validate
         run: npm run typecheck && npm run test && npm run build
+      - name: Write deployment marker
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+
+          const marker = {
+            version: process.env.VITE_APP_VERSION,
+            build: process.env.VITE_BUILD_NUMBER,
+            commit: process.env.VITE_COMMIT_SHA,
+            builtAt: process.env.VITE_BUILD_TIME,
+          };
+          writeFileSync('dist/version.json', `${JSON.stringify(marker, null, 2)}\n`);
+          NODE
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
