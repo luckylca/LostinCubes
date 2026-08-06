@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lostincubes-ci-latest
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
