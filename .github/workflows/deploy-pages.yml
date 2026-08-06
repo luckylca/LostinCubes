@@ -3,8 +3,6 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: ['main']
-  pull_request_target:
-    types: [closed]
   workflow_dispatch:
 
 permissions:
@@ -14,27 +12,25 @@ permissions:
   statuses: write
 
 env:
-  DEPLOY_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+  DEPLOY_SHA: ${{ github.sha }}
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: pages-main
+  cancel-in-progress: false
 
 jobs:
   build:
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout deployed commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.DEPLOY_SHA }}
+        uses: actions/checkout@v6
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
+          package-manager-cache: false
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Prepare build metadata
         shell: bash
         run: |
@@ -44,7 +40,7 @@ jobs:
           echo "VITE_COMMIT_SHA=${DEPLOY_SHA}" >> "$GITHUB_ENV"
           echo "VITE_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
       - name: Validate
-        run: npm run typecheck && npm run test && npm run build
+        run: npm run typecheck && npm run lint && npm run test && npm run build
       - name: Write deployment marker
         shell: bash
         run: |
@@ -67,7 +63,6 @@ jobs:
           path: dist
 
   deploy:
-    if: github.event_name != 'pull_request_target' || github.event.pull_request.merged == true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -97,12 +92,12 @@ jobs:
           exit 1
 
   report:
-    if: always() && (github.event_name != 'pull_request_target' || github.event.pull_request.merged == true)
+    if: always()
     runs-on: ubuntu-latest
     needs: [build, deploy]
     steps:
       - name: Report Pages deployment status
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           BUILD_RESULT: ${{ needs.build.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}

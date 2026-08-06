@@ -5,7 +5,7 @@ export interface BuildInfo {
   readonly builtAt: string;
 }
 
-const FALLBACK_VERSION = '0.2.1';
+const FALLBACK_VERSION = '0.2.2';
 const FALLBACK_BUILD = 'dev';
 const FALLBACK_COMMIT = 'local';
 
