@@ -4,6 +4,7 @@ import {
   itemFromBlock,
 } from '../inventory/ItemDefinitions';
 import type { ItemType } from '../inventory/ItemDefinitions';
+import { resolveRuntimeWorldId } from './ActiveWorldRuntime';
 import type { BlockType } from './BlockType';
 import type { DroppedItemSnapshot } from './DroppedItemManager';
 
@@ -15,7 +16,7 @@ export interface DropStorage {
 const MAXIMUM_SAVED_DROPS = 96;
 
 function createDropKey(worldSeed: string): string {
-  return `lost-in-cubes:drops:${worldSeed}`;
+  return `lost-in-cubes:drops:${resolveRuntimeWorldId(worldSeed)}`;
 }
 
 function normalizeItem(item: unknown, legacyBlock: unknown): ItemType | null {
@@ -54,7 +55,7 @@ function normalizeSnapshot(value: unknown): DroppedItemSnapshot | null {
 
   const definition = getItemDefinition(item);
   const durability =
-    definition.kind === 'tool'
+    definition.kind === 'tool' || definition.kind === 'weapon'
       ? typeof candidate.durability === 'number' &&
         Number.isInteger(candidate.durability)
         ? Math.min(

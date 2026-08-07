@@ -101,6 +101,118 @@ const ladderRecipe: CraftingRecipe = {
   output: { item: ItemType.LadderBlock, count: 3 },
 };
 
+const combatRecipes: readonly CraftingRecipe[] = [
+  {
+    id: 'bow',
+    label: '弓',
+    description: '三根木棍和三根线制作远程武器。',
+    station: 'crafting-table',
+    gridSize: 3,
+    pattern: [
+      [EMPTY, ItemType.Stick, ItemType.String],
+      [ItemType.Stick, EMPTY, ItemType.String],
+      [EMPTY, ItemType.Stick, ItemType.String],
+    ],
+    ingredients: [
+      { item: ItemType.Stick, count: 3 },
+      { item: ItemType.String, count: 3 },
+    ],
+    allowMirror: true,
+    output: { item: ItemType.Bow, count: 1 },
+  },
+  {
+    id: 'arrows',
+    label: '箭 ×4',
+    description: '铁锭、木棍和羽毛竖直排列。',
+    station: 'crafting-table',
+    gridSize: 3,
+    pattern: [
+      [EMPTY, ItemType.IronIngot, EMPTY],
+      [EMPTY, ItemType.Stick, EMPTY],
+      [EMPTY, ItemType.Feather, EMPTY],
+    ],
+    ingredients: [
+      { item: ItemType.IronIngot, count: 1 },
+      { item: ItemType.Stick, count: 1 },
+      { item: ItemType.Feather, count: 1 },
+    ],
+    output: { item: ItemType.Arrow, count: 4 },
+  },
+  {
+    id: 'tnt',
+    label: 'TNT',
+    description: '五份火药和四块沙子交错填满 3×3。',
+    station: 'crafting-table',
+    gridSize: 3,
+    pattern: [
+      [ItemType.Gunpowder, ItemType.SandBlock, ItemType.Gunpowder],
+      [ItemType.SandBlock, ItemType.Gunpowder, ItemType.SandBlock],
+      [ItemType.Gunpowder, ItemType.SandBlock, ItemType.Gunpowder],
+    ],
+    ingredients: [
+      { item: ItemType.Gunpowder, count: 5 },
+      { item: ItemType.SandBlock, count: 4 },
+    ],
+    output: { item: ItemType.Tnt, count: 1 },
+  },
+  {
+    id: 'iron-helmet',
+    label: '铁头盔',
+    description: '五个铁锭制作头部护甲。',
+    station: 'crafting-table',
+    gridSize: 3,
+    pattern: [
+      [ItemType.IronIngot, ItemType.IronIngot, ItemType.IronIngot],
+      [ItemType.IronIngot, EMPTY, ItemType.IronIngot],
+      [EMPTY, EMPTY, EMPTY],
+    ],
+    ingredients: [{ item: ItemType.IronIngot, count: 5 }],
+    output: { item: ItemType.IronHelmet, count: 1 },
+  },
+  {
+    id: 'iron-chestplate',
+    label: '铁胸甲',
+    description: '八个铁锭制作胸部护甲。',
+    station: 'crafting-table',
+    gridSize: 3,
+    pattern: [
+      [ItemType.IronIngot, EMPTY, ItemType.IronIngot],
+      [ItemType.IronIngot, ItemType.IronIngot, ItemType.IronIngot],
+      [ItemType.IronIngot, ItemType.IronIngot, ItemType.IronIngot],
+    ],
+    ingredients: [{ item: ItemType.IronIngot, count: 8 }],
+    output: { item: ItemType.IronChestplate, count: 1 },
+  },
+  {
+    id: 'iron-leggings',
+    label: '铁护腿',
+    description: '七个铁锭制作腿部护甲。',
+    station: 'crafting-table',
+    gridSize: 3,
+    pattern: [
+      [ItemType.IronIngot, ItemType.IronIngot, ItemType.IronIngot],
+      [ItemType.IronIngot, EMPTY, ItemType.IronIngot],
+      [ItemType.IronIngot, EMPTY, ItemType.IronIngot],
+    ],
+    ingredients: [{ item: ItemType.IronIngot, count: 7 }],
+    output: { item: ItemType.IronLeggings, count: 1 },
+  },
+  {
+    id: 'iron-boots',
+    label: '铁靴子',
+    description: '四个铁锭制作脚部护甲。',
+    station: 'crafting-table',
+    gridSize: 3,
+    pattern: [
+      [EMPTY, EMPTY, EMPTY],
+      [ItemType.IronIngot, EMPTY, ItemType.IronIngot],
+      [ItemType.IronIngot, EMPTY, ItemType.IronIngot],
+    ],
+    ingredients: [{ item: ItemType.IronIngot, count: 4 }],
+    output: { item: ItemType.IronBoots, count: 1 },
+  },
+];
+
 function toolPattern(
   kind: 'pickaxe' | 'shovel' | 'axe',
   material: ItemTypeValue,
@@ -187,6 +299,7 @@ export const CRAFTING_RECIPES: readonly CraftingRecipe[] = [
   ...personalRecipes,
   furnaceRecipe,
   ladderRecipe,
+  ...combatRecipes,
   ...toolRecipes,
 ];
 

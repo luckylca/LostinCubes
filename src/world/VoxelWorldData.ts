@@ -1,5 +1,6 @@
 import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
+import { resolveRuntimeWorldId, resolveRuntimeWorldSeed } from './ActiveWorldRuntime';
 import type { BiomeType } from './BiomeDefinition';
 import {
   isClimbableBlock,
@@ -54,12 +55,12 @@ function createBlockKey(worldX: number, worldY: number, worldZ: number): string 
 }
 
 function createPersistenceKey(
-  worldSeed: string,
+  worldId: string,
   worldX: number,
   worldY: number,
   worldZ: number,
 ): string {
-  return `${worldSeed}:${createBlockKey(worldX, worldY, worldZ)}`;
+  return `${worldId}:${createBlockKey(worldX, worldY, worldZ)}`;
 }
 
 function validateCoordinate(value: number, label: string): void {
@@ -94,14 +95,39 @@ function isPersistedBlockModification(
   );
 }
 
+async function openWorldDatabase(): Promise<IDBPDatabase<WorldDatabase>> {
+  return openDB<WorldDatabase>(DATABASE_NAME, DATABASE_VERSION, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains(BLOCK_STORE)) {
+        const store = db.createObjectStore(BLOCK_STORE, { keyPath: 'id' });
+        store.createIndex('by-world', 'worldSeed');
+      }
+    },
+  });
+}
+
+/** Deletes only sparse voxel edits for one stable world id. */
+export async function deleteVoxelWorldPersistence(worldId: string): Promise<void> {
+  const database = await openWorldDatabase();
+  try {
+    const transaction = database.transaction(BLOCK_STORE, 'readwrite');
+    const keys = await transaction.store.index('by-world').getAllKeys(worldId);
+    for (const key of keys) await transaction.store.delete(key);
+    await transaction.done;
+  } finally {
+    database.close();
+  }
+}
+
 /**
  * Owns deterministic terrain plus sparse player-authored edits and transient
- * coordinate-scoped light emitters. Generated terrain is never copied into
- * memory; only changes and active machine light are retained.
+ * coordinate-scoped light emitters. `worldSeed` controls generation while the
+ * stable persistence id keeps same-seed worlds completely isolated.
  */
 export class VoxelWorldData {
   public readonly worldSeed: string;
   public readonly generator: TerrainGenerator;
+  readonly #persistenceId: string;
   readonly #modifications = new Map<string, BlockTypeValue>();
   readonly #modificationsByChunk = new Map<
     string,
@@ -110,36 +136,31 @@ export class VoxelWorldData {
   readonly #dynamicLights = new Map<string, SerializedLightEmitter>();
   #database: IDBPDatabase<WorldDatabase> | null = null;
 
-  public constructor(worldSeed: string) {
-    this.worldSeed = worldSeed;
-    this.generator = new TerrainGenerator(worldSeed);
+  public constructor(persistenceId: string, terrainSeed = persistenceId) {
+    const resolvedId = resolveRuntimeWorldId(persistenceId);
+    const resolvedSeed =
+      terrainSeed === persistenceId
+        ? resolveRuntimeWorldSeed(terrainSeed)
+        : terrainSeed;
+    this.#persistenceId = resolvedId;
+    this.worldSeed = resolvedSeed;
+    this.generator = new TerrainGenerator(resolvedSeed);
   }
 
   public async initialize(): Promise<void> {
     try {
-      const database = await openDB<WorldDatabase>(
-        DATABASE_NAME,
-        DATABASE_VERSION,
-        {
-          upgrade(db) {
-            if (!db.objectStoreNames.contains(BLOCK_STORE)) {
-              const store = db.createObjectStore(BLOCK_STORE, { keyPath: 'id' });
-              store.createIndex('by-world', 'worldSeed');
-            }
-          },
-        },
-      );
+      const database = await openWorldDatabase();
       this.#database = database;
       const records: unknown[] = await database.getAllFromIndex(
         BLOCK_STORE,
         'by-world',
-        this.worldSeed,
+        this.#persistenceId,
       );
       let ignoredRecords = 0;
       for (const record of records) {
         if (
           !isPersistedBlockModification(record) ||
-          record.worldSeed !== this.worldSeed
+          record.worldSeed !== this.#persistenceId
         ) {
           ignoredRecords += 1;
           continue;
@@ -305,6 +326,10 @@ export class VoxelWorldData {
     return result;
   }
 
+  public get persistenceId(): string {
+    return this.#persistenceId;
+  }
+
   public get modificationCount(): number {
     return this.#modifications.size;
   }
@@ -373,7 +398,7 @@ export class VoxelWorldData {
   ): Promise<void> {
     if (this.#database === null) return;
     const id = createPersistenceKey(
-      this.worldSeed,
+      this.#persistenceId,
       worldX,
       worldY,
       worldZ,
@@ -384,7 +409,7 @@ export class VoxelWorldData {
     }
     await this.#database.put(BLOCK_STORE, {
       id,
-      worldSeed: this.worldSeed,
+      worldSeed: this.#persistenceId,
       worldX,
       worldY,
       worldZ,

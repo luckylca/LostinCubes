@@ -4,12 +4,21 @@ import {
   PLAYER_MAXIMUM_HEALTH,
 } from '../src/game/session/LocalGameSession';
 
+const BASE_SURVIVAL = {
+  version: 2 as const,
+  position: null,
+  yaw: Math.PI,
+  pitch: -0.12,
+  hunger: 20,
+  armorPoints: 0,
+};
+
 describe('external survival session actions', () => {
   it('restores persistent health and clamps food healing at maximum', async () => {
     const session = new LocalGameSession('world-a');
     await session.start();
     session.restoreSurvival({
-      version: 1,
+      ...BASE_SURVIVAL,
       health: 13,
       dayTime: 0.84,
       deathCount: 2,
@@ -30,7 +39,7 @@ describe('external survival session actions', () => {
     });
     await session.start();
     session.restoreSurvival({
-      version: 1,
+      ...BASE_SURVIVAL,
       health: 7,
       dayTime: 0.3,
       deathCount: 4,

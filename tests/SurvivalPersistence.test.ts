@@ -33,20 +33,55 @@ class MemoryStorage implements Storage {
 }
 
 describe('survival persistence', () => {
-  it('round-trips health, day time, and death count by world seed', () => {
+  it('round-trips v2 player position, survival stats, and view state by world id', () => {
     const storage = new MemoryStorage();
     saveSurvivalSnapshot(
       'world-a',
-      { version: 1, health: 13, dayTime: 0.82, deathCount: 4 },
+      {
+        version: 2,
+        health: 13,
+        dayTime: 0.82,
+        deathCount: 4,
+        position: { x: 8, y: 12, z: -3 },
+        yaw: 1.2,
+        pitch: -0.3,
+        hunger: 15,
+        armorPoints: 8,
+      },
       storage,
     );
     expect(loadSurvivalSnapshot('world-a', storage, 20)).toEqual({
-      version: 1,
+      version: 2,
       health: 13,
       dayTime: 0.82,
       deathCount: 4,
+      position: { x: 8, y: 12, z: -3 },
+      yaw: 1.2,
+      pitch: -0.3,
+      hunger: 15,
+      armorPoints: 8,
     });
     expect(loadSurvivalSnapshot('world-b', storage, 20)).toBeNull();
+  });
+
+  it('migrates legacy survival records with safe v2 defaults', () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      'lost-in-cubes:survival:world-a',
+      JSON.stringify({ health: 17, dayTime: 0.45, deathCount: 2 }),
+    );
+
+    expect(loadSurvivalSnapshot('world-a', storage, 20)).toEqual({
+      version: 2,
+      health: 17,
+      dayTime: 0.45,
+      deathCount: 2,
+      position: null,
+      yaw: Math.PI,
+      pitch: -0.12,
+      hunger: 20,
+      armorPoints: 0,
+    });
   });
 
   it('clamps valid numeric values and rejects malformed records', () => {
@@ -55,11 +90,13 @@ describe('survival persistence', () => {
       'lost-in-cubes:survival:world-a',
       JSON.stringify({ health: 999, dayTime: -0.25, deathCount: -4 }),
     );
-    expect(loadSurvivalSnapshot('world-a', storage, 20)).toEqual({
-      version: 1,
+    expect(loadSurvivalSnapshot('world-a', storage, 20)).toMatchObject({
+      version: 2,
       health: 20,
       dayTime: 0.75,
       deathCount: 0,
+      hunger: 20,
+      armorPoints: 0,
     });
 
     storage.setItem(
