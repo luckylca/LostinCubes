@@ -119,7 +119,11 @@ export class EntityRegistry {
   }
 
   public spawn(options: SpawnEntityOptions): EntitySnapshot | null {
-    const id = options.id?.trim() || this.#allocateId(options.kind);
+    const requestedId = options.id?.trim();
+    const id =
+      requestedId === undefined || requestedId.length === 0
+        ? this.#allocateId(options.kind)
+        : requestedId;
     if (this.#entities.has(id)) return null;
     if (this.#entities.size >= this.#maximumEntities) return null;
 
@@ -137,13 +141,14 @@ export class EntityRegistry {
       id,
       kind: options.kind,
       position,
-      velocity: options.velocity === undefined
-        ? ZERO_VECTOR
-        : {
-            x: finite(options.velocity.x, 0),
-            y: finite(options.velocity.y, 0),
-            z: finite(options.velocity.z, 0),
-          },
+      velocity:
+        options.velocity === undefined
+          ? ZERO_VECTOR
+          : {
+              x: finite(options.velocity.x, 0),
+              y: finite(options.velocity.y, 0),
+              z: finite(options.velocity.z, 0),
+            },
       health,
       maximumHealth,
       collisionRadius: positive(options.collisionRadius ?? 0.4, 0.4),
@@ -266,13 +271,19 @@ export class EntityRegistry {
         if (ids === undefined) continue;
         for (const id of ids) {
           const entity = this.#entities.get(id);
-          if (entity === undefined || (kinds !== undefined && !kinds.has(entity.kind))) {
+          if (
+            entity === undefined ||
+            (kinds !== undefined && !kinds.has(entity.kind))
+          ) {
             continue;
           }
           const deltaX = entity.position.x - position.x;
           const deltaY = entity.position.y - position.y;
           const deltaZ = entity.position.z - position.z;
-          if (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ <= radiusSquared) {
+          if (
+            deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ <=
+            radiusSquared
+          ) {
             result.push(snapshotOf(entity));
           }
         }
@@ -290,11 +301,12 @@ export class EntityRegistry {
       y: (minimum.y + maximum.y) / 2,
       z: (minimum.z + maximum.z) / 2,
     };
-    const radius = Math.hypot(
-      maximum.x - minimum.x,
-      maximum.y - minimum.y,
-      maximum.z - minimum.z,
-    ) / 2;
+    const radius =
+      Math.hypot(
+        maximum.x - minimum.x,
+        maximum.y - minimum.y,
+        maximum.z - minimum.z,
+      ) / 2;
     return this.queryRadius(center, radius).filter(
       (entity) =>
         entity.position.x >= minimum.x &&
@@ -308,7 +320,9 @@ export class EntityRegistry {
 
   public advanceAge(stepSeconds: number): void {
     if (!Number.isFinite(stepSeconds) || stepSeconds <= 0) return;
-    for (const entity of this.#entities.values()) entity.ageSeconds += stepSeconds;
+    for (const entity of this.#entities.values()) {
+      entity.ageSeconds += stepSeconds;
+    }
   }
 
   public clear(): void {
@@ -343,11 +357,13 @@ export class EntityRegistry {
   }
 
   #allocateId(kind: EntityKind): string {
-    while (true) {
-      const id = `${kind}-${String(this.#nextId)}`;
+    let id = `${kind}-${String(this.#nextId)}`;
+    this.#nextId += 1;
+    while (this.#entities.has(id)) {
+      id = `${kind}-${String(this.#nextId)}`;
       this.#nextId += 1;
-      if (!this.#entities.has(id)) return id;
     }
+    return id;
   }
 
   #spatialKey(worldX: number, worldZ: number): string {
