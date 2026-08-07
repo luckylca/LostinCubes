@@ -28,6 +28,7 @@ export const PLAYER_LOOK_PITCH_LIMIT = Math.PI / 2 - 0.003;
 const MINIMUM_PITCH = -PLAYER_LOOK_PITCH_LIMIT;
 const MAXIMUM_PITCH = PLAYER_LOOK_PITCH_LIMIT;
 export const PLAYER_MAXIMUM_HEALTH = 20;
+export const PLAYER_MAXIMUM_HUNGER = 20;
 export const PLAYER_MAXIMUM_AIR_SUPPLY = 300;
 const AIR_UNITS_PER_SECOND = 20;
 const AIR_RECOVERY_UNITS_PER_SECOND = 80;
@@ -44,6 +45,12 @@ const LAVA_DAMAGE_INTERVAL_SECONDS = 0.75;
 const LAVA_DAMAGE = 4;
 const SUFFOCATION_INTERVAL_SECONDS = 0.75;
 const SUFFOCATION_DAMAGE = 1;
+const HUNGER_WALK_DRAIN_PER_SECOND = 0.012;
+const HUNGER_SPRINT_DRAIN_PER_SECOND = 0.045;
+const HUNGER_SWIM_DRAIN_PER_SECOND = 0.026;
+const NATURAL_REGEN_HUNGER_THRESHOLD = 18;
+const NATURAL_REGEN_INTERVAL_SECONDS = 4;
+const STARVATION_INTERVAL_SECONDS = 4;
 const SESSION_MAXIMUM_AUTO_JUMP_HEIGHT = 1.45;
 
 export interface LocalGameSessionConfig extends Partial<PlayerMotorConfig> {
@@ -73,6 +80,8 @@ export class LocalGameSession implements GameSession {
   #paused = false;
   #menuOpen = false;
   #health = PLAYER_MAXIMUM_HEALTH;
+  #hunger = PLAYER_MAXIMUM_HUNGER;
+  #armorPoints = 0;
   #damageTaken = 0;
   #deathCount = 0;
   #maximumFallSpeed = 0;
@@ -84,6 +93,8 @@ export class LocalGameSession implements GameSession {
   #drowningElapsed = 0;
   #lavaElapsed = 0;
   #suffocationElapsed = 0;
+  #naturalRegenElapsed = 0;
+  #starvationElapsed = 0;
 
   public constructor(
     worldSeed: string,
@@ -110,6 +121,8 @@ export class LocalGameSession implements GameSession {
     this.#paused = false;
     this.#menuOpen = false;
     this.#health = PLAYER_MAXIMUM_HEALTH;
+    this.#hunger = PLAYER_MAXIMUM_HUNGER;
+    this.#armorPoints = 0;
     this.#damageTaken = 0;
     this.#deathCount = 0;
     this.#maximumFallSpeed = 0;
@@ -121,6 +134,8 @@ export class LocalGameSession implements GameSession {
     this.#drowningElapsed = 0;
     this.#lavaElapsed = 0;
     this.#suffocationElapsed = 0;
+    this.#naturalRegenElapsed = 0;
+    this.#starvationElapsed = 0;
     this.#pendingCommand = null;
     this.#heldCommand = createNeutralPlayerInput(0);
     this.#worldState = this.#createWorldState(0);
@@ -150,12 +165,17 @@ export class LocalGameSession implements GameSession {
     this.#health = Math.round(clamp(snapshot.health, 1, PLAYER_MAXIMUM_HEALTH));
     this.#dayTime = ((snapshot.dayTime % 1) + 1) % 1;
     this.#deathCount = Math.max(Math.floor(snapshot.deathCount), 0);
+    this.#yaw = snapshot.yaw;
+    this.#pitch = clamp(snapshot.pitch, MINIMUM_PITCH, MAXIMUM_PITCH);
+    this.#hunger = clamp(snapshot.hunger, 0, PLAYER_MAXIMUM_HUNGER);
+    this.#armorPoints = Math.round(clamp(snapshot.armorPoints, 0, 20));
+    if (snapshot.position !== null) this.#motor.reset(snapshot.position);
     this.#worldState = this.#createWorldState(this.#worldState.tick);
   }
 
   public damagePlayer(amount: number, source?: VectorState): number {
     const before = this.#health;
-    this.#applyDamage(amount, false);
+    this.#applyDamage(amount, false, true);
     const damageDealt = before - this.#health;
     if (damageDealt > 0 && this.#health > 0) this.#applyKnockback(source);
     if (this.#health <= 0) this.#respawn();
@@ -174,12 +194,35 @@ export class LocalGameSession implements GameSession {
     return this.#health - before;
   }
 
+  public feedPlayer(points: number): number {
+    if (!Number.isFinite(points) || points <= 0) return 0;
+    const before = this.#hunger;
+    this.#hunger = Math.min(
+      PLAYER_MAXIMUM_HUNGER,
+      this.#hunger + Math.floor(points),
+    );
+    this.#worldState = this.#createWorldState(this.#worldState.tick);
+    return this.#hunger - before;
+  }
+
+  public setArmorPoints(points: number): void {
+    if (!Number.isFinite(points)) return;
+    this.#armorPoints = Math.round(clamp(points, 0, 20));
+    this.#worldState = this.#createWorldState(this.#worldState.tick);
+  }
+
   public getSurvivalSnapshot(): SurvivalSnapshot {
+    const motorState = this.#motor.getState();
     return {
-      version: 1,
+      version: 2,
       health: this.#health,
       dayTime: this.#dayTime,
       deathCount: this.#deathCount,
+      position: { ...motorState.position },
+      yaw: this.#yaw,
+      pitch: this.#pitch,
+      hunger: this.#hunger,
+      armorPoints: this.#armorPoints,
     };
   }
 
@@ -221,7 +264,7 @@ export class LocalGameSession implements GameSession {
         {
           moveX: command.moveX,
           moveZ: command.moveZ,
-          sprint: command.sprint,
+          sprint: command.sprint && this.#hunger > 0,
           sneak: command.sneak,
           jump: command.jump,
           yaw: this.#yaw,
@@ -238,10 +281,11 @@ export class LocalGameSession implements GameSession {
       this.#submerged = this.#isHeadSubmergedAt(after.position);
       this.#updateAir(stepSeconds);
       this.#updateEnvironmentalDamage(after.position, after.inLava, stepSeconds);
+      this.#updateHunger(after, stepSeconds);
       updateSurvivalWorld(after.position, stepSeconds);
 
       if (after.position.y < VOID_DEATH_Y) {
-        this.#applyDamage(PLAYER_MAXIMUM_HEALTH, true);
+        this.#applyDamage(PLAYER_MAXIMUM_HEALTH, true, false);
       }
       this.#dayTime = (this.#dayTime + stepSeconds / DAY_LENGTH_SECONDS) % 1;
     }
@@ -264,7 +308,7 @@ export class LocalGameSession implements GameSession {
         this.#drowningElapsed += stepSeconds;
         if (this.#drowningElapsed >= DROWNING_INTERVAL_SECONDS) {
           this.#drowningElapsed %= DROWNING_INTERVAL_SECONDS;
-          this.#applyDamage(DROWNING_DAMAGE, false);
+          this.#applyDamage(DROWNING_DAMAGE, false, false);
         }
       }
       return;
@@ -285,7 +329,7 @@ export class LocalGameSession implements GameSession {
       this.#lavaElapsed += stepSeconds;
       if (this.#lavaElapsed >= LAVA_DAMAGE_INTERVAL_SECONDS) {
         this.#lavaElapsed %= LAVA_DAMAGE_INTERVAL_SECONDS;
-        this.#applyDamage(LAVA_DAMAGE, false);
+        this.#applyDamage(LAVA_DAMAGE, false, false);
       }
     } else {
       this.#lavaElapsed = 0;
@@ -295,10 +339,48 @@ export class LocalGameSession implements GameSession {
       this.#suffocationElapsed += stepSeconds;
       if (this.#suffocationElapsed >= SUFFOCATION_INTERVAL_SECONDS) {
         this.#suffocationElapsed %= SUFFOCATION_INTERVAL_SECONDS;
-        this.#applyDamage(SUFFOCATION_DAMAGE, false);
+        this.#applyDamage(SUFFOCATION_DAMAGE, false, false);
       }
     } else {
       this.#suffocationElapsed = 0;
+    }
+  }
+
+  #updateHunger(
+    state: ReturnType<KinematicPlayerMotor['getState']>,
+    stepSeconds: number,
+  ): void {
+    if (state.horizontalSpeed > 0.08) {
+      const drain = state.sprinting
+        ? HUNGER_SPRINT_DRAIN_PER_SECOND
+        : state.inWater
+          ? HUNGER_SWIM_DRAIN_PER_SECOND
+          : HUNGER_WALK_DRAIN_PER_SECOND;
+      this.#hunger = Math.max(this.#hunger - drain * stepSeconds, 0);
+    }
+
+    if (
+      this.#hunger >= NATURAL_REGEN_HUNGER_THRESHOLD &&
+      this.#health < PLAYER_MAXIMUM_HEALTH
+    ) {
+      this.#naturalRegenElapsed += stepSeconds;
+      if (this.#naturalRegenElapsed >= NATURAL_REGEN_INTERVAL_SECONDS) {
+        this.#naturalRegenElapsed %= NATURAL_REGEN_INTERVAL_SECONDS;
+        this.#health = Math.min(this.#health + 1, PLAYER_MAXIMUM_HEALTH);
+        this.#hunger = Math.max(this.#hunger - 1, 0);
+      }
+    } else {
+      this.#naturalRegenElapsed = 0;
+    }
+
+    if (this.#hunger <= 0) {
+      this.#starvationElapsed += stepSeconds;
+      if (this.#starvationElapsed >= STARVATION_INTERVAL_SECONDS) {
+        this.#starvationElapsed %= STARVATION_INTERVAL_SECONDS;
+        this.#applyDamage(1, false, false);
+      }
+    } else {
+      this.#starvationElapsed = 0;
     }
   }
 
@@ -309,13 +391,22 @@ export class LocalGameSession implements GameSession {
     this.#applyDamage(
       Math.max(1, Math.ceil(excessSpeed * FALL_DAMAGE_PER_SPEED)),
       false,
+      false,
     );
   }
 
-  #applyDamage(amount: number, bypassCooldown: boolean): void {
+  #applyDamage(
+    amount: number,
+    bypassCooldown: boolean,
+    armorApplies: boolean,
+  ): void {
     if (!Number.isFinite(amount) || amount <= 0) return;
     if (!bypassCooldown && this.#hurtCooldown > 0) return;
-    const damage = Math.min(Math.floor(amount), this.#health);
+    const armorReduction = armorApplies
+      ? Math.min(this.#armorPoints, 20) * 0.04
+      : 0;
+    const reduced = Math.max(1, Math.ceil(amount * (1 - armorReduction)));
+    const damage = Math.min(reduced, this.#health);
     if (damage <= 0) return;
     this.#health -= damage;
     this.#damageTaken += damage;
@@ -348,6 +439,8 @@ export class LocalGameSession implements GameSession {
     this.#lastDeathPosition = { ...deathPosition };
     this.#motor.reset();
     this.#health = PLAYER_MAXIMUM_HEALTH;
+    this.#hunger = PLAYER_MAXIMUM_HUNGER;
+    this.#armorPoints = 0;
     this.#maximumFallSpeed = 0;
     this.#deathCount += 1;
     this.#airSupply = PLAYER_MAXIMUM_AIR_SUPPLY;
@@ -356,6 +449,8 @@ export class LocalGameSession implements GameSession {
     this.#drowningElapsed = 0;
     this.#lavaElapsed = 0;
     this.#suffocationElapsed = 0;
+    this.#naturalRegenElapsed = 0;
+    this.#starvationElapsed = 0;
   }
 
   #consumeCommand(): PlayerInputCommand {
@@ -397,6 +492,9 @@ export class LocalGameSession implements GameSession {
       paused: this.#paused || this.#menuOpen,
       health: this.#health,
       maximumHealth: PLAYER_MAXIMUM_HEALTH,
+      hunger: Math.round(this.#hunger * 10) / 10,
+      maximumHunger: PLAYER_MAXIMUM_HUNGER,
+      armorPoints: this.#armorPoints,
       damageTaken: this.#damageTaken,
       deathCount: this.#deathCount,
     };
