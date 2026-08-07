@@ -117,8 +117,10 @@ export function selectWorld(
     createForm.addEventListener('submit', (event) => {
       event.preventDefault();
       const form = new FormData(createForm);
-      const name = String(form.get('name') ?? '新的世界');
-      const seed = String(form.get('seed') ?? '');
+      const nameValue = form.get('name');
+      const seedValue = form.get('seed');
+      const name = typeof nameValue === 'string' ? nameValue : '新的世界';
+      const seed = typeof seedValue === 'string' ? seedValue : '';
       const created = catalog.create(name, seed);
       if (created !== null) finish(created);
     });
