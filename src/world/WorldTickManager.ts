@@ -183,6 +183,16 @@ export class WorldTickManager {
     return this.#scheduled.size;
   }
 
+  #rescheduleBlockTick(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    delaySeconds: number,
+  ): void {
+    this.#scheduled.delete(coordinateKey(worldX, worldY, worldZ));
+    this.scheduleBlockTick(worldX, worldY, worldZ, delaySeconds);
+  }
+
   #runScheduledTicks(): number {
     let processed = 0;
     let changed = 0;
@@ -238,7 +248,7 @@ export class WorldTickManager {
       const below = this.#world.sampleBlock(worldX, worldY - 1, worldZ);
       if (getBlockDefinition(below).replaceable && !isFluidBlock(below)) {
         if (this.#replace(worldX, worldY - 1, worldZ, fluid)) {
-          this.scheduleBlockTick(
+          this.#rescheduleBlockTick(
             worldX,
             worldY - 1,
             worldZ,
@@ -263,7 +273,7 @@ export class WorldTickManager {
       }
       if (this.#replace(targetX, worldY, targetZ, fluid)) {
         changed += 1;
-        this.scheduleBlockTick(
+        this.#rescheduleBlockTick(
           targetX,
           worldY,
           targetZ,
