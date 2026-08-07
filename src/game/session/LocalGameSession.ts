@@ -157,7 +157,7 @@ export class LocalGameSession implements GameSession {
     const before = this.#health;
     this.#applyDamage(amount, false);
     const damageDealt = before - this.#health;
-    if (damageDealt > 0) this.#applyKnockback(source);
+    if (damageDealt > 0 && this.#health > 0) this.#applyKnockback(source);
     if (this.#health <= 0) this.#respawn();
     this.#worldState = this.#createWorldState(this.#worldState.tick);
     return damageDealt;
