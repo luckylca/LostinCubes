@@ -1,3 +1,4 @@
+import { resolveRuntimeWorldId } from '../../world/ActiveWorldRuntime';
 import type { VectorState } from './GameSession';
 
 const STORAGE_PREFIX = 'lost-in-cubes:survival:';
@@ -48,6 +49,10 @@ function readPosition(value: unknown): VectorState | null {
   return { x: candidate.x, y: candidate.y, z: candidate.z };
 }
 
+function storageKey(worldId: string): string {
+  return `${STORAGE_PREFIX}${resolveRuntimeWorldId(worldId)}`;
+}
+
 export function loadSurvivalSnapshot(
   worldId: string,
   storage: Storage | null,
@@ -56,7 +61,7 @@ export function loadSurvivalSnapshot(
 ): SurvivalSnapshot | null {
   if (storage === null) return null;
   try {
-    const raw = storage.getItem(`${STORAGE_PREFIX}${worldId}`);
+    const raw = storage.getItem(storageKey(worldId));
     if (raw === null) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== 'object' || parsed === null) return null;
@@ -99,7 +104,7 @@ export function saveSurvivalSnapshot(
 ): void {
   if (storage === null) return;
   try {
-    storage.setItem(`${STORAGE_PREFIX}${worldId}`, JSON.stringify(snapshot));
+    storage.setItem(storageKey(worldId), JSON.stringify(snapshot));
   } catch (error: unknown) {
     console.warn('Survival state could not be saved.', error);
   }
