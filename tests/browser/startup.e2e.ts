@@ -1,4 +1,20 @@
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+
+async function enterDefaultWorld(page: Page): Promise<void> {
+  const worldSelection = page.locator('#world-selection');
+  await expect(worldSelection).toBeVisible();
+  const defaultWorld = worldSelection.locator(
+    '[data-world-id="world-fragment-01"]',
+  );
+  await expect(defaultWorld).toContainText('世界碎片 01');
+  await defaultWorld.locator('[data-action="play"]').click();
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-game-state',
+    'ready',
+    { timeout: 45_000 },
+  );
+}
 
 test('boots persisted survival, manual crafting, and camera controls', async ({
   page,
@@ -46,11 +62,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   });
 
   await page.goto('./', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('html')).toHaveAttribute(
-    'data-game-state',
-    'ready',
-    { timeout: 45_000 },
-  );
+  await enterDefaultWorld(page);
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   const guide = page.locator('#survival-guide');
@@ -234,11 +246,7 @@ test('falls back to synchronous terrain when module workers fail', async ({
   });
 
   await page.goto('./', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('html')).toHaveAttribute(
-    'data-game-state',
-    'ready',
-    { timeout: 45_000 },
-  );
+  await enterDefaultWorld(page);
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
