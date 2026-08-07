@@ -1,11 +1,14 @@
 import type { Scene } from '@babylonjs/core';
 import type { PlayerState, VectorState } from '../game/session/GameSession';
 import type { ItemType } from '../inventory/ItemDefinitions';
+import { installBlockRegistryBlastAlias } from '../world/BlockRegistryBlastAlias';
 import type { VoxelWorldData } from '../world/VoxelWorldData';
 import {
   ClassicEntityManager,
   type PlayerAttackResult,
 } from './ClassicEntityManager';
+
+installBlockRegistryBlastAlias();
 
 export interface NightStalkerCallbacks {
   readonly onPlayerDamage: (amount: number, source?: VectorState) => void;
