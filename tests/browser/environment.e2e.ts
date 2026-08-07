@@ -10,6 +10,11 @@ test('presents biome, oxygen, sneak, and survival tutorial state', async ({
   });
 
   await page.goto('./', { waitUntil: 'domcontentloaded' });
+  const worldSelection = page.locator('#world-selection');
+  await expect(worldSelection).toBeVisible();
+  await worldSelection
+    .locator('[data-world-id="world-fragment-01"] [data-action="play"]')
+    .click();
   await expect(page.locator('html')).toHaveAttribute(
     'data-game-state',
     'ready',
