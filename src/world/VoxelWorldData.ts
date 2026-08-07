@@ -13,6 +13,7 @@ import type {
   SerializedLightEmitter,
 } from './ChunkBuildProtocol';
 import type { BlockType as BlockTypeValue } from './BlockType';
+import { notifySurvivalBlockChanged } from './SurvivalWorldRuntime';
 import { TerrainGenerator } from './TerrainGenerator';
 import {
   CHUNK_HEIGHT,
@@ -237,6 +238,7 @@ export class VoxelWorldData {
         console.warn('Failed to persist voxel edit.', error);
       },
     );
+    notifySurvivalBlockChanged(worldX, worldY, worldZ);
     return true;
   }
 

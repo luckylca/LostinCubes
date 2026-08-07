@@ -82,6 +82,15 @@ export function unregisterSurvivalWorldRuntime(
   changes.length = 0;
 }
 
+/** Wakes a changed voxel and its six neighbors for support/fluid scheduled ticks. */
+export function notifySurvivalBlockChanged(
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+): void {
+  ticks?.notifyBlockChanged(worldX, worldY, worldZ);
+}
+
 export function getSurvivalBiomeLabel(position: PlayerVector): string {
   if (world === null) return '未知区域';
   return getBiomeLabel(world.sampleBiome(position.x, position.z));
@@ -126,7 +135,7 @@ export function isPlayerHeadSuffocating(position: PlayerVector): boolean {
   );
 }
 
-/** Runs bounded random ticks and rebuilds each touched chunk at most once. */
+/** Runs bounded random/scheduled ticks and rebuilds each touched chunk once. */
 export function updateSurvivalWorld(
   position: PlayerVector,
   stepSeconds: number,

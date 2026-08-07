@@ -36,6 +36,8 @@ const FALL_DAMAGE_PER_SPEED = 1.65;
 const VOID_DEATH_Y = -20;
 const DAY_LENGTH_SECONDS = 180;
 const HURT_INVULNERABILITY_SECONDS = 0.5;
+const HURT_KNOCKBACK_DISTANCE = 0.32;
+const HURT_KNOCKBACK_LIFT = 0.14;
 const DROWNING_INTERVAL_SECONDS = 1;
 const DROWNING_DAMAGE = 2;
 const LAVA_DAMAGE_INTERVAL_SECONDS = 0.75;
@@ -151,10 +153,11 @@ export class LocalGameSession implements GameSession {
     this.#worldState = this.#createWorldState(this.#worldState.tick);
   }
 
-  public damagePlayer(amount: number): number {
+  public damagePlayer(amount: number, source?: VectorState): number {
     const before = this.#health;
     this.#applyDamage(amount, false);
     const damageDealt = before - this.#health;
+    if (damageDealt > 0 && this.#health > 0) this.#applyKnockback(source);
     if (this.#health <= 0) this.#respawn();
     this.#worldState = this.#createWorldState(this.#worldState.tick);
     return damageDealt;
@@ -317,6 +320,27 @@ export class LocalGameSession implements GameSession {
     this.#health -= damage;
     this.#damageTaken += damage;
     if (!bypassCooldown) this.#hurtCooldown = HURT_INVULNERABILITY_SECONDS;
+  }
+
+  #applyKnockback(source?: VectorState): void {
+    const motorState = this.#motor.getState();
+    let directionX = -Math.sin(this.#yaw);
+    let directionZ = -Math.cos(this.#yaw);
+    if (source !== undefined) {
+      const deltaX = motorState.position.x - source.x;
+      const deltaZ = motorState.position.z - source.z;
+      const length = Math.hypot(deltaX, deltaZ);
+      if (length > 0.001) {
+        directionX = deltaX / length;
+        directionZ = deltaZ / length;
+      }
+    }
+    this.#motor.reset({
+      x: motorState.position.x + directionX * HURT_KNOCKBACK_DISTANCE,
+      y: motorState.position.y + HURT_KNOCKBACK_LIFT,
+      z: motorState.position.z + directionZ * HURT_KNOCKBACK_DISTANCE,
+    });
+    this.#maximumFallSpeed = 0;
   }
 
   #respawn(): void {
