@@ -1,11 +1,12 @@
 import { getBlockDefinition } from './BlockRegistry';
+import type { BlockDefinition } from './BlockRegistry';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 
 declare module './BlockRegistry' {
-  interface BlockDefinition {
-    readonly resistance: number;
-  }
+  function getBlockDefinition(
+    block: BlockTypeValue,
+  ): BlockDefinition & { readonly resistance: number };
 }
 
 /**
