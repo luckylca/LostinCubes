@@ -24,7 +24,7 @@ function readGitCommit(): string {
   }
 }
 
-const buildNumber = process.env.GITHUB_RUN_NUMBER?.trim() || 'dev';
+const buildNumber = process.env.GITHUB_RUN_NUMBER?.trim() ?? 'dev';
 const commitSha = readGitCommit();
 const buildTime = new Date().toISOString();
 
