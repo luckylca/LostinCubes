@@ -1,5 +1,6 @@
 import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
+import { resolveRuntimeWorldId, resolveRuntimeWorldSeed } from './ActiveWorldRuntime';
 import type { BiomeType } from './BiomeDefinition';
 import {
   isClimbableBlock,
@@ -136,9 +137,14 @@ export class VoxelWorldData {
   #database: IDBPDatabase<WorldDatabase> | null = null;
 
   public constructor(persistenceId: string, terrainSeed = persistenceId) {
-    this.#persistenceId = persistenceId;
-    this.worldSeed = terrainSeed;
-    this.generator = new TerrainGenerator(terrainSeed);
+    const resolvedId = resolveRuntimeWorldId(persistenceId);
+    const resolvedSeed =
+      terrainSeed === persistenceId
+        ? resolveRuntimeWorldSeed(terrainSeed)
+        : terrainSeed;
+    this.#persistenceId = resolvedId;
+    this.worldSeed = resolvedSeed;
+    this.generator = new TerrainGenerator(resolvedSeed);
   }
 
   public async initialize(): Promise<void> {
@@ -318,6 +324,10 @@ export class VoxelWorldData {
       }
     }
     return result;
+  }
+
+  public get persistenceId(): string {
+    return this.#persistenceId;
   }
 
   public get modificationCount(): number {
