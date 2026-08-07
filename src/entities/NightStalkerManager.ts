@@ -1,5 +1,5 @@
 import type { Scene } from '@babylonjs/core';
-import type { PlayerState } from '../game/session/GameSession';
+import type { PlayerState, VectorState } from '../game/session/GameSession';
 import type { ItemType } from '../inventory/ItemDefinitions';
 import type { VoxelWorldData } from '../world/VoxelWorldData';
 import {
@@ -8,7 +8,7 @@ import {
 } from './ClassicEntityManager';
 
 export interface NightStalkerCallbacks {
-  readonly onPlayerDamage: (amount: number) => void;
+  readonly onPlayerDamage: (amount: number, source?: VectorState) => void;
   readonly onDrop: (
     item: ItemType,
     count: number,
@@ -46,7 +46,7 @@ export class NightStalkerManager {
       world.persistenceId,
       browserStorage(),
       {
-        onPlayerDamage: (amount) => callbacks.onPlayerDamage(amount),
+        onPlayerDamage: (amount, source) => callbacks.onPlayerDamage(amount, source),
         onDrop: callbacks.onDrop,
         onEntityHit: callbacks.onEnemyHit,
       },
