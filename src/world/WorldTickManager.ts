@@ -1,4 +1,8 @@
-import { getBlockDefinition, isFullCubeBlock } from './BlockRegistry';
+import {
+  getBlockDefinition,
+  isFluidBlock,
+  isFullCubeBlock,
+} from './BlockRegistry';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { CHUNK_HEIGHT } from './VoxelChunk';
@@ -9,6 +13,26 @@ const HORIZONTAL_RADIUS = 12;
 const VERTICAL_RADIUS = 9;
 const LEAF_LOG_RADIUS = 4;
 const SAPLING_GROWTH_CHANCE = 1 / 28;
+const SCHEDULED_TICK_LIMIT_PER_UPDATE = 24;
+const SUPPORT_TICK_DELAY_SECONDS = 0.05;
+const WATER_TICK_DELAY_SECONDS = 0.18;
+const LAVA_TICK_DELAY_SECONDS = 0.36;
+
+const SIX_NEIGHBORS = [
+  [-1, 0, 0],
+  [1, 0, 0],
+  [0, -1, 0],
+  [0, 1, 0],
+  [0, 0, -1],
+  [0, 0, 1],
+] as const;
+
+const HORIZONTAL_NEIGHBORS = [
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+] as const;
 
 export interface RandomTickWorld {
   readonly worldSeed: string;
@@ -34,6 +58,14 @@ export interface WorldTickManagerOptions {
   readonly onBlockChanged?: (change: WorldTickChange) => void;
 }
 
+interface ScheduledBlockTick {
+  readonly key: string;
+  readonly worldX: number;
+  readonly worldY: number;
+  readonly worldZ: number;
+  readonly dueAt: number;
+}
+
 function hashSeed(value: string): number {
   let hash = 2_166_136_261;
   for (let index = 0; index < value.length; index += 1) {
@@ -43,12 +75,24 @@ function hashSeed(value: string): number {
   return hash >>> 0;
 }
 
-/** Fixed tiny random-tick budget around the player; never scans the world. */
+function coordinateKey(worldX: number, worldY: number, worldZ: number): string {
+  return `${String(worldX)},${String(worldY)},${String(worldZ)}`;
+}
+
+function fluidDelay(block: BlockTypeValue): number {
+  return block === BlockType.Lava
+    ? LAVA_TICK_DELAY_SECONDS
+    : WATER_TICK_DELAY_SECONDS;
+}
+
+/** Fixed nearby random ticks plus a bounded deduplicated scheduled-tick queue. */
 export class WorldTickManager {
   readonly #world: RandomTickWorld;
   readonly #onBlockChanged: ((change: WorldTickChange) => void) | undefined;
+  readonly #scheduled = new Map<string, ScheduledBlockTick>();
   #state: number;
   #elapsed = 0;
+  #clock = 0;
 
   public constructor(
     world: RandomTickWorld,
@@ -66,8 +110,10 @@ export class WorldTickManager {
     stepSeconds: number,
   ): number {
     if (!Number.isFinite(stepSeconds) || stepSeconds <= 0) return 0;
+    this.#clock += stepSeconds;
+    let changed = this.#runScheduledTicks();
+
     this.#elapsed += stepSeconds;
-    let changed = 0;
     let batches = 0;
     while (this.#elapsed >= RANDOM_TICK_INTERVAL_SECONDS && batches < 2) {
       this.#elapsed -= RANDOM_TICK_INTERVAL_SECONDS;
@@ -93,9 +139,149 @@ export class WorldTickManager {
     return changed;
   }
 
+  public scheduleBlockTick(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    delaySeconds = SUPPORT_TICK_DELAY_SECONDS,
+  ): void {
+    if (
+      !Number.isInteger(worldX) ||
+      !Number.isInteger(worldY) ||
+      !Number.isInteger(worldZ) ||
+      worldY < 0 ||
+      worldY >= CHUNK_HEIGHT
+    ) {
+      return;
+    }
+    const delay = Number.isFinite(delaySeconds)
+      ? Math.max(delaySeconds, 0.01)
+      : SUPPORT_TICK_DELAY_SECONDS;
+    const key = coordinateKey(worldX, worldY, worldZ);
+    const dueAt = this.#clock + delay;
+    const existing = this.#scheduled.get(key);
+    if (existing !== undefined && existing.dueAt <= dueAt) return;
+    this.#scheduled.set(key, { key, worldX, worldY, worldZ, dueAt });
+  }
+
+  public notifyBlockChanged(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): void {
+    this.scheduleBlockTick(worldX, worldY, worldZ);
+    for (const [offsetX, offsetY, offsetZ] of SIX_NEIGHBORS) {
+      this.scheduleBlockTick(
+        worldX + offsetX,
+        worldY + offsetY,
+        worldZ + offsetZ,
+      );
+    }
+  }
+
+  public get scheduledTickCount(): number {
+    return this.#scheduled.size;
+  }
+
+  #runScheduledTicks(): number {
+    let processed = 0;
+    let changed = 0;
+    while (processed < SCHEDULED_TICK_LIMIT_PER_UPDATE) {
+      let next: ScheduledBlockTick | null = null;
+      for (const candidate of this.#scheduled.values()) {
+        if (candidate.dueAt > this.#clock) continue;
+        if (next === null || candidate.dueAt < next.dueAt) next = candidate;
+      }
+      if (next === null) break;
+      this.#scheduled.delete(next.key);
+      changed += this.#tickScheduled(next.worldX, next.worldY, next.worldZ);
+      processed += 1;
+    }
+    return changed;
+  }
+
+  #tickScheduled(worldX: number, worldY: number, worldZ: number): number {
+    const block = this.#world.sampleBlock(worldX, worldY, worldZ);
+    if (block === BlockType.Water || block === BlockType.Lava) {
+      return this.#tickFluid(worldX, worldY, worldZ, block);
+    }
+    return this.#tickBlock(worldX, worldY, worldZ) ? 1 : 0;
+  }
+
+  #tickFluid(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    fluid: BlockTypeValue,
+  ): number {
+    const opposite =
+      fluid === BlockType.Water ? BlockType.Lava : BlockType.Water;
+
+    for (const [offsetX, offsetY, offsetZ] of SIX_NEIGHBORS) {
+      const neighborX = worldX + offsetX;
+      const neighborY = worldY + offsetY;
+      const neighborZ = worldZ + offsetZ;
+      if (this.#world.sampleBlock(neighborX, neighborY, neighborZ) !== opposite) {
+        continue;
+      }
+      if (fluid === BlockType.Lava) {
+        return this.#replace(worldX, worldY, worldZ, BlockType.Cobblestone)
+          ? 1
+          : 0;
+      }
+      return this.#replace(neighborX, neighborY, neighborZ, BlockType.Cobblestone)
+        ? 1
+        : 0;
+    }
+
+    if (worldY > 0) {
+      const below = this.#world.sampleBlock(worldX, worldY - 1, worldZ);
+      if (getBlockDefinition(below).replaceable && !isFluidBlock(below)) {
+        if (this.#replace(worldX, worldY - 1, worldZ, fluid)) {
+          this.scheduleBlockTick(
+            worldX,
+            worldY - 1,
+            worldZ,
+            fluidDelay(fluid),
+          );
+          return 1;
+        }
+      }
+    }
+
+    // Spill only over an actual ledge. This gives springs and broken reservoirs
+    // visible cascades without turning every flat cave into an unbounded flood.
+    let changed = 0;
+    for (const [offsetX, offsetZ] of HORIZONTAL_NEIGHBORS) {
+      const targetX = worldX + offsetX;
+      const targetZ = worldZ + offsetZ;
+      const target = this.#world.sampleBlock(targetX, worldY, targetZ);
+      if (!getBlockDefinition(target).replaceable || isFluidBlock(target)) continue;
+      const targetBelow = this.#world.sampleBlock(targetX, worldY - 1, targetZ);
+      if (!getBlockDefinition(targetBelow).replaceable || isFluidBlock(targetBelow)) {
+        continue;
+      }
+      if (this.#replace(targetX, worldY, targetZ, fluid)) {
+        changed += 1;
+        this.scheduleBlockTick(
+          targetX,
+          worldY,
+          targetZ,
+          fluidDelay(fluid),
+        );
+      }
+      if (changed >= 2) break;
+    }
+    return changed;
+  }
+
   #tickBlock(worldX: number, worldY: number, worldZ: number): boolean {
     const block = this.#world.sampleBlock(worldX, worldY, worldZ);
     switch (block) {
+      case BlockType.Water:
+      case BlockType.Lava:
+        this.scheduleBlockTick(worldX, worldY, worldZ, fluidDelay(block));
+        return false;
       case BlockType.OakLeaves:
         if (this.#hasNearbyLog(worldX, worldY, worldZ)) return false;
         return this.#replace(worldX, worldY, worldZ, BlockType.Air);
@@ -213,8 +399,7 @@ export class WorldTickManager {
     let changed = false;
     for (let y = 0; y < trunkHeight; y += 1) {
       changed =
-        this.#replace(worldX, worldY + y, worldZ, BlockType.OakLog) ||
-        changed;
+        this.#replace(worldX, worldY + y, worldZ, BlockType.OakLog) || changed;
     }
     const trunkTop = worldY + trunkHeight - 1;
     for (let vertical = -2; vertical <= 1; vertical += 1) {
@@ -259,6 +444,7 @@ export class WorldTickManager {
       previous,
       next,
     });
+    this.notifyBlockChanged(worldX, worldY, worldZ);
     return true;
   }
 
