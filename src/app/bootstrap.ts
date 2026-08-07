@@ -1,3 +1,7 @@
+import { selectWorld } from '../ui/WorldSelectionView';
+import { setActiveRuntimeWorld } from '../world/ActiveWorldRuntime';
+import { WorldCatalog } from '../world/WorldCatalog';
+import { deleteWorldSaveData } from '../world/WorldSaveDeletion';
 import { GameApp, type GameUiElements } from './GameApp';
 
 function requireElement(selector: string): HTMLElement {
@@ -23,10 +27,18 @@ function describeError(error: unknown): string {
     : '未知错误（浏览器未提供详细原因）';
 }
 
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 export async function bootstrap(): Promise<void> {
   const loadingMessage = requireElement('#loading-message');
   let app: GameApp | null = null;
-  document.documentElement.dataset.gameState = 'loading';
+  document.documentElement.dataset.gameState = 'world-selection';
 
   try {
     const canvasElement = requireElement('#game-canvas');
@@ -36,6 +48,16 @@ export async function bootstrap(): Promise<void> {
 
     const loadingScreen = requireElement('#loading-screen');
     const gameHud = requireElement('#game-hud');
+    const storage = browserStorage();
+    const catalog = new WorldCatalog(storage);
+    loadingScreen.classList.add('is-hidden');
+    const selectedWorld = await selectWorld(catalog, {
+      deleteWorldData: (worldId) => deleteWorldSaveData(worldId, storage),
+    });
+    setActiveRuntimeWorld(selectedWorld);
+    loadingScreen.classList.remove('is-hidden');
+    document.documentElement.dataset.gameState = 'loading';
+
     const ui: GameUiElements = {
       touchControls: document.querySelector<HTMLElement>('#touch-controls'),
       status: requireElement('#hud-status'),
@@ -47,10 +69,10 @@ export async function bootstrap(): Promise<void> {
     };
 
     app = new GameApp(canvasElement, ui);
-    loadingMessage.textContent = '正在生成附近区块与森林……';
+    loadingMessage.textContent = `正在生成「${selectedWorld.name}」附近区块……`;
     await app.start();
 
-    loadingMessage.textContent = '世界碎片已稳定';
+    loadingMessage.textContent = `${selectedWorld.name} 已稳定`;
     gameHud.hidden = false;
     loadingScreen.classList.add('is-hidden');
     document.documentElement.dataset.gameState = 'ready';
