@@ -6,6 +6,7 @@ import type {
   InventorySlotSnapshot,
   PlayerInventory,
 } from '../inventory/PlayerInventory';
+import { resolveRuntimeWorldId } from '../world/ActiveWorldRuntime';
 import { syncBurningFurnaceLights } from '../world/FurnaceLightRuntime';
 
 const STORAGE_PREFIX = 'lost-in-cubes:furnaces:';
@@ -75,7 +76,7 @@ export class FurnaceManager {
   #revision = 0;
 
   public constructor(worldSeed: string, storage: Storage | null) {
-    this.#worldSeed = worldSeed;
+    this.#worldSeed = resolveRuntimeWorldId(worldSeed);
     this.#storage = storage;
     this.#restore();
     this.#syncLightSources();
