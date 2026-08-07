@@ -1,6 +1,7 @@
 import './style.css';
 import './inventory.css';
 import './progression.css';
+import './batch3-items.css';
 import './survival.css';
 import './environment.css';
 import './minecraft-ui.css';
