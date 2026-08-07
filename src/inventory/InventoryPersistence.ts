@@ -1,3 +1,4 @@
+import { resolveRuntimeWorldId } from '../world/ActiveWorldRuntime';
 import { PlayerInventory } from './PlayerInventory';
 
 export interface InventoryStorage {
@@ -6,7 +7,7 @@ export interface InventoryStorage {
 }
 
 function createInventoryKey(worldSeed: string): string {
-  return `lost-in-cubes:inventory:${worldSeed}`;
+  return `lost-in-cubes:inventory:${resolveRuntimeWorldId(worldSeed)}`;
 }
 
 export function loadPlayerInventory(
