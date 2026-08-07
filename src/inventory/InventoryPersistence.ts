@@ -1,3 +1,7 @@
+import {
+  applyExplicitTestLoadout,
+  browserSearch,
+} from '../debug/TestLoadout';
 import { resolveRuntimeWorldId } from '../world/ActiveWorldRuntime';
 import { PlayerInventory } from './PlayerInventory';
 
@@ -10,23 +14,30 @@ function createInventoryKey(worldSeed: string): string {
   return `lost-in-cubes:inventory:${resolveRuntimeWorldId(worldSeed)}`;
 }
 
+function withExplicitTestLoadout(inventory: PlayerInventory): PlayerInventory {
+  applyExplicitTestLoadout(inventory, browserSearch());
+  return inventory;
+}
+
 export function loadPlayerInventory(
   worldSeed: string,
   storage: InventoryStorage | null,
 ): PlayerInventory {
   if (storage === null) {
-    return new PlayerInventory();
+    return withExplicitTestLoadout(new PlayerInventory());
   }
 
   try {
     const serialized = storage.getItem(createInventoryKey(worldSeed));
     if (serialized === null) {
-      return new PlayerInventory();
+      return withExplicitTestLoadout(new PlayerInventory());
     }
-    return new PlayerInventory(JSON.parse(serialized) as unknown);
+    return withExplicitTestLoadout(
+      new PlayerInventory(JSON.parse(serialized) as unknown),
+    );
   } catch (error: unknown) {
     console.warn('Inventory save could not be restored; using defaults.', error);
-    return new PlayerInventory();
+    return withExplicitTestLoadout(new PlayerInventory());
   }
 }
 
