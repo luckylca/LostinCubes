@@ -141,7 +141,9 @@ export class WorldCatalog {
   public rename(id: string, name: string): WorldMetadata | null {
     const index = this.#worlds.findIndex((world) => world.id === id);
     if (index < 0) return null;
-    const world = { ...this.#worlds[index], name: sanitizeName(name) };
+    const current = this.#worlds[index];
+    if (current === undefined) return null;
+    const world: WorldMetadata = { ...current, name: sanitizeName(name) };
     this.#worlds[index] = world;
     this.#persist();
     return { ...world };
@@ -162,7 +164,9 @@ export class WorldCatalog {
   public touch(id: string, now = Date.now()): WorldMetadata | null {
     const index = this.#worlds.findIndex((world) => world.id === id);
     if (index < 0) return null;
-    const world = { ...this.#worlds[index], lastPlayedAt: safeNow(now) };
+    const current = this.#worlds[index];
+    if (current === undefined) return null;
+    const world: WorldMetadata = { ...current, lastPlayedAt: safeNow(now) };
     this.#worlds[index] = world;
     this.#persist();
     return { ...world };
