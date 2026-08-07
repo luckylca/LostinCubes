@@ -5,9 +5,8 @@ import {
   StandardMaterial,
   Texture,
   TransformNode,
-  Vector3,
 } from '@babylonjs/core';
-import type { AbstractMesh, Observer, Scene } from '@babylonjs/core';
+import type { AbstractMesh, Observer, Scene, Vector3 } from '@babylonjs/core';
 import type { EntityKind } from './EntityRegistry';
 
 type CreatureKind = Exclude<EntityKind, 'arrow' | 'tnt' | 'dropped-item'>;
@@ -254,14 +253,14 @@ export class EntityVisualUpgradeRuntime {
 
   #upgradeBody(sourceBody: Mesh, kind: CreatureKind): void {
     const parent = sourceBody.parent;
-    if (parent === null) return;
+    if (!(parent instanceof TransformNode)) return;
     sourceBody.isVisible = false;
     sourceBody.isPickable = false;
 
     const root = new TransformNode(`upgraded-${sourceBody.name}`, this.#scene);
     root.parent = parent;
     const material = makeTexturedMaterial(
-      `upgraded-${kind}-${sourceBody.uniqueId}`,
+      `upgraded-${kind}-${String(sourceBody.uniqueId)}`,
       this.#scene,
       this.#getTexture(kind),
     );
@@ -296,7 +295,7 @@ export class EntityVisualUpgradeRuntime {
       }
 
       const parent = sourceBody.parent;
-      if (parent === null) continue;
+      if (!(parent instanceof TransformNode)) continue;
       const position = parent.getAbsolutePosition();
       const deltaX = position.x - model.previousPosition.x;
       const deltaZ = position.z - model.previousPosition.z;
