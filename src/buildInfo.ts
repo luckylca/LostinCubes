@@ -5,7 +5,7 @@ export interface BuildInfo {
   readonly builtAt: string;
 }
 
-const FALLBACK_VERSION = '0.2.5';
+const FALLBACK_VERSION = '0.2.12';
 const FALLBACK_BUILD = 'dev';
 const FALLBACK_COMMIT = 'local';
 
@@ -67,10 +67,6 @@ export function parseDeploymentMarker(value: unknown): BuildInfo | null {
   };
 }
 
-function isSameBuild(first: BuildInfo, second: BuildInfo): boolean {
-  return first.build === second.build && first.commit === second.commit;
-}
-
 function describeBuild(info: BuildInfo): string {
   const label = formatBuildLabel(info);
   return info.builtAt.length === 0 ? label : `${label}\n构建时间：${info.builtAt}`;
@@ -85,43 +81,13 @@ function getOrCreateBuildBadge(): HTMLElement {
   badge.className = 'build-version';
   badge.setAttribute('role', 'status');
   badge.setAttribute('aria-live', 'polite');
-  badge.textContent = '版本检查中…';
   document.body.append(badge);
   return badge;
 }
 
-export async function initializeBuildBadge(): Promise<void> {
+export function initializeBuildBadge(): void {
   const badge = getOrCreateBuildBadge();
-
+  badge.dataset.state = 'current';
   badge.textContent = formatBuildLabel(EMBEDDED_BUILD_INFO);
-  badge.title = `页面内嵌版本：${describeBuild(EMBEDDED_BUILD_INFO)}`;
-
-  try {
-    const markerUrl = `${import.meta.env.BASE_URL}version.json?t=${String(Date.now())}`;
-    const response = await fetch(markerUrl, { cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error(`version.json returned ${String(response.status)}`);
-    }
-    const marker = (await response.json()) as unknown;
-    const deployed = parseDeploymentMarker(marker);
-    if (deployed === null) throw new Error('version.json is invalid');
-
-    if (isSameBuild(EMBEDDED_BUILD_INFO, deployed)) {
-      badge.dataset.state = 'current';
-      badge.textContent = formatBuildLabel(deployed);
-      badge.title = `当前部署：${describeBuild(deployed)}`;
-      return;
-    }
-
-    badge.dataset.state = 'mismatch';
-    badge.textContent = `缓存 ${formatBuildLabel(EMBEDDED_BUILD_INFO)} · 部署 ${formatBuildLabel(deployed)}`;
-    badge.title = `浏览器仍在运行旧资源。\n页面：${describeBuild(EMBEDDED_BUILD_INFO)}\n服务器：${describeBuild(deployed)}`;
-  } catch (error: unknown) {
-    badge.dataset.state = 'unverified';
-    badge.textContent = `${formatBuildLabel(EMBEDDED_BUILD_INFO)} · 部署未核验`;
-    badge.title =
-      error instanceof Error
-        ? `无法读取部署标记：${error.message}`
-        : '无法读取部署标记。';
-  }
+  badge.title = `当前页面构建：${describeBuild(EMBEDDED_BUILD_INFO)}`;
 }
