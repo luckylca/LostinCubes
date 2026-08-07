@@ -9,5 +9,5 @@ import './build-version.css';
 import { bootstrap } from './app/bootstrap';
 import { initializeBuildBadge } from './buildInfo';
 
-void initializeBuildBadge();
+initializeBuildBadge();
 void bootstrap();
