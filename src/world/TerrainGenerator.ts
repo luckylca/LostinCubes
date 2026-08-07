@@ -6,6 +6,10 @@ import type { BiomeType as BiomeTypeValue } from './BiomeDefinition';
 import { BlockType } from './BlockType';
 import type { BlockType as BlockTypeValue } from './BlockType';
 import { CHUNK_HEIGHT, CHUNK_SIZE, VoxelChunk } from './VoxelChunk';
+import {
+  sampleCaveSpringBlock,
+  sampleDungeonBlock,
+} from './WorldPopulation';
 
 const UINT32_MAX = 4_294_967_295;
 const PLAYER_FOOT_OFFSET = 0.9;
@@ -183,6 +187,15 @@ export class TerrainGenerator {
 
     const surfaceHeight = this.sampleSurfaceHeight(worldX, worldZ);
     const biome = this.sampleBiome(worldX, worldZ);
+    const dungeon = sampleDungeonBlock(
+      worldX,
+      worldY,
+      worldZ,
+      surfaceHeight,
+      this.#seed,
+    );
+    if (dungeon !== null) return dungeon;
+
     const terrain = this.#sampleTerrainBlock(
       worldX,
       worldY,
@@ -249,6 +262,18 @@ export class TerrainGenerator {
     if (worldY > surfaceHeight) return BlockType.Air;
 
     if (this.#isCave(worldX, worldY, worldZ, surfaceHeight)) {
+      const spring = sampleCaveSpringBlock(
+        worldX,
+        worldY,
+        worldZ,
+        surfaceHeight,
+        this.#seed,
+        SEA_LEVEL,
+        LAVA_LEVEL,
+        (candidateY) =>
+          this.#isCave(worldX, candidateY, worldZ, surfaceHeight),
+      );
+      if (spring !== null) return spring;
       if (
         worldY <= LAVA_LEVEL &&
         sampleValueNoise3d(
