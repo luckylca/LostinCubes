@@ -26,6 +26,9 @@ export interface PlayerState {
   readonly paused: boolean;
   readonly health: number;
   readonly maximumHealth: number;
+  readonly hunger: number;
+  readonly maximumHunger: number;
+  readonly armorPoints: number;
   readonly damageTaken: number;
   readonly deathCount: number;
 }
