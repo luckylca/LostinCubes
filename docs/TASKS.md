@@ -88,24 +88,26 @@
 - [x] Add beaches and mixed sand, gravel, and clay seabeds
 - [x] Add snow, flowers, tall grass, biome-specific tree density, and associated pixel textures
 - [x] Preserve caves, coal, iron, rune stone, and a protected surface shell while adding deep cave lava
+- [x] Add deterministic cave springs and compact underground dungeons with cross-chunk-safe stateless sampling
 - [x] Add swimming, fluid drag, upward swimming, downward diving, oxygen, drowning, and lava damage
 - [x] Add Ctrl sneaking, reduced speed, ledge prevention, ladders, and suffocation
 - [x] Add shared hurt invulnerability frames across falls, enemies, drowning, lava, and suffocation
+- [x] Add short hurt knockback for successful non-lethal external damage
 - [x] Add low-probability sapling drops, leaf decay, sapling growth, plant support, and grass spread
 - [x] Run random block ticks through a fixed nearby budget with no world scans or per-block timers
-- [x] Batch random-tick renderer invalidation by touched chunk
+- [x] Add bounded deduplicated scheduled ticks for fluid gravity, ledge spills, contact reactions, and edit-neighbor wakeups
+- [x] Batch random/scheduled-tick renderer invalidation by touched chunk
 - [x] Add a classic seven-stick ladder recipe and touch/desktop survival controls
 - [x] Add a compact biome/environment/oxygen HUD and water/lava overlays
 - [x] Keep existing numeric IDs 0–13 unchanged and append environmental IDs 14–23
 
 Not included in Batch 2 and intentionally deferred:
 
-- [ ] Flowing-fluid source levels, scheduled flow, springs, and buckets
-- [ ] Dungeons and a separate cross-chunk population pipeline
+- [ ] Full flowing-fluid source levels and buckets
 - [ ] Ice/freezing and snow-layer state
 - [ ] Falling sand and gravel entities
 - [ ] Directional wall-mounted ladder state
-- [ ] Fire, extinguishing, and environmental knockback
+- [ ] Fire and extinguishing
 - [ ] Representative Android performance captures and quality presets
 
 ### Batch 3 — unified entities and persistent worlds
