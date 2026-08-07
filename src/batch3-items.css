@@ -1,0 +1,39 @@
+.item-string,
+.item-bone,
+.item-gunpowder,
+.item-feather,
+.item-leather,
+.item-wool,
+.item-raw-porkchop,
+.item-raw-beef,
+.item-bow,
+.item-arrow,
+.item-tnt,
+.item-iron-helmet,
+.item-iron-chestplate,
+.item-iron-leggings,
+.item-iron-boots {
+  border: 0;
+  border-radius: 0;
+  background-image: url('./assets/items/batch3-items.svg');
+  background-repeat: no-repeat;
+  background-size: 1500% 100%;
+  box-shadow: none;
+  image-rendering: pixelated;
+}
+
+.item-string { background-position: 0% 0; }
+.item-bone { background-position: 7.142857% 0; }
+.item-gunpowder { background-position: 14.285714% 0; }
+.item-feather { background-position: 21.428571% 0; }
+.item-leather { background-position: 28.571429% 0; }
+.item-wool { background-position: 35.714286% 0; }
+.item-raw-porkchop { background-position: 42.857143% 0; }
+.item-raw-beef { background-position: 50% 0; }
+.item-bow { background-position: 57.142857% 0; }
+.item-arrow { background-position: 64.285714% 0; }
+.item-tnt { background-position: 71.428571% 0; }
+.item-iron-helmet { background-position: 78.571429% 0; }
+.item-iron-chestplate { background-position: 85.714286% 0; }
+.item-iron-leggings { background-position: 92.857143% 0; }
+.item-iron-boots { background-position: 100% 0; }
