@@ -1,3 +1,4 @@
+import { resolveRuntimeWorldId } from '../world/ActiveWorldRuntime';
 import type { EntityKind, EntitySnapshot } from './EntityRegistry';
 
 const STORAGE_PREFIX = 'lost-in-cubes:entities:v1:';
@@ -80,13 +81,17 @@ function validSnapshot(value: unknown): value is EntitySnapshot {
   );
 }
 
+function entityStorageKey(worldId: string): string {
+  return `${STORAGE_PREFIX}${resolveRuntimeWorldId(worldId)}`;
+}
+
 export function loadEntitySnapshots(
   worldId: string,
   storage: Storage | null,
 ): EntitySnapshot[] {
   if (storage === null) return [];
   try {
-    const raw = storage.getItem(`${STORAGE_PREFIX}${worldId}`);
+    const raw = storage.getItem(entityStorageKey(worldId));
     if (raw === null) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== 'object' || parsed === null) return [];
@@ -119,7 +124,7 @@ export function saveEntitySnapshots(
     .slice(0, MAXIMUM_PERSISTED_ENTITIES);
   const payload: EntitySavePayload = { version: 1, entities };
   try {
-    storage.setItem(`${STORAGE_PREFIX}${worldId}`, JSON.stringify(payload));
+    storage.setItem(entityStorageKey(worldId), JSON.stringify(payload));
   } catch (error: unknown) {
     console.warn('Entity state could not be saved.', error);
   }
