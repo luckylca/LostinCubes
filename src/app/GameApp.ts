@@ -21,9 +21,13 @@ import {
   savePlayerInventory,
 } from '../inventory/InventoryPersistence';
 import {
+  getArmorPoints,
   getBlockDropItem,
   getFoodHealing,
+  getFoodHunger,
   getItemLabel,
+  isBowItem,
+  isTntItem,
   ItemType,
 } from '../inventory/ItemDefinitions';
 import type { ItemType as ItemTypeValue } from '../inventory/ItemDefinitions';
@@ -94,6 +98,20 @@ function shouldDropApple(x: number, y: number, z: number): boolean {
     Math.imul(y, 19_349_663) ^
     Math.imul(z, 83_492_791);
   return (hash >>> 0) % 8 === 0;
+}
+
+function getInventoryArmorPoints(inventory: PlayerInventory): number {
+  const armorItems = [
+    ItemType.IronHelmet,
+    ItemType.IronChestplate,
+    ItemType.IronLeggings,
+    ItemType.IronBoots,
+  ] as const;
+  return armorItems.reduce(
+    (total, item) =>
+      total + (inventory.countItem(item) > 0 ? getArmorPoints(item) : 0),
+    0,
+  );
 }
 
 export class GameApp {
@@ -249,9 +267,9 @@ export class GameApp {
     };
 
     const enemies = new NightStalkerManager(scene, worldData, {
-      onPlayerDamage: (amount) => {
+      onPlayerDamage: (amount, source) => {
         const beforeHealth = session.getWorldState().player.health;
-        session.damagePlayer(amount);
+        session.damagePlayer(amount, source);
         if (session.getWorldState().player.health !== beforeHealth) {
           audio.playPlayerHurt();
         }
@@ -342,6 +360,7 @@ export class GameApp {
         PLAYER_MAXIMUM_HEALTH,
       ),
     );
+    session.setArmorPoints(getInventoryArmorPoints(inventory));
     let observedDeathCount = session.getWorldState().player.deathCount;
     const initialWorldState = session.getWorldState();
     const initialPlayer = initialWorldState.player;
@@ -364,6 +383,7 @@ export class GameApp {
     const saveWorldState = (): void => {
       saveDroppedItems(WORLD_SEED, drops.snapshots, localStorage);
       furnaces.save();
+      enemies.save();
       saveSurvivalSnapshot(
         WORLD_SEED,
         session.getSurvivalSnapshot(),
@@ -452,36 +472,64 @@ export class GameApp {
           interaction.setHeldItem(inventory.selectedItem);
           const attackPressed = command.breakBlock && !breakHeld;
           const usePressed = command.placeBlock && !placeHeld;
+          const selectedItem = inventory.selectedItem;
+          let firedBow = false;
           if (attackPressed && !interaction.hasTarget) {
-            const result = enemies.attack(
-              worldState.player,
-              inventory.selectedItem,
-            );
-            if (!result.hit) audio.playAttack(false);
-            if (result.hit) {
-              inventory.damageSelectedTool(1);
+            if (
+              isBowItem(selectedItem) &&
+              inventory.countItem(ItemType.Arrow) > 0 &&
+              enemies.shootArrow(worldState.player, selectedItem) &&
+              inventory.consumeItems([{ item: ItemType.Arrow, count: 1 }])
+            ) {
+              firedBow = true;
               syncInventory();
+            } else if (!isBowItem(selectedItem)) {
+              const result = enemies.attack(worldState.player, selectedItem);
+              if (!result.hit) audio.playAttack(false);
+              if (result.hit) {
+                inventory.damageSelectedTool(1);
+                syncInventory();
+              }
             }
           }
 
           let consumedFood = false;
-          const selectedItem = inventory.selectedItem;
           const healing = getFoodHealing(selectedItem);
+          const hungerRestore = getFoodHunger(selectedItem);
           if (
             usePressed &&
             !interaction.hasTarget &&
             selectedItem !== null &&
-            healing > 0 &&
-            worldState.player.health < worldState.player.maximumHealth &&
+            (healing > 0 || hungerRestore > 0) &&
+            (worldState.player.health < worldState.player.maximumHealth ||
+              worldState.player.hunger < worldState.player.maximumHunger) &&
             inventory.consumeSelectedItem(selectedItem, 1)
           ) {
-            session.healPlayer(healing);
+            if (healing > 0) session.healPlayer(healing);
+            if (hungerRestore > 0) session.feedPlayer(hungerRestore);
             audio.playEat();
             consumedFood = true;
             syncInventory();
           }
-          breakHeld = command.breakBlock;
-          placeHeld = consumedFood ? false : command.placeBlock;
+
+          let primedTnt = false;
+          if (
+            usePressed &&
+            isTntItem(selectedItem) &&
+            interaction.targetPoint !== null
+          ) {
+            const point = interaction.targetPoint;
+            if (
+              enemies.primeTnt(point.x, point.y + 0.45, point.z) &&
+              inventory.consumeSelectedItem(ItemType.Tnt, 1)
+            ) {
+              primedTnt = true;
+              syncInventory();
+            }
+          }
+
+          breakHeld = firedBow ? false : command.breakBlock;
+          placeHeld = consumedFood || primedTnt ? false : command.placeBlock;
         } else {
           breakHeld = false;
           placeHeld = false;
@@ -490,6 +538,7 @@ export class GameApp {
         session.submitCommand(command);
       },
       fixedUpdate: (stepSeconds) => {
+        session.setArmorPoints(getInventoryArmorPoints(inventory));
         session.step(stepSeconds);
         let worldState = session.getWorldState();
         if (!worldState.player.paused) {
@@ -523,6 +572,8 @@ export class GameApp {
     this.#canvas.removeAttribute('data-has-target');
     this.#canvas.removeAttribute('data-inventory-open');
     this.#canvas.removeAttribute('data-player-health');
+    this.#canvas.removeAttribute('data-player-hunger');
+    this.#canvas.removeAttribute('data-player-armor');
     this.#canvas.removeAttribute('data-day-time');
     this.#canvas.removeAttribute('data-death-count');
     this.#canvas.removeAttribute('data-enemy-count');
@@ -602,6 +653,8 @@ export class GameApp {
     this.#canvas.dataset.playerPitch = player.pitch.toFixed(4);
     this.#canvas.dataset.hasTarget = String(hasTarget);
     this.#canvas.dataset.playerHealth = String(player.health);
+    this.#canvas.dataset.playerHunger = player.hunger.toFixed(1);
+    this.#canvas.dataset.playerArmor = String(player.armorPoints);
     this.#canvas.dataset.dayTime = dayTime.toFixed(4);
     this.#canvas.dataset.deathCount = String(player.deathCount);
     this.#canvas.dataset.enemyCount = String(enemyCount);
@@ -640,14 +693,16 @@ export class GameApp {
     const dropLabel =
       activeDrops > 0 ? ` · 掉落 ${String(activeDrops)}` : '';
     const enemyLabel =
-      activeEnemies > 0 ? ` · 夜行者 ${String(activeEnemies)}` : '';
+      activeEnemies > 0 ? ` · 生物 ${String(activeEnemies)}` : '';
     const breakLabel =
       breakProgress > 0
         ? ` · 挖掘 ${Math.round(breakProgress * 100).toString()}%`
         : '';
     const survivalLabel = `生命 ${String(player.health)}/${String(
       player.maximumHealth,
-    )} · ${formatDayTime(dayTime)}`;
+    )} · 饥饿 ${Math.ceil(player.hunger).toString()}/${String(
+      player.maximumHunger,
+    )} · 护甲 ${String(player.armorPoints)} · ${formatDayTime(dayTime)}`;
     if (inventoryOpen) {
       this.#ui.status.textContent = `界面已打开 · ${survivalLabel} · E 或 Esc 关闭`;
     } else if (awaitingPointerLock) {
