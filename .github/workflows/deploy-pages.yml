@@ -3,218 +3,45 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: ['main']
-  pull_request_target:
-    types: [closed]
-  issue_comment:
-    types: [created]
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
-  statuses: write
 
 concurrency:
-  group: pages-direct
+  group: pages
   cancel-in-progress: true
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Validate
+        run: npm run typecheck && npm run test && npm run build
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
   deploy:
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/deploy-pages')
-    runs-on: ubuntu-slim
     environment:
       name: github-pages
-      url: https://luckylca.github.io/LostinCubes/
-    env:
-      DEPLOY_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
     steps:
-      - name: Report deployment pending
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          node --input-type=module > "${RUNNER_TEMP}/status.json" <<'NODE'
-          const payload = {
-            state: 'pending',
-            context: 'pages/deployment-direct',
-            description: 'Direct Pages deployment is running',
-            target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-          };
-          process.stdout.write(JSON.stringify(payload));
-          NODE
-          curl --fail-with-body --silent --show-error --location \
-            -X POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${REPOSITORY}/statuses/${DEPLOY_SHA}" \
-            --data-binary "@${RUNNER_TEMP}/status.json"
-
-      - name: Clone exact source commit
-        shell: bash
-        env:
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          git clone --filter=blob:none --no-checkout "https://github.com/${REPOSITORY}.git" source
-          git -C source checkout --detach "${DEPLOY_SHA}"
-          echo "Checked out $(git -C source rev-parse HEAD)"
-
-      - name: Build production site
-        shell: bash
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          set -euo pipefail
-          cd source
-          npm install
-          export VITE_APP_VERSION="$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('package.json','utf8')).version)")"
-          export VITE_BUILD_NUMBER="${BUILD_NUMBER}"
-          export VITE_COMMIT_SHA="${DEPLOY_SHA}"
-          export VITE_BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          npm run typecheck
-          npm run test
-          npm run build
-          node --input-type=module <<'NODE'
-          import { writeFileSync } from 'node:fs';
-          const marker = {
-            version: process.env.VITE_APP_VERSION,
-            build: process.env.VITE_BUILD_NUMBER,
-            commit: process.env.VITE_COMMIT_SHA,
-            builtAt: process.env.VITE_BUILD_TIME,
-          };
-          writeFileSync('dist/version.json', `${JSON.stringify(marker, null, 2)}\n`);
-          NODE
-          touch dist/.nojekyll
-
-      - name: Package Pages artifact
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar \
-            --dereference --hard-dereference \
-            --directory source/dist \
-            -cvf "${RUNNER_TEMP}/artifact.tar" \
-            --exclude=.git \
-            --exclude=.github \
-            --exclude='.[^/]*' \
-            .
-          test -s "${RUNNER_TEMP}/artifact.tar"
-
-      - name: Upload Pages artifact without an Action download
-        shell: bash
-        run: |
-          set -euo pipefail
-          TOOLS_DIR="${RUNNER_TEMP}/pages-tools"
-          mkdir -p "${TOOLS_DIR}"
-          cd "${TOOLS_DIR}"
-          npm init -y >/dev/null
-          npm install --no-audit --no-fund @actions/artifact@6.2.1
-          cat > upload.mjs <<'NODE'
-          import { appendFileSync } from 'node:fs';
-          import { DefaultArtifactClient } from '@actions/artifact';
-
-          const client = new DefaultArtifactClient();
-          const result = await client.uploadArtifact(
-            'github-pages',
-            [process.env.ARTIFACT_PATH],
-            process.env.RUNNER_TEMP,
-            { retentionDays: 1 },
-          );
-          if (!result.id) throw new Error('Artifact upload did not return an id.');
-          appendFileSync(process.env.GITHUB_ENV, `PAGES_ARTIFACT_ID=${result.id}\n`);
-          console.log(`Uploaded Pages artifact ${result.id}`);
-          NODE
-          ARTIFACT_PATH="${RUNNER_TEMP}/artifact.tar" node upload.mjs
-
-      - name: Create Pages deployment through the REST API
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          OIDC_JSON="$(curl --fail-with-body --silent --show-error --location \
-            --retry 5 --retry-all-errors \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}")"
-          OIDC_TOKEN="$(printf '%s' "${OIDC_JSON}" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).value))")"
-          test -n "${OIDC_TOKEN}"
-
-          PAYLOAD="$(OIDC_TOKEN="${OIDC_TOKEN}" node --input-type=module <<'NODE'
-          const payload = {
-            artifact_id: Number(process.env.PAGES_ARTIFACT_ID),
-            environment: 'github-pages',
-            pages_build_version: process.env.DEPLOY_SHA,
-            oidc_token: process.env.OIDC_TOKEN,
-          };
-          process.stdout.write(JSON.stringify(payload));
-          NODE
-          )"
-
-          curl --fail-with-body --silent --show-error --location \
-            --retry 5 --retry-all-errors \
-            -X POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${REPOSITORY}/pages/deployments" \
-            -d "${PAYLOAD}"
-
-      - name: Verify public version marker
-        shell: bash
-        run: |
-          set -euo pipefail
-          MARKER_URL='https://luckylca.github.io/LostinCubes/version.json'
-          for ATTEMPT in $(seq 1 60); do
-            MARKER="$(curl --fail --silent --show-error --location \
-              "${MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${ATTEMPT}")" || true
-            if printf '%s' "${MARKER}" | grep -Fq "\"commit\": \"${DEPLOY_SHA}\""; then
-              echo "Verified ${DEPLOY_SHA} at ${MARKER_URL}"
-              printf '%s\n' "${MARKER}"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::The public Pages site did not report ${DEPLOY_SHA}."
-          exit 1
-
-      - name: Report final deployment status
-        if: always()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          set -euo pipefail
-          if [ "${JOB_STATUS}" = 'success' ]; then
-            STATE='success'
-            DESCRIPTION='Public Pages site serves this exact commit'
-          else
-            STATE='failure'
-            DESCRIPTION="Direct Pages deployment failed: ${JOB_STATUS}"
-          fi
-          STATE="${STATE}" DESCRIPTION="${DESCRIPTION}" node --input-type=module > "${RUNNER_TEMP}/status-final.json" <<'NODE'
-          const payload = {
-            state: process.env.STATE,
-            context: 'pages/deployment-direct',
-            description: process.env.DESCRIPTION,
-            target_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-          };
-          process.stdout.write(JSON.stringify(payload));
-          NODE
-          curl --fail-with-body --silent --show-error --location \
-            -X POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${REPOSITORY}/statuses/${DEPLOY_SHA}" \
-            --data-binary "@${RUNNER_TEMP}/status-final.json"
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
