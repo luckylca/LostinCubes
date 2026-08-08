@@ -110,6 +110,7 @@ const WATER_ASCEND_SPEED = 3.8;
 const WATER_DESCEND_SPEED = -3.1;
 const WATER_IDLE_SINK_SPEED = -0.18;
 const WATER_VERTICAL_RESPONSE = 8.5;
+const FLUID_EXIT_ASSIST_SECONDS = 0.32;
 const LAVA_ASCEND_SPEED = 2.2;
 const LAVA_DESCEND_SPEED = -1.8;
 const LAVA_IDLE_SINK_SPEED = -0.32;
@@ -128,6 +129,7 @@ export class KinematicPlayerMotor {
   #sneaking = false;
   #grounded = true;
   #environment = EMPTY_ENVIRONMENT;
+  #fluidExitAssistSeconds = 0;
 
   public constructor(config: Partial<PlayerMotorConfig> = {}) {
     this.#config = { ...DEFAULT_CONFIG, ...config };
@@ -193,6 +195,7 @@ export class KinematicPlayerMotor {
     this.#horizontalSpeed = 0;
     this.#sprinting = false;
     this.#sneaking = false;
+    this.#fluidExitAssistSeconds = 0;
     this.#environment = this.#config.environmentAt(this.#position);
   }
 
@@ -201,17 +204,26 @@ export class KinematicPlayerMotor {
     stepSeconds: number,
     isSolidAt: VoxelSolidProvider,
   ): PlayerMotorState {
+    this.#fluidExitAssistSeconds = Math.max(
+      this.#fluidExitAssistSeconds - stepSeconds,
+      0,
+    );
     this.#environment = this.#config.environmentAt(this.#position);
     const movement = this.#calculateHorizontalMovement(
       input,
       stepSeconds,
       this.#environment,
     );
+    const canUseWaterExitAssist =
+      input.jump &&
+      !this.#environment.inLava &&
+      !this.#environment.onLadder &&
+      (this.#environment.inWater || this.#fluidExitAssistSeconds > 0);
     const movedHorizontally = this.#moveHorizontal(
       movement.deltaX,
       movement.deltaZ,
       isSolidAt,
-      this.#environment.inWater && input.jump,
+      canUseWaterExitAssist,
     );
 
     this.#horizontalSpeed = movedHorizontally ? movement.speed : 0;
@@ -235,10 +247,26 @@ export class KinematicPlayerMotor {
       this.#grounded = false;
     }
 
+    this.#environment = this.#config.environmentAt(this.#position);
+    const assistedWaterExit =
+      input.jump &&
+      this.#fluidExitAssistSeconds > 0 &&
+      !this.#environment.inLava &&
+      !this.#environment.onLadder;
+
     if (this.#environment.onLadder) {
       this.#updateLadder(input, stepSeconds, isSolidAt);
-    } else if (this.#environment.inWater || this.#environment.inLava) {
-      this.#updateFluid(input, stepSeconds, isSolidAt, this.#environment.inLava);
+    } else if (
+      this.#environment.inWater ||
+      this.#environment.inLava ||
+      assistedWaterExit
+    ) {
+      this.#updateFluid(
+        input,
+        stepSeconds,
+        isSolidAt,
+        this.#environment.inLava,
+      );
     } else {
       this.#updateAirAndGround(input, stepSeconds, isSolidAt);
     }
@@ -429,14 +457,25 @@ export class KinematicPlayerMotor {
         return false;
       }
       this.#position = candidate;
+      if (
+        this.#fluidExitAssistSeconds > 0 &&
+        !this.#config.environmentAt(candidate).inWater &&
+        voxelBodyIsSupported(
+          isSolidAt,
+          candidate,
+          this.#bodyShape,
+          SUPPORT_PROBE_DISTANCE,
+        )
+      ) {
+        this.#fluidExitAssistSeconds = 0;
+        this.#grounded = true;
+        this.#verticalVelocity = 0;
+      }
       return true;
     }
 
-    if (
-      allowFluidStepOut &&
-      this.#tryFluidStepOut(axis, amount, isSolidAt)
-    ) {
-      return true;
+    if (allowFluidStepOut) {
+      this.#prepareFluidStepOut(axis, amount, isSolidAt);
     }
     if (!this.#grounded) return false;
     if (this.#tryStepUp(axis, amount, isSolidAt)) return true;
@@ -444,11 +483,11 @@ export class KinematicPlayerMotor {
     return false;
   }
 
-  #tryFluidStepOut(
+  #prepareFluidStepOut(
     axis: HorizontalAxis,
     amount: number,
     isSolidAt: VoxelSolidProvider,
-  ): boolean {
+  ): void {
     const horizontalCandidate = {
       ...this.#position,
       [axis]: this.#position[axis] + amount,
@@ -458,26 +497,32 @@ export class KinematicPlayerMotor {
       isSolidAt,
       this.#config.maximumAutoJumpHeight,
     )) {
-      const candidate = {
+      const landingCandidate = {
         ...horizontalCandidate,
         y: this.#position.y + lift,
       };
       if (
-        !voxelBodyCollides(isSolidAt, candidate, this.#bodyShape) &&
+        !voxelBodyCollides(isSolidAt, landingCandidate, this.#bodyShape) &&
         voxelBodyIsSupported(
           isSolidAt,
-          candidate,
+          landingCandidate,
           this.#bodyShape,
           SUPPORT_PROBE_DISTANCE,
         )
       ) {
-        this.#position = candidate;
-        this.#grounded = true;
-        this.#verticalVelocity = 0;
-        return true;
+        // Do not teleport straight onto the bank. Keep a short water-exit grace
+        // window so normal swim ascent raises the player over several fixed
+        // updates, then horizontal motion resumes as soon as the feet clear the
+        // ledge. This removes the visible one-frame snap/stutter at shorelines.
+        this.#fluidExitAssistSeconds = FLUID_EXIT_ASSIST_SECONDS;
+        this.#grounded = false;
+        this.#verticalVelocity = Math.max(
+          this.#verticalVelocity,
+          WATER_ASCEND_SPEED * 0.7,
+        );
+        return;
       }
     }
-    return false;
   }
 
   #tryStepUp(

@@ -13,6 +13,7 @@ import {
   CHUNK_SIZE,
   createChunkKey,
   worldToChunkCoordinate,
+  worldToLocalCoordinate,
 } from './VoxelChunk';
 import { VoxelMaterialLibrary } from './VoxelMaterialLibrary';
 import type { VoxelWorldData } from './VoxelWorldData';
@@ -29,6 +30,13 @@ interface CompletedChunk {
   readonly key: string;
   readonly revision: number;
   readonly response: ChunkBuildSuccess;
+}
+
+interface EditChunkTarget {
+  readonly chunkX: number;
+  readonly chunkZ: number;
+  readonly key: string;
+  readonly revision: number;
 }
 
 export interface VoxelWorldStats {
@@ -49,6 +57,30 @@ const RECENT_CHUNK_CACHE_LIMIT = 24;
 const BLOCK_EDIT_PRIORITY = -10_000;
 const FORWARD_PREFETCH_MINIMUM_TRAVEL = 0.012;
 
+/**
+ * Returns only chunks whose geometry can change when one voxel changes. A
+ * voxel can expose faces in its own chunk plus a cardinal neighbor when it is
+ * exactly on an X/Z chunk boundary. Diagonal chunks never share a block face.
+ */
+export function getBlockEditGeometryChunks(
+  worldX: number,
+  worldZ: number,
+): readonly (readonly [chunkX: number, chunkZ: number])[] {
+  const chunkX = worldToChunkCoordinate(worldX);
+  const chunkZ = worldToChunkCoordinate(worldZ);
+  const localX = worldToLocalCoordinate(worldX);
+  const localZ = worldToLocalCoordinate(worldZ);
+  const chunks: [number, number][] = [[chunkX, chunkZ]];
+
+  if (localX === 0) chunks.push([chunkX - 1, chunkZ]);
+  else if (localX === CHUNK_SIZE - 1) chunks.push([chunkX + 1, chunkZ]);
+
+  if (localZ === 0) chunks.push([chunkX, chunkZ - 1]);
+  else if (localZ === CHUNK_SIZE - 1) chunks.push([chunkX, chunkZ + 1]);
+
+  return chunks;
+}
+
 /** Streams a bounded, cancellable, direction-aware chunk window. */
 export class VoxelWorldRenderer {
   readonly #scene: Scene;
@@ -56,6 +88,7 @@ export class VoxelWorldRenderer {
   readonly #renderRadius: number;
   readonly #materials: VoxelMaterialLibrary;
   readonly #workers = new ChunkWorkerPool();
+  readonly #editWorkers = new ChunkWorkerPool(1);
   readonly #chunks = new Map<string, RenderedChunk>();
   readonly #recentChunks = new Map<string, RenderedChunk>();
   readonly #desiredKeys = new Set<string>();
@@ -135,16 +168,60 @@ export class VoxelWorldRenderer {
     if (!Number.isInteger(worldY)) {
       throw new RangeError('worldY must be an integer.');
     }
-    const chunkX = worldToChunkCoordinate(worldX);
-    const chunkZ = worldToChunkCoordinate(worldZ);
+    const centerChunkX = worldToChunkCoordinate(worldX);
+    const centerChunkZ = worldToChunkCoordinate(worldZ);
+    const targets = getBlockEditGeometryChunks(worldX, worldZ)
+      .filter(([chunkX, chunkZ]) =>
+        this.#desiredKeys.has(createChunkKey(chunkX, chunkZ)),
+      )
+      .map(([chunkX, chunkZ]) => this.#prepareEditChunk(chunkX, chunkZ));
 
-    // The edited chunk is the visual feedback the player is waiting for, so it
-    // goes to the front of the worker queue. Lighting in the eight neighboring
-    // chunks still refreshes, but remains ordinary background work. This keeps
-    // the final mining frame off the main thread without making the removed
-    // block wait behind unrelated terrain generation.
-    this.#invalidateChunk(chunkX, chunkZ, BLOCK_EDIT_PRIORITY);
-    this.#invalidateLightingNeighborhood(chunkX, chunkZ, false);
+    if (targets.length === 0) {
+      this.#invalidateLightingNeighborhood(centerChunkX, centerChunkZ, true);
+      return;
+    }
+
+    // A dedicated edit worker skips the expensive full light-field rebuild.
+    // Boundary-sharing chunks are built as one transaction and all meshes are
+    // swapped inside the same task, before the browser can paint between them.
+    // This removes both multi-second mining latency and the transient void seam
+    // that occurred when one side of a chunk boundary updated first.
+    void Promise.all(targets.map((target) => this.#buildEditChunk(target)))
+      .then((responses) => {
+        if (this.#disposed) return;
+        for (let index = 0; index < targets.length; index += 1) {
+          const target = targets[index];
+          const response = responses[index];
+          if (
+            target === undefined ||
+            response === undefined ||
+            !this.#desiredKeys.has(target.key) ||
+            this.#getRevision(target.key) !== target.revision
+          ) {
+            return;
+          }
+        }
+
+        // Apply every geometry mesh synchronously in this continuation. The
+        // browser cannot present an intermediate half-updated boundary.
+        for (let index = 0; index < targets.length; index += 1) {
+          const target = targets[index];
+          const response = responses[index];
+          if (target !== undefined && response !== undefined) {
+            this.#applyChunk(target.key, target.revision, response);
+          }
+        }
+
+        // Geometry is already correct and visible now. Relighting is deliberately
+        // background work and can replace these temporary full-bright vertices
+        // later without exposing missing faces.
+        this.#invalidateLightingNeighborhood(centerChunkX, centerChunkZ, true);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ChunkBuildCancelledError || this.#disposed) return;
+        console.error('Failed to build immediate voxel edit geometry.', error);
+        this.#invalidateLightingNeighborhood(centerChunkX, centerChunkZ, true);
+      });
   }
 
   public invalidateLightEmitter(worldX: number, worldZ: number): void {
@@ -188,9 +265,13 @@ export class VoxelWorldRenderer {
     return {
       loadedChunks: this.#chunks.size,
       desiredChunks: this.#desiredKeys.size,
-      pendingChunks: this.#workers.queuedCount + this.#completed.length,
+      pendingChunks:
+        this.#workers.queuedCount +
+        this.#editWorkers.queuedCount +
+        this.#completed.length,
       cachedChunks: this.#recentChunks.size,
-      cancelledBuilds: this.#workers.cancelledCount,
+      cancelledBuilds:
+        this.#workers.cancelledCount + this.#editWorkers.cancelledCount,
       visibleQuads,
       sourceFaces,
       centerChunkX: this.#centerChunkX ?? 0,
@@ -205,6 +286,7 @@ export class VoxelWorldRenderer {
     this.#disposed = true;
     unregisterFurnaceLightRuntime(this);
     this.#workers.dispose();
+    this.#editWorkers.dispose();
     for (const chunk of this.#chunks.values()) {
       chunk.mesh.dispose(false, false);
     }
@@ -290,6 +372,7 @@ export class VoxelWorldRenderer {
 
   #cancelUndesiredWork(): void {
     this.#workers.cancelExcept(this.#desiredKeys);
+    this.#editWorkers.cancelExcept(this.#desiredKeys);
     for (const key of this.#pendingRevisions.keys()) {
       if (!this.#desiredKeys.has(key)) this.#pendingRevisions.delete(key);
     }
@@ -364,6 +447,33 @@ export class VoxelWorldRenderer {
     }
   }
 
+  #prepareEditChunk(chunkX: number, chunkZ: number): EditChunkTarget {
+    const key = createChunkKey(chunkX, chunkZ);
+    this.#discardRecentChunk(key);
+    this.#workers.cancel(key);
+    this.#editWorkers.cancel(key);
+    this.#pendingRevisions.delete(key);
+    const revision = this.#getRevision(key) + 1;
+    this.#revisions.set(key, revision);
+    return { chunkX, chunkZ, key, revision };
+  }
+
+  #buildEditChunk(target: EditChunkTarget): Promise<ChunkBuildSuccess> {
+    return this.#editWorkers.buildChunk(
+      {
+        worldSeed: this.#world.worldSeed,
+        chunkX: target.chunkX,
+        chunkZ: target.chunkZ,
+        modifications: this.#world.getBuildModifications(
+          target.chunkX,
+          target.chunkZ,
+        ),
+        mode: 'geometry-only',
+      },
+      { jobKey: target.key, priority: BLOCK_EDIT_PRIORITY },
+    );
+  }
+
   #invalidateChunk(
     chunkX: number,
     chunkZ: number,
@@ -372,6 +482,7 @@ export class VoxelWorldRenderer {
     const key = createChunkKey(chunkX, chunkZ);
     this.#discardRecentChunk(key);
     this.#workers.cancel(key);
+    this.#editWorkers.cancel(key);
     this.#pendingRevisions.delete(key);
     this.#revisions.set(key, this.#getRevision(key) + 1);
     if (this.#desiredKeys.has(key)) {
@@ -424,6 +535,7 @@ export class VoxelWorldRenderer {
         chunkZ,
         modifications: this.#world.getBuildModifications(chunkX, chunkZ),
         lightEmitters: this.#world.getBuildLightEmitters(chunkX, chunkZ),
+        mode: 'full',
       },
       { jobKey: key, priority },
     );

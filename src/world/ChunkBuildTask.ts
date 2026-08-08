@@ -37,27 +37,41 @@ export function executeChunkBuild(
     return modified ?? generator.sampleBlock(worldX, worldY, worldZ);
   };
 
-  // One chunk light field spans 46×32×46 cells. Materializing that bounded
-  // volume once avoids repeatedly evaluating terrain noise, caves, ores, and
-  // tree placement during the sky pass, block-light pass, propagation, and
-  // greedy mesh pass.
-  const voxels = new ChunkVoxelCache(
-    request.chunkX,
-    request.chunkZ,
-    sampleProceduralBlock,
-  );
-  const lighting = buildChunkLightField(
-    request.chunkX,
-    request.chunkZ,
-    voxels.sample,
-    request.lightEmitters ?? [],
-  );
-  const meshData = buildChunkMeshData(
-    request.chunkX,
-    request.chunkZ,
-    voxels.sample,
-    lighting.sampleCombined,
-  );
+  let meshData;
+  if (request.mode === 'geometry-only') {
+    // Player edits need visible geometry feedback immediately. Rebuilding the
+    // full 46×32×46 light field dominates edit latency, so this path performs
+    // only greedy geometry generation with neutral full-bright vertex colors.
+    // A normal full-light rebuild is scheduled after the geometry transaction
+    // is visible, keeping lighting accurate without blocking mining feedback.
+    meshData = buildChunkMeshData(
+      request.chunkX,
+      request.chunkZ,
+      sampleProceduralBlock,
+    );
+  } else {
+    // One chunk light field spans 46×32×46 cells. Materializing that bounded
+    // volume once avoids repeatedly evaluating terrain noise, caves, ores, and
+    // tree placement during the sky pass, block-light pass, propagation, and
+    // greedy mesh pass.
+    const voxels = new ChunkVoxelCache(
+      request.chunkX,
+      request.chunkZ,
+      sampleProceduralBlock,
+    );
+    const lighting = buildChunkLightField(
+      request.chunkX,
+      request.chunkZ,
+      voxels.sample,
+      request.lightEmitters ?? [],
+    );
+    meshData = buildChunkMeshData(
+      request.chunkX,
+      request.chunkZ,
+      voxels.sample,
+      lighting.sampleCombined,
+    );
+  }
 
   return {
     type: 'chunk-built',
