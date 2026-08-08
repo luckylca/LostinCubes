@@ -30,6 +30,13 @@ interface TreeAnchor {
   readonly trunkHeight: number;
 }
 
+interface ClimateFields {
+  readonly temperature: number;
+  readonly moisture: number;
+  readonly continentality: number;
+  readonly uplift: number;
+}
+
 export function hashWorldSeed(seed: string): number {
   let hash = 2_166_136_261;
   for (let index = 0; index < seed.length; index += 1) {
@@ -58,6 +65,12 @@ function hashCoordinate3d(x: number, y: number, z: number, seed: number): number
 
 function smoothStep(value: number): number {
   return value * value * (3 - 2 * value);
+}
+
+function smoothRange(value: number, minimum: number, maximum: number): number {
+  if (maximum <= minimum) return value >= maximum ? 1 : 0;
+  const normalized = Math.min(Math.max((value - minimum) / (maximum - minimum), 0), 1);
+  return smoothStep(normalized);
 }
 
 function interpolate(start: number, end: number, amount: number): number {
@@ -143,33 +156,8 @@ export class TerrainGenerator {
       return BiomeType.Plains;
     }
 
-    // Climate fields are deliberately much broader than individual chunks so
-    // travelling through the world feels like crossing real regions instead of
-    // watching the same terrain recolor every few dozen blocks.
-    const temperature = sampleValueNoise(
-      worldX,
-      worldZ,
-      220,
-      this.#seed ^ 0x27d4eb2d,
-    );
-    const moisture = sampleValueNoise(
-      worldX,
-      worldZ,
-      190,
-      this.#seed ^ 0x165667b1,
-    );
-    const continentality = sampleValueNoise(
-      worldX,
-      worldZ,
-      260,
-      this.#seed ^ 0x9e3779b9,
-    );
-    const uplift = sampleValueNoise(
-      worldX,
-      worldZ,
-      132,
-      this.#seed ^ 0x7f4a7c15,
-    );
+    const { temperature, moisture, continentality, uplift } =
+      this.#sampleClimate(worldX, worldZ);
 
     if (uplift > 0.72 && continentality > 0.43) {
       return temperature < 0.4
@@ -190,9 +178,14 @@ export class TerrainGenerator {
     return BiomeType.Plains;
   }
 
+  /**
+   * Height is intentionally independent from the categorical biome switch.
+   * Biomes choose blocks/vegetation; continuous climate weights shape terrain.
+   * This prevents a biome border (including the forced spawn plains ring) from
+   * turning into an artificial cliff or suddenly perfectly flat plateau.
+   */
   public sampleSurfaceHeight(worldX: number, worldZ: number): number {
-    const biomeType = this.sampleBiome(worldX, worldZ);
-    const biome = getBiomeDefinition(biomeType);
+    const climate = this.#sampleClimate(worldX, worldZ);
     const continent = sampleValueNoise(
       worldX,
       worldZ,
@@ -217,65 +210,64 @@ export class TerrainGenerator {
       34,
       this.#seed ^ 0xc2b2ae35,
     );
+    const dune = sampleValueNoise(
+      worldX,
+      worldZ,
+      22,
+      this.#seed ^ 0x27d4eb2d,
+    );
 
-    let rawHeight: number;
-    switch (biomeType) {
-      case BiomeType.Swamp:
-        // Swamps intentionally hug sea level. Small depressions become shallow
-        // pools while raised islands stay walkable and tree-covered.
-        rawHeight =
-          SEA_LEVEL - 0.35 +
-          (continent - 0.5) * 2.2 +
-          (detail - 0.5) * 1.7;
-        break;
-      case BiomeType.Mountains:
-      case BiomeType.SnowyMountains: {
-        const peak = ridge * ridge;
-        rawHeight =
-          biome.baseHeight - 3 +
-          (continent - 0.5) * 4.5 +
-          peak * biome.heightVariation +
-          (hills - 0.5) * 4 +
-          (detail - 0.5) * 2.2;
-        break;
-      }
-      case BiomeType.Desert:
-        // Layered medium/small noise produces broad dune fields rather than the
-        // same grassland relief with sand substituted for grass.
-        rawHeight =
-          biome.baseHeight +
-          (continent - 0.5) * 3 +
-          (hills - 0.5) * biome.heightVariation +
-          (detail - 0.5) * 3.1;
-        break;
-      case BiomeType.Plains:
-        rawHeight =
-          biome.baseHeight +
-          (continent - 0.5) * 3 +
-          (hills - 0.5) * 1.8 +
-          (detail - 0.5) * 0.9;
-        break;
-      case BiomeType.SnowyTundra:
-        rawHeight =
-          biome.baseHeight +
-          (continent - 0.5) * 3.5 +
-          (hills - 0.5) * 2.2 +
-          (detail - 0.5) * 1.1;
-        break;
-      case BiomeType.Forest:
-      default:
-        rawHeight =
-          biome.baseHeight +
-          (continent - 0.5) * 4.5 +
-          (hills - 0.5) * biome.heightVariation +
-          (detail - 0.5) * 1.8;
-        break;
-    }
+    // A gently rolling base exists everywhere, including plains. Region types
+    // add smooth influences instead of swapping the whole equation at a border.
+    let rawHeight =
+      9.4 +
+      (continent - 0.5) * 5.2 +
+      (hills - 0.5) * 3.2 +
+      (detail - 0.5) * 1.25;
 
-    let height = Math.floor(rawHeight);
-    if (Math.hypot(worldX, worldZ - 3.5) < SPAWN_CLEAR_RADIUS + 3) {
-      height = Math.max(height, SEA_LEVEL + 1);
-    }
+    const mountainWeight =
+      smoothRange(climate.uplift, 0.6, 0.78) *
+      smoothRange(climate.continentality, 0.36, 0.58);
+    const mountainRelief =
+      ridge * ridge * 12.5 +
+      (hills - 0.5) * 4.2 +
+      (detail - 0.5) * 2.1 -
+      1.8;
+    rawHeight += mountainWeight * mountainRelief;
+
+    const desertWeight =
+      smoothRange(climate.temperature, 0.56, 0.72) *
+      (1 - smoothRange(climate.moisture, 0.36, 0.5));
+    rawHeight +=
+      desertWeight * ((dune - 0.5) * 3.6 + (detail - 0.5) * 1.2);
+
+    const coldWeight = 1 - smoothRange(climate.temperature, 0.24, 0.37);
+    rawHeight += coldWeight * (hills - 0.5) * 1.1;
+
+    const swampWeight =
+      smoothRange(climate.moisture, 0.62, 0.79) *
+      smoothRange(climate.temperature, 0.3, 0.42) *
+      (1 - smoothRange(climate.temperature, 0.68, 0.8)) *
+      (1 - smoothRange(climate.continentality, 0.48, 0.66));
+    const swampHeight =
+      SEA_LEVEL - 0.25 +
+      (continent - 0.5) * 1.2 +
+      (detail - 0.5) * 1.45;
+    rawHeight = interpolate(rawHeight, swampHeight, swampWeight * 0.88);
+
+    // Keep a comfortable spawn region without introducing the old hard ring.
+    // The blend extends well beyond the tree clearing and still retains a small
+    // amount of relief so the start area never becomes a featureless plane.
+    const spawnDistance = Math.hypot(worldX, worldZ - 3.5);
+    const spawnBlend =
+      1 - smoothRange(spawnDistance, SPAWN_CLEAR_RADIUS + 1, SPAWN_CLEAR_RADIUS + 11);
+    const spawnHeight =
+      SEA_LEVEL + 1.2 +
+      (hills - 0.5) * 1.25 +
+      (detail - 0.5) * 0.55;
+    rawHeight = interpolate(rawHeight, spawnHeight, spawnBlend);
+
+    const height = Math.floor(rawHeight);
     return Math.min(
       Math.max(height, 2),
       CHUNK_HEIGHT - TREE_STRUCTURE_HEIGHT,
@@ -354,6 +346,35 @@ export class TerrainGenerator {
       }
     }
     return chunk;
+  }
+
+  #sampleClimate(worldX: number, worldZ: number): ClimateFields {
+    return {
+      temperature: sampleValueNoise(
+        worldX,
+        worldZ,
+        220,
+        this.#seed ^ 0x27d4eb2d,
+      ),
+      moisture: sampleValueNoise(
+        worldX,
+        worldZ,
+        190,
+        this.#seed ^ 0x165667b1,
+      ),
+      continentality: sampleValueNoise(
+        worldX,
+        worldZ,
+        260,
+        this.#seed ^ 0x9e3779b9,
+      ),
+      uplift: sampleValueNoise(
+        worldX,
+        worldZ,
+        132,
+        this.#seed ^ 0x7f4a7c15,
+      ),
+    };
   }
 
   #sampleTerrainBlock(
