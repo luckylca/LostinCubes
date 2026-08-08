@@ -151,15 +151,7 @@ export class GameAudio {
       type: hit ? 'square' : 'triangle',
     });
     if (killed) {
-      window.setTimeout(() => {
-        this.#tone({
-          frequency: 95,
-          frequencyEnd: 42,
-          duration: 0.18,
-          volume: 0.04,
-          type: 'sawtooth',
-        });
-      }, 40);
+      window.setTimeout(() => this.playMonsterDeath(), 40);
     }
   }
 
@@ -169,6 +161,65 @@ export class GameAudio {
       frequencyEnd: 68,
       duration: 0.12,
       volume: 0.045,
+      type: 'sawtooth',
+    });
+  }
+
+  public playPlayerDeath(): void {
+    this.#tone({
+      frequency: 118,
+      frequencyEnd: 38,
+      duration: 0.32,
+      volume: 0.06,
+      type: 'sawtooth',
+    });
+  }
+
+  public playMonsterAmbient(): void {
+    this.#tone({
+      frequency: 82,
+      frequencyEnd: 58,
+      duration: 0.22,
+      volume: 0.022,
+      type: 'sawtooth',
+    });
+    window.setTimeout(() => {
+      this.#tone({
+        frequency: 66,
+        frequencyEnd: 88,
+        duration: 0.12,
+        volume: 0.014,
+        type: 'square',
+      });
+    }, 90);
+  }
+
+  public playMonsterAttack(): void {
+    this.#tone({
+      frequency: 104,
+      frequencyEnd: 52,
+      duration: 0.1,
+      volume: 0.04,
+      type: 'square',
+    });
+  }
+
+  public playMonsterHurt(): void {
+    this.#tone({
+      frequency: 178,
+      frequencyEnd: 96,
+      duration: 0.1,
+      volume: 0.035,
+      type: 'sawtooth',
+    });
+  }
+
+  public playMonsterDeath(): void {
+    this.#tone({
+      frequency: 104,
+      frequencyEnd: 36,
+      duration: 0.2,
+      volume: 0.038,
       type: 'sawtooth',
     });
   }
