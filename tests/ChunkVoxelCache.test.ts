@@ -32,6 +32,37 @@ describe('ChunkVoxelCache', () => {
     expect([...calls.values()].every((count) => count === 1)).toBe(true);
   });
 
+  it('supports a one-block halo for geometry-only rebuilds', () => {
+    let calls = 0;
+    const cache = new ChunkVoxelCache(
+      3,
+      -2,
+      (_worldX, worldY) => {
+        calls += 1;
+        return worldY === 0 ? BlockType.Stone : BlockType.Air;
+      },
+      1,
+    );
+    const buildWidth = CHUNK_SIZE + 2;
+    const expectedCells = buildWidth * buildWidth * CHUNK_HEIGHT;
+
+    expect(cache.cachedCellCount).toBe(expectedCells);
+    expect(calls).toBe(expectedCells);
+
+    const minimumX = 3 * CHUNK_SIZE - 1;
+    const minimumZ = -2 * CHUNK_SIZE - 1;
+    for (let index = 0; index < 100; index += 1) {
+      expect(cache.sample(minimumX, 0, minimumZ)).toBe(BlockType.Stone);
+      expect(
+        cache.sample(minimumX + buildWidth - 1, 1, minimumZ + buildWidth - 1),
+      ).toBe(BlockType.Air);
+    }
+    expect(calls).toBe(expectedCells);
+
+    cache.sample(minimumX - 1, 0, minimumZ);
+    expect(calls).toBe(expectedCells + 1);
+  });
+
   it('falls back to the source only outside the cached horizontal margin', () => {
     let calls = 0;
     const cache = new ChunkVoxelCache(0, 0, () => {
@@ -49,5 +80,14 @@ describe('ChunkVoxelCache', () => {
     expect(cache.sample(0, -1, 0)).toBe(BlockType.Air);
     expect(cache.sample(0, CHUNK_HEIGHT, 0)).toBe(BlockType.Air);
     expect(calls).toBe(initialCalls + 1);
+  });
+
+  it('rejects invalid cache margins', () => {
+    expect(
+      () => new ChunkVoxelCache(0, 0, () => BlockType.Air, -1),
+    ).toThrow(RangeError);
+    expect(
+      () => new ChunkVoxelCache(0, 0, () => BlockType.Air, 1.5),
+    ).toThrow(RangeError);
   });
 });
