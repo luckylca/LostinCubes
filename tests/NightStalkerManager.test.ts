@@ -1,4 +1,9 @@
-import { NullEngine, Scene, StandardMaterial } from '@babylonjs/core';
+import {
+  NullEngine,
+  Scene,
+  StandardMaterial,
+  TransformNode,
+} from '@babylonjs/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { rayEntityAabbDistance } from '../src/entities/ClassicEntityManager';
 import { NightStalkerManager } from '../src/entities/NightStalkerManager';
@@ -141,10 +146,31 @@ describe('NightStalkerManager unified facade', () => {
     advance(manager, createPlayer(), 0.9, 1.7);
     scene.onBeforeRenderObservable.notifyObservers(scene);
 
-    expect(scene.meshes.some((mesh) => mesh.name.includes('skeleton-') && mesh.name.includes('-bow-upper'))).toBe(true);
-    expect(scene.meshes.some((mesh) => mesh.name.includes('skeleton-') && mesh.name.includes('-bow-string'))).toBe(true);
-    expect(scene.meshes.some((mesh) => mesh.name.includes('skeleton-') && mesh.name.includes('-held-arrow-shaft'))).toBe(true);
-    expect(scene.meshes.some((mesh) => mesh.name.includes('skeleton-') && mesh.name.includes('-mouth'))).toBe(true);
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') && mesh.name.includes('-bow-upper'),
+      ),
+    ).toBe(true);
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') && mesh.name.includes('-bow-string'),
+      ),
+    ).toBe(true);
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') &&
+          mesh.name.includes('-held-arrow-shaft'),
+      ),
+    ).toBe(true);
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') && mesh.name.includes('-mouth'),
+      ),
+    ).toBe(true);
     manager.dispose();
   });
 
@@ -216,10 +242,10 @@ describe('NightStalkerManager unified facade', () => {
 
     advance(manager, createPlayer(), 0.5, 1.6);
     const cowBody = scene.meshes.find((mesh) => mesh.name.startsWith('body-cow-'));
-    expect(cowBody?.parent).not.toBeNull();
-    const root = cowBody?.parent?.getAbsolutePosition();
-    expect(root).toBeDefined();
-    if (root !== undefined) {
+    const parent = cowBody?.parent;
+    expect(parent).toBeInstanceOf(TransformNode);
+    if (parent instanceof TransformNode) {
+      const root = parent.getAbsolutePosition();
       expect(manager.canPlayerOccupy({ x: root.x, y: root.y, z: root.z })).toBe(false);
       expect(manager.canPlayerOccupy({ x: root.x + 4, y: root.y, z: root.z })).toBe(true);
     }
