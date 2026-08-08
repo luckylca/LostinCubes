@@ -46,8 +46,6 @@
 .equipment-icon { width:1.55rem;height:1.55rem; }
 .equipment-help { margin:.55rem 0 0;color:#879487;font-size:.64rem;line-height:1.4; }
 
-/* Keep InventoryView's original crafting-book and recipe-list nodes in place.
-   The left column simply collapses their contents below the player preview. */
 .inventory-layout > .crafting-book {
   grid-column: 1;
   grid-row: 2;
@@ -87,11 +85,13 @@
 .crafting-book > .recipe-drawer-toggle[aria-expanded='true']::after {
   content: '－';
 }
-.crafting-book.is-collapsed > :not(.recipe-drawer-toggle) {
+.crafting-book > .recipe-drawer-content[hidden] {
   display: none !important;
 }
-.crafting-book:not(.is-collapsed) > .recipe-list {
+.crafting-book > .recipe-drawer-content {
   margin-top: .55rem;
+}
+.crafting-book > .recipe-drawer-content > .recipe-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -114,5 +114,5 @@
 }
 @media (max-width:560px) {
   .player-equipment-panel { grid-template-columns:1fr; }
-  .crafting-book:not(.is-collapsed) > .recipe-list { grid-template-columns:1fr; }
+  .crafting-book > .recipe-drawer-content > .recipe-list { grid-template-columns:1fr; }
 }
