@@ -68,7 +68,7 @@ export class NightStalkerManager {
   #combatCooldown = 0;
   #ambientElapsed = 0;
   #entityAccumulator = 0;
-  #lastObservedSceneMeshCount = 0;
+  #lastCreatureCount = 0;
 
   public constructor(
     scene: Scene,
@@ -94,7 +94,8 @@ export class NightStalkerManager {
         onBlockChanged: callbacks.onBlockChanged,
       },
     );
-    this.#lastObservedSceneMeshCount = scene.meshes.length;
+    this.#lastCreatureCount = this.#entities.hostileCount + this.#entities.passiveCount;
+    this.#syncCreatureRegistrationsIfNeeded(true);
   }
 
   public update(player: PlayerState, dayTime: number, stepSeconds: number): void {
@@ -117,7 +118,7 @@ export class NightStalkerManager {
     const entityStepSeconds = this.#entityAccumulator;
     this.#entityAccumulator = 0;
     this.#entities.update(player, dayTime, entityStepSeconds);
-    this.#refreshCreatureRegistrationsIfNeeded();
+    this.#syncCreatureRegistrationsIfNeeded();
   }
 
   public attack(player: PlayerState, heldItem: ItemType | null): PlayerAttackResult {
@@ -141,7 +142,7 @@ export class NightStalkerManager {
     playerRadius = 0.34,
     playerHalfHeight = 0.9,
   ): boolean {
-    this.#refreshCreatureRegistrationsIfNeeded();
+    this.#syncCreatureRegistrationsIfNeeded();
     for (const mesh of this.#collisionBodies) {
       if (mesh.isDisposed()) {
         this.#collisionBodies.delete(mesh);
@@ -198,15 +199,29 @@ export class NightStalkerManager {
     this.#collisionBodies.add(abstractMesh);
   }
 
-  #refreshCreatureRegistrationsIfNeeded(): void {
-    const currentMeshCount = this.#scene.meshes.length;
-    if (currentMeshCount === this.#lastObservedSceneMeshCount) return;
-    this.#lastObservedSceneMeshCount = currentMeshCount;
+  #syncCreatureRegistrationsIfNeeded(force = false): void {
+    let needsScan = force;
+    for (const mesh of this.#collisionBodies) {
+      if (!mesh.isDisposed()) continue;
+      this.#collisionBodies.delete(mesh);
+      needsScan = true;
+    }
+
+    const creatureCount = this.#entities.hostileCount + this.#entities.passiveCount;
+    if (creatureCount !== this.#lastCreatureCount) {
+      this.#lastCreatureCount = creatureCount;
+      needsScan = true;
+    }
+    if (!needsScan) return;
 
     for (const abstractMesh of this.#scene.meshes) {
       if (!(abstractMesh instanceof Mesh)) continue;
       if (!isSourceCreatureBody(abstractMesh)) continue;
+      if (this.#collisionBodies.has(abstractMesh)) continue;
       this.#collisionBodies.add(abstractMesh);
+      // Some NullEngine/test paths do not emit Babylon's mesh-added observable.
+      // Re-broadcast exactly once for the genuinely new creature body so the
+      // visual runtime can queue it without tying work to unrelated chunk meshes.
       this.#scene.onNewMeshAddedObservable.notifyObservers(abstractMesh);
     }
   }
