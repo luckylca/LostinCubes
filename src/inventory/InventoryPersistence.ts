@@ -14,8 +14,14 @@ function createInventoryKey(worldSeed: string): string {
   return `lost-in-cubes:inventory:${resolveRuntimeWorldId(worldSeed)}`;
 }
 
-function withExplicitTestLoadout(inventory: PlayerInventory): PlayerInventory {
-  applyExplicitTestLoadout(inventory, browserSearch());
+// This release is an explicitly requested playtest build. It intentionally
+// injects the Batch 3 test inventory even on the normal URL. Flip this back to
+// false on the next release unless that turn explicitly asks for testing.
+const CURRENT_PLAYTEST_LOADOUT_ENABLED = true;
+
+function withPlaytestLoadout(inventory: PlayerInventory): PlayerInventory {
+  const search = CURRENT_PLAYTEST_LOADOUT_ENABLED ? '?test=1' : browserSearch();
+  applyExplicitTestLoadout(inventory, search);
   return inventory;
 }
 
@@ -24,20 +30,20 @@ export function loadPlayerInventory(
   storage: InventoryStorage | null,
 ): PlayerInventory {
   if (storage === null) {
-    return withExplicitTestLoadout(new PlayerInventory());
+    return withPlaytestLoadout(new PlayerInventory());
   }
 
   try {
     const serialized = storage.getItem(createInventoryKey(worldSeed));
     if (serialized === null) {
-      return withExplicitTestLoadout(new PlayerInventory());
+      return withPlaytestLoadout(new PlayerInventory());
     }
-    return withExplicitTestLoadout(
+    return withPlaytestLoadout(
       new PlayerInventory(JSON.parse(serialized) as unknown),
     );
   } catch (error: unknown) {
     console.warn('Inventory save could not be restored; using defaults.', error);
-    return withExplicitTestLoadout(new PlayerInventory());
+    return withPlaytestLoadout(new PlayerInventory());
   }
 }
 
