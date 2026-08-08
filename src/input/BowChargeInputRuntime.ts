@@ -1,3 +1,4 @@
+import { queuePlayerBowCharge } from '../entities/BowBallisticsRuntime';
 import type { PlayerInputCommand } from '../game/commands/PlayerInputCommand';
 import { InputManager } from './InputManager';
 
@@ -85,6 +86,7 @@ export function installBowChargeInputRuntime(): void {
     renderCharge(0, false);
     if (seconds < MINIMUM_CHARGE_SECONDS) return command;
 
+    queuePlayerBowCharge(power);
     canvas.dataset.lastBowCharge = power.toFixed(4);
     return { ...command, breakBlock: true };
   };
