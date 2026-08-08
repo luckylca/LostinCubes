@@ -68,6 +68,14 @@ export function selectWorld(
       list.replaceChildren();
       const worlds = catalog.list();
       const activeId = catalog.getActiveId();
+      if (worlds.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'world-empty-state';
+        empty.textContent = '还没有世界。可以在下方创建一个新世界。';
+        list.append(empty);
+        return;
+      }
+
       for (const world of worlds) {
         const card = document.createElement('article');
         card.className = 'world-card';
@@ -99,9 +107,8 @@ export function selectWorld(
         });
         const remove = createButton('删除', 'world-danger');
         remove.dataset.action = 'delete';
-        remove.disabled = worlds.length <= 1;
         remove.addEventListener('click', () => {
-          if (!window.confirm(`确定永久删除「${world.name}」？`)) return;
+          if (!window.confirm(`确定永久删除「${world.name}」？此操作无法撤销。`)) return;
           remove.disabled = true;
           void options.deleteWorldData(world.id).finally(() => {
             catalog.delete(world.id);
