@@ -16,7 +16,6 @@ installBlockRegistryBlastAlias();
 const PLAYER_COMBAT_COOLDOWN_SECONDS = 0.5;
 const CREATURE_AMBIENT_INTERVAL_SECONDS = 4.2;
 const ENTITY_SIMULATION_STEP_SECONDS = 1 / 30;
-const MAXIMUM_ENTITY_STEPS_PER_FRAME = 2;
 const BODY_PATTERN = /^body-(?<kind>zombie|skeleton|spider|creeper|cow|pig|sheep)-/;
 const CREATURE_COLLISION: Readonly<Record<string, readonly [radius: number, halfHeight: number]>> = {
   zombie: [0.38, 0.9],
@@ -104,19 +103,18 @@ export class NightStalkerManager {
       this.#ambientElapsed = 0;
     }
 
-    this.#entityAccumulator = Math.min(
-      this.#entityAccumulator + stepSeconds,
-      ENTITY_SIMULATION_STEP_SECONDS * MAXIMUM_ENTITY_STEPS_PER_FRAME,
-    );
-    let steps = 0;
-    while (
-      this.#entityAccumulator >= ENTITY_SIMULATION_STEP_SECONDS &&
-      steps < MAXIMUM_ENTITY_STEPS_PER_FRAME
-    ) {
-      this.#entities.update(player, dayTime, ENTITY_SIMULATION_STEP_SECONDS);
-      this.#entityAccumulator -= ENTITY_SIMULATION_STEP_SECONDS;
-      steps += 1;
+    // Expensive creature AI/terrain/LOS work runs at most 30 times per second,
+    // but we never discard wall-clock time. At 60 FPS two 1/60 updates are
+    // accumulated into one ~1/30 simulation call. If the browser hitches or a
+    // test advances by 100 ms, ClassicEntityManager receives that full elapsed
+    // time in one call instead of doing several catch-up passes or losing it.
+    this.#entityAccumulator += stepSeconds;
+    if (this.#entityAccumulator + Number.EPSILON < ENTITY_SIMULATION_STEP_SECONDS) {
+      return;
     }
+    const entityStepSeconds = this.#entityAccumulator;
+    this.#entityAccumulator = 0;
+    this.#entities.update(player, dayTime, entityStepSeconds);
   }
 
   public attack(player: PlayerState, heldItem: ItemType | null): PlayerAttackResult {
