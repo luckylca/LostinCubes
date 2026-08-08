@@ -1,5 +1,6 @@
 import './style.css';
 import './inventory.css';
+import './item-icons.css';
 import './progression.css';
 import './batch3-items.css';
 import './survival.css';
