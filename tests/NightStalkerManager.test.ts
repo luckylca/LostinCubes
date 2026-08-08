@@ -136,7 +136,7 @@ describe('NightStalkerManager unified facade', () => {
       { x: 0, y: 1.6, z: 0 },
       { x: 0, y: 0, z: 1 },
       { x: -0.8, y: 0.5, z: 2 },
-      { x: 0.8, y: 1.2, z: 3 },
+      { x: 0.8, y: 1.8, z: 3 },
       3.25,
     );
     expect(distance).toBeCloseTo(2);
@@ -146,7 +146,7 @@ describe('NightStalkerManager unified facade', () => {
         { x: 0, y: 1.6, z: 0 },
         { x: 0, y: 0, z: 1 },
         { x: -0.8, y: 0.5, z: 4 },
-        { x: 0.8, y: 1.2, z: 5 },
+        { x: 0.8, y: 1.8, z: 5 },
         3.25,
       ),
     ).toBeNull();
