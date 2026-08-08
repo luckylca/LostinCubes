@@ -165,4 +165,55 @@ describe('HeldItemModel', () => {
     scene.dispose();
     engine.dispose();
   });
+
+  it('renders bow and arrow as separate recognizable held items', () => {
+    const { engine, scene, model } = createModel();
+    model.update(
+      createPlayer('first-person'),
+      1 / 60,
+      ItemType.Bow,
+      IDLE_ACTION,
+    );
+    expect(
+      scene.meshes.filter((mesh) => mesh.name === 'held-bow-grip'),
+    ).toHaveLength(2);
+    expect(
+      scene.meshes.filter((mesh) => mesh.name.startsWith('held-bow-string-')),
+    ).toHaveLength(4);
+
+    model.update(
+      createPlayer('first-person'),
+      1 / 60,
+      ItemType.Arrow,
+      IDLE_ACTION,
+    );
+    expect(
+      scene.meshes.filter((mesh) => mesh.name === 'held-bow-grip'),
+    ).toHaveLength(0);
+    expect(
+      scene.meshes.filter((mesh) => mesh.name === 'held-arrow-shaft'),
+    ).toHaveLength(2);
+    expect(
+      scene.meshes.filter((mesh) => mesh.name === 'held-arrow-tip'),
+    ).toHaveLength(2);
+    model.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('renders armor instead of silently dropping weapon-adjacent item kinds', () => {
+    const { engine, scene, model } = createModel();
+    model.update(
+      createPlayer('third-person'),
+      1 / 60,
+      ItemType.IronChestplate,
+      IDLE_ACTION,
+    );
+    expect(
+      scene.meshes.filter((mesh) => mesh.name === 'held-iron-chestplate-body'),
+    ).toHaveLength(2);
+    model.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
 });
