@@ -38,7 +38,8 @@ export class ChunkBuildCancelledError extends Error {
 function getDefaultWorkerCount(): number {
   const hardwareThreads =
     typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
-  return Math.min(2, Math.max(1, Math.floor(hardwareThreads / 2)));
+  if (hardwareThreads <= 2) return Math.max(1, hardwareThreads);
+  return Math.min(4, hardwareThreads - 1);
 }
 
 function createChunkWorker(): Worker {
