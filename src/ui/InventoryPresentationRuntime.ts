@@ -36,10 +36,9 @@ function syncEquipment(root: HTMLElement): void {
 }
 
 /**
- * Wires presentation-only behavior onto markup that already exists in index.html.
- * No InventoryView prototype patching and no DOM relocation are used here: the
- * inventory owns its recipe-list node for its whole lifetime, while this helper
- * only controls visibility and mirrors armor state for the player preview.
+ * The recipe drawer is a native <details> element. The browser owns normal
+ * open/close interaction; this runtime only forces it open while the furnace
+ * UI occupies the recipe area and mirrors armor state onto the player preview.
  */
 export function installInventoryPresentationRuntime(): void {
   if (installed) return;
@@ -48,32 +47,32 @@ export function installInventoryPresentationRuntime(): void {
   const root = document.querySelector<HTMLElement>('#inventory-screen');
   if (root === null) return;
 
-  const toggle = root.querySelector<HTMLButtonElement>('.recipe-drawer-toggle');
-  const content = root.querySelector<HTMLElement>('.recipe-drawer-content');
-  if (toggle === null || content === null) return;
+  const drawer = root.querySelector<HTMLDetailsElement>('.recipe-drawer');
+  if (drawer === null) return;
 
-  let recipeOpen = false;
+  let furnaceWasOpen = false;
+  let openBeforeFurnace = drawer.open;
 
-  const applyRecipeState = (): void => {
+  const syncDrawer = (): void => {
     const furnaceOpen = root.dataset.station === 'furnace';
-    toggle.hidden = furnaceOpen;
-    content.hidden = furnaceOpen ? false : !recipeOpen;
-    toggle.setAttribute('aria-expanded', String(furnaceOpen || recipeOpen));
+    if (furnaceOpen && !furnaceWasOpen) {
+      openBeforeFurnace = drawer.open;
+      drawer.open = true;
+    } else if (!furnaceOpen && furnaceWasOpen) {
+      drawer.open = openBeforeFurnace;
+    }
+    furnaceWasOpen = furnaceOpen;
+    drawer.classList.toggle('is-furnace', furnaceOpen);
   };
-
-  toggle.addEventListener('click', () => {
-    recipeOpen = !recipeOpen;
-    applyRecipeState();
-  });
 
   const sync = (): void => {
     syncEquipment(root);
-    applyRecipeState();
+    syncDrawer();
   };
 
   const storage = root.querySelector<HTMLElement>('[data-inventory-storage]');
   const hotbar = root.querySelector<HTMLElement>('[data-inventory-hotbar]');
-  const slotObserver = new MutationObserver(sync);
+  const slotObserver = new MutationObserver(syncEquipment.bind(null, root));
   if (storage !== null) slotObserver.observe(storage, { childList: true });
   if (hotbar !== null) slotObserver.observe(hotbar, { childList: true });
 
