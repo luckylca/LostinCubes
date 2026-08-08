@@ -198,12 +198,10 @@ function buildModel(
 /**
  * Deferred creature visual adapter.
  *
- * Babylon emits onNewMeshAdded while MeshBuilder is still constructing the
- * mesh, before ClassicEntityManager assigns body.parent. The previous adapter
- * returned at that point and never retried, leaving gameplay entities alive
- * while their presentation was missing. This runtime keeps such bodies in a
- * pending set until the entity TransformNode exists. The legacy body is hidden
- * only after the multipart model has been created successfully.
+ * Babylon can announce a mesh before ClassicEntityManager has assigned its
+ * entity TransformNode parent. Bodies are therefore discovered both through
+ * onNewMeshAdded and a cheap per-frame fallback scan. The legacy body stays
+ * visible until the multipart replacement was built successfully.
  */
 export class CreatureVisualRuntime {
   readonly #scene: Scene;
@@ -243,6 +241,8 @@ export class CreatureVisualRuntime {
   }
 
   #flushPending(): void {
+    for (const mesh of this.#scene.meshes) this.#queue(mesh);
+
     for (const body of [...this.#pending]) {
       if (body.isDisposed()) {
         this.#pending.delete(body);
