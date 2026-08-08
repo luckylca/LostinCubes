@@ -1,0 +1,52 @@
+#loading-screen.runtime-wait {
+  background: rgba(8, 12, 16, 0.58);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+#loading-screen.death-screen {
+  background: rgba(18, 8, 8, 0.82);
+  pointer-events: auto;
+}
+
+.runtime-loading-spinner {
+  width: 34px;
+  height: 34px;
+  margin: 18px auto 0;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  animation: runtime-loading-spin 0.75s linear infinite;
+}
+
+.runtime-loading-action {
+  margin: 22px auto 0;
+  min-width: 150px;
+  padding: 11px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  border-radius: 4px;
+  background: rgba(20, 20, 20, 0.9);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.runtime-loading-action:hover,
+.runtime-loading-action:focus-visible {
+  background: rgba(62, 62, 62, 0.96);
+  outline: 2px solid rgba(255, 255, 255, 0.68);
+  outline-offset: 2px;
+}
+
+@keyframes runtime-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runtime-loading-spinner {
+    animation-duration: 1.8s;
+  }
+}
