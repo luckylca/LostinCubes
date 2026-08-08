@@ -1,7 +1,6 @@
 import { Mesh, VertexData } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
 import type { ChunkBuildSuccess } from './ChunkBuildProtocol';
-import { buildChunkMeshData } from './ChunkMeshBuilder';
 import {
   ChunkBuildCancelledError,
   ChunkWorkerPool,
@@ -45,9 +44,10 @@ export interface VoxelWorldStats {
   readonly averageBuildMilliseconds: number;
 }
 
-const MAXIMUM_MESH_UPLOADS_PER_FRAME = 1;
-const RECENT_CHUNK_CACHE_LIMIT = 12;
-const IMMEDIATE_EDIT_LIGHT_LEVEL = 13;
+const MAXIMUM_MESH_UPLOADS_PER_FRAME = 2;
+const RECENT_CHUNK_CACHE_LIMIT = 24;
+const BLOCK_EDIT_PRIORITY = -10_000;
+const FORWARD_PREFETCH_MINIMUM_TRAVEL = 0.012;
 
 /** Streams a bounded, cancellable, direction-aware chunk window. */
 export class VoxelWorldRenderer {
@@ -138,11 +138,13 @@ export class VoxelWorldRenderer {
     const chunkX = worldToChunkCoordinate(worldX);
     const chunkZ = worldToChunkCoordinate(worldZ);
 
-    // Remove/add the edited voxel immediately with a cheap mesh-only rebuild.
-    // The accurate 0-15 sky/block light field is rebuilt asynchronously for
-    // the owning chunk and its neighbors, avoiding a visible main-thread stall.
-    this.#rebuildChunkImmediately(chunkX, chunkZ);
-    this.#invalidateLightingNeighborhood(chunkX, chunkZ, true);
+    // The edited chunk is the visual feedback the player is waiting for, so it
+    // goes to the front of the worker queue. Lighting in the eight neighboring
+    // chunks still refreshes, but remains ordinary background work. This keeps
+    // the final mining frame off the main thread without making the removed
+    // block wait behind unrelated terrain generation.
+    this.#invalidateChunk(chunkX, chunkZ, BLOCK_EDIT_PRIORITY);
+    this.#invalidateLightingNeighborhood(chunkX, chunkZ, false);
   }
 
   public invalidateLightEmitter(worldX: number, worldZ: number): void {
@@ -254,6 +256,36 @@ export class VoxelWorldRenderer {
         this.#desiredKeys.add(createChunkKey(chunkX, chunkZ));
       }
     }
+
+    // Prefetch one thin strip in the dominant travel direction instead of
+    // increasing the whole render radius. That gives walking players terrain
+    // ahead sooner without nearly doubling total chunk generation work.
+    const travelLength = Math.hypot(this.#travelX, this.#travelZ);
+    if (travelLength < FORWARD_PREFETCH_MINIMUM_TRAVEL) return;
+    if (Math.abs(this.#travelX) >= Math.abs(this.#travelZ)) {
+      const leadX = Math.sign(this.#travelX);
+      if (leadX === 0) return;
+      const chunkX = centerChunkX + leadX * (this.#renderRadius + 1);
+      for (
+        let chunkZ = centerChunkZ - this.#renderRadius;
+        chunkZ <= centerChunkZ + this.#renderRadius;
+        chunkZ += 1
+      ) {
+        this.#desiredKeys.add(createChunkKey(chunkX, chunkZ));
+      }
+      return;
+    }
+
+    const leadZ = Math.sign(this.#travelZ);
+    if (leadZ === 0) return;
+    const chunkZ = centerChunkZ + leadZ * (this.#renderRadius + 1);
+    for (
+      let chunkX = centerChunkX - this.#renderRadius;
+      chunkX <= centerChunkX + this.#renderRadius;
+      chunkX += 1
+    ) {
+      this.#desiredKeys.add(createChunkKey(chunkX, chunkZ));
+    }
   }
 
   #cancelUndesiredWork(): void {
@@ -332,46 +364,22 @@ export class VoxelWorldRenderer {
     }
   }
 
-  #rebuildChunkImmediately(chunkX: number, chunkZ: number): void {
-    const key = createChunkKey(chunkX, chunkZ);
-    this.#discardRecentChunk(key);
-    this.#workers.cancel(key);
-    this.#pendingRevisions.delete(key);
-    for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
-      if (this.#completed[index]?.key === key) this.#completed.splice(index, 1);
-    }
-
-    const revision = this.#getRevision(key) + 1;
-    this.#revisions.set(key, revision);
-    if (!this.#desiredKeys.has(key) || this.#disposed) return;
-
-    const startedAt = performance.now();
-    const sampleBlock = (sampleX: number, sampleY: number, sampleZ: number) =>
-      this.#world.sampleBlock(sampleX, sampleY, sampleZ);
-    const meshData = buildChunkMeshData(
-      chunkX,
-      chunkZ,
-      sampleBlock,
-      () => IMMEDIATE_EDIT_LIGHT_LEVEL,
-    );
-    this.#applyChunk(key, revision, {
-      type: 'chunk-built',
-      requestId: 0,
-      chunkX,
-      chunkZ,
-      meshData,
-      buildMilliseconds: performance.now() - startedAt,
-    });
-  }
-
-  #invalidateChunk(chunkX: number, chunkZ: number): void {
+  #invalidateChunk(
+    chunkX: number,
+    chunkZ: number,
+    priorityOverride?: number,
+  ): void {
     const key = createChunkKey(chunkX, chunkZ);
     this.#discardRecentChunk(key);
     this.#workers.cancel(key);
     this.#pendingRevisions.delete(key);
     this.#revisions.set(key, this.#getRevision(key) + 1);
     if (this.#desiredKeys.has(key)) {
-      this.#scheduleChunk(chunkX, chunkZ, this.#getPriority(chunkX, chunkZ));
+      this.#scheduleChunk(
+        chunkX,
+        chunkZ,
+        priorityOverride ?? this.#getPriority(chunkX, chunkZ),
+      );
     }
   }
 
