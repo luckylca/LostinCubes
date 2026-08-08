@@ -10,19 +10,27 @@ import {
   unregisterFurnaceLightRuntime,
 } from './FurnaceLightRuntime';
 import {
+  CHUNK_HEIGHT,
+  CHUNK_SECTION_COUNT,
+  CHUNK_SECTION_HEIGHT,
   CHUNK_SIZE,
   createChunkKey,
   worldToChunkCoordinate,
   worldToLocalCoordinate,
+  worldYToSectionIndex,
 } from './VoxelChunk';
 import { VoxelMaterialLibrary } from './VoxelMaterialLibrary';
 import type { VoxelWorldData } from './VoxelWorldData';
 
-interface RenderedChunk {
+interface RenderedSection {
   readonly mesh: Mesh;
-  readonly revision: number;
   readonly quadCount: number;
   readonly sourceFaceCount: number;
+}
+
+interface RenderedChunk {
+  readonly sections: ReadonlyMap<number, RenderedSection>;
+  readonly revision: number;
   readonly buildMilliseconds: number;
 }
 
@@ -37,6 +45,7 @@ interface EditChunkTarget {
   readonly chunkZ: number;
   readonly key: string;
   readonly revision: number;
+  readonly sectionIndices: readonly number[];
 }
 
 export interface VoxelWorldStats {
@@ -56,7 +65,7 @@ export interface VoxelWorldStats {
 
 const MAXIMUM_URGENT_MESH_UPLOADS_PER_FRAME = 2;
 const MAXIMUM_BACKGROUND_MESH_UPLOADS_PER_FRAME = 1;
-const RECENT_CHUNK_CACHE_LIMIT = 32;
+const RECENT_CHUNK_CACHE_LIMIT = 36;
 const BLOCK_EDIT_PRIORITY = -10_000;
 const CRITICAL_CHUNK_PRIORITY = -100_000;
 const BACKGROUND_RELIGHT_PRIORITY = 10_000;
@@ -65,11 +74,6 @@ const EDIT_RELIGHT_DEBOUNCE_MILLISECONDS = 220;
 const BUSY_RELIGHT_RETRY_MILLISECONDS = 120;
 const NEAR_FIELD_RADIUS = 1;
 
-/**
- * Returns only chunks whose geometry can change when one voxel changes. A
- * voxel can expose faces in its own chunk plus a cardinal neighbor when it is
- * exactly on an X/Z chunk boundary. Diagonal chunks never share a block face.
- */
 export function getBlockEditGeometryChunks(
   worldX: number,
   worldZ: number,
@@ -89,21 +93,45 @@ export function getBlockEditGeometryChunks(
   return chunks;
 }
 
-/** Returns the stable 3x3 chunk safety window around one chunk coordinate. */
+/** Sections whose geometry can change when a voxel at worldY changes. */
+export function getBlockEditSectionIndices(worldY: number): readonly number[] {
+  if (!Number.isInteger(worldY) || worldY < 0 || worldY >= CHUNK_HEIGHT) {
+    return [];
+  }
+  const sectionIndex = worldYToSectionIndex(worldY);
+  const localSectionY = worldY % CHUNK_SECTION_HEIGHT;
+  const sections = [sectionIndex];
+  if (localSectionY === 0 && sectionIndex > 0) sections.push(sectionIndex - 1);
+  if (
+    localSectionY === CHUNK_SECTION_HEIGHT - 1 &&
+    sectionIndex < CHUNK_SECTION_COUNT - 1
+  ) {
+    sections.push(sectionIndex + 1);
+  }
+  return sections.sort((a, b) => a - b);
+}
+
 export function getNearFieldChunkKeys(
   centerChunkX: number,
   centerChunkZ: number,
 ): readonly string[] {
   const keys: string[] = [];
-  for (let offsetZ = -NEAR_FIELD_RADIUS; offsetZ <= NEAR_FIELD_RADIUS; offsetZ += 1) {
-    for (let offsetX = -NEAR_FIELD_RADIUS; offsetX <= NEAR_FIELD_RADIUS; offsetX += 1) {
+  for (
+    let offsetZ = -NEAR_FIELD_RADIUS;
+    offsetZ <= NEAR_FIELD_RADIUS;
+    offsetZ += 1
+  ) {
+    for (
+      let offsetX = -NEAR_FIELD_RADIUS;
+      offsetX <= NEAR_FIELD_RADIUS;
+      offsetX += 1
+    ) {
       keys.push(createChunkKey(centerChunkX + offsetX, centerChunkZ + offsetZ));
     }
   }
   return keys;
 }
 
-/** Streams a bounded, cancellable, direction-aware chunk window. */
 export class VoxelWorldRenderer {
   readonly #scene: Scene;
   readonly #world: VoxelWorldData;
@@ -121,6 +149,7 @@ export class VoxelWorldRenderer {
   readonly #completed: CompletedChunk[] = [];
   readonly #afterUpdate = new Map<string, (() => void)[]>();
   readonly #deferredRelightKeys = new Set<string>();
+  readonly #editDirtySections = new Map<string, Set<number>>();
   #relightTimer: ReturnType<typeof setTimeout> | null = null;
   #centerChunkX: number | null = null;
   #centerChunkZ: number | null = null;
@@ -149,29 +178,45 @@ export class VoxelWorldRenderer {
   }
 
   public async initialize(playerX: number, playerZ: number): Promise<void> {
+    await this.prepareNearField(playerX, playerZ);
+  }
+
+  /**
+   * Re-centers streaming and resolves only after the destination 3×3 safety
+   * window has completed worker generation and GPU upload. Death/teleport flows
+   * can keep a loading overlay visible while awaiting this instead of moving the
+   * player first and stalling on an unloaded destination.
+   */
+  public async prepareNearField(playerX: number, playerZ: number): Promise<void> {
+    if (this.#disposed) return;
     const centerChunkX = worldToChunkCoordinate(Math.floor(playerX));
     const centerChunkZ = worldToChunkCoordinate(Math.floor(playerZ));
     this.#centerChunkX = centerChunkX;
     this.#centerChunkZ = centerChunkZ;
     this.#lastPlayerX = playerX;
     this.#lastPlayerZ = playerZ;
+    this.#travelX = 0;
+    this.#travelZ = 0;
     this.#updateDesiredKeys(centerChunkX, centerChunkZ);
+    this.#cancelUndesiredWork();
+    this.#unloadDistantChunks();
 
-    // The game is still behind its loading screen here, so spend that time on
-    // a real safety window rather than revealing the player after only the
-    // center chunk exists. All 3x3 near-field meshes are generated and uploaded
-    // before gameplay starts.
     const initialTargets = [...this.#criticalKeys]
       .map((key) => {
+        if (this.#chunks.has(key) || this.#restoreRecentChunk(key)) return null;
         const [chunkX, chunkZ] = this.#parseChunkKey(key);
+        this.#workers.cancel(key);
+        this.#pendingRevisions.delete(key);
         return {
           key,
           chunkX,
           chunkZ,
-          distance: Math.abs(chunkX - centerChunkX) + Math.abs(chunkZ - centerChunkZ),
+          distance:
+            Math.abs(chunkX - centerChunkX) + Math.abs(chunkZ - centerChunkZ),
           revision: this.#getRevision(key),
         };
       })
+      .filter((target): target is NonNullable<typeof target> => target !== null)
       .sort((left, right) => left.distance - right.distance);
 
     const responses = await Promise.all(
@@ -216,12 +261,6 @@ export class VoxelWorldRenderer {
     return this.getStats();
   }
 
-  /**
-   * Ensures the 3x3 safety window around a candidate player position is either
-   * already visible or promoted to the front of both worker and upload queues.
-   * Callers may use the boolean as a movement gate: false means "do not enter
-   * this position yet", never "walk into visual void and hope it catches up".
-   */
   public ensureNearFieldReady(worldX: number, worldZ: number): boolean {
     if (this.#disposed) return false;
     const centerChunkX = worldToChunkCoordinate(Math.floor(worldX));
@@ -240,9 +279,6 @@ export class VoxelWorldRenderer {
       this.#urgentKeys.add(key);
       const [chunkX, chunkZ] = this.#parseChunkKey(key);
       const revision = this.#getRevision(key);
-      // A background build may already be queued with low priority. Promote it
-      // once by replacing that job; subsequent physics probes see urgentKeys and
-      // leave the in-flight critical build alone.
       if (this.#pendingRevisions.get(key) === revision) {
         this.#workers.cancel(key);
         this.#pendingRevisions.delete(key);
@@ -264,13 +300,16 @@ export class VoxelWorldRenderer {
     }
     const centerChunkX = worldToChunkCoordinate(worldX);
     const centerChunkZ = worldToChunkCoordinate(worldZ);
+    const sectionIndices = getBlockEditSectionIndices(worldY);
     const targets = getBlockEditGeometryChunks(worldX, worldZ)
       .filter(([chunkX, chunkZ]) =>
         this.#desiredKeys.has(createChunkKey(chunkX, chunkZ)),
       )
-      .map(([chunkX, chunkZ]) => this.#prepareEditChunk(chunkX, chunkZ));
+      .map(([chunkX, chunkZ]) =>
+        this.#prepareEditChunk(chunkX, chunkZ, sectionIndices),
+      );
 
-    if (targets.length === 0) {
+    if (targets.length === 0 || sectionIndices.length === 0) {
       this.#queueLightingNeighborhood(centerChunkX, centerChunkZ, true);
       return;
     }
@@ -296,6 +335,7 @@ export class VoxelWorldRenderer {
           const response = responses[index];
           if (target !== undefined && response !== undefined) {
             this.#applyChunk(target.key, target.revision, response);
+            this.#editDirtySections.delete(target.key);
           }
         }
 
@@ -334,6 +374,7 @@ export class VoxelWorldRenderer {
       this.#relightTimer = null;
     }
     this.#deferredRelightKeys.clear();
+    this.#editDirtySections.clear();
     this.#disposeRecentChunks();
     for (const key of this.#desiredKeys) {
       const coordinates = this.#parseChunkKey(key);
@@ -346,8 +387,10 @@ export class VoxelWorldRenderer {
     let sourceFaces = 0;
     let totalBuildMilliseconds = 0;
     for (const chunk of this.#chunks.values()) {
-      visibleQuads += chunk.quadCount;
-      sourceFaces += chunk.sourceFaceCount;
+      for (const section of chunk.sections.values()) {
+        visibleQuads += section.quadCount;
+        sourceFaces += section.sourceFaceCount;
+      }
       totalBuildMilliseconds += chunk.buildMilliseconds;
     }
 
@@ -359,7 +402,8 @@ export class VoxelWorldRenderer {
         this.#editWorkers.queuedCount +
         this.#completed.length,
       criticalPendingChunks: this.#urgentKeys.size,
-      nearFieldReady: this.#criticalKeys.size > 0 &&
+      nearFieldReady:
+        this.#criticalKeys.size > 0 &&
         [...this.#criticalKeys].every((key) => this.#chunks.has(key)),
       cachedChunks: this.#recentChunks.size,
       cancelledBuilds:
@@ -384,15 +428,14 @@ export class VoxelWorldRenderer {
     unregisterFurnaceLightRuntime(this);
     this.#workers.dispose();
     this.#editWorkers.dispose();
-    for (const chunk of this.#chunks.values()) {
-      chunk.mesh.dispose(false, false);
-    }
+    for (const chunk of this.#chunks.values()) this.#disposeChunkMeshes(chunk);
     this.#chunks.clear();
     this.#disposeRecentChunks();
     this.#desiredKeys.clear();
     this.#criticalKeys.clear();
     this.#urgentKeys.clear();
     this.#pendingRevisions.clear();
+    this.#editDirtySections.clear();
     this.#completed.length = 0;
     this.#afterUpdate.clear();
     this.#materials.dispose();
@@ -435,10 +478,7 @@ export class VoxelWorldRenderer {
 
   #flushDeferredRelighting(): void {
     if (this.#disposed || this.#deferredRelightKeys.size === 0) return;
-    // Never let cosmetic/full-light correction compete with a missing movement
-    // safety chunk. Keep the temporary geometry lighting a little longer and
-    // spend all worker/upload capacity on making nearby terrain exist first.
-    if (this.#urgentKeys.size > 0) {
+    if (this.#urgentKeys.size > 0 || this.#editWorkers.queuedCount > 0) {
       this.#scheduleRelightFlush(BUSY_RELIGHT_RETRY_MILLISECONDS);
       return;
     }
@@ -527,6 +567,9 @@ export class VoxelWorldRenderer {
     for (const key of [...this.#urgentKeys]) {
       if (!this.#desiredKeys.has(key)) this.#urgentKeys.delete(key);
     }
+    for (const key of [...this.#editDirtySections.keys()]) {
+      if (!this.#desiredKeys.has(key)) this.#editDirtySections.delete(key);
+    }
     for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
       const completed = this.#completed[index];
       if (completed !== undefined && !this.#desiredKeys.has(completed.key)) {
@@ -538,7 +581,7 @@ export class VoxelWorldRenderer {
   #unloadDistantChunks(): void {
     for (const [key, chunk] of this.#chunks) {
       if (this.#desiredKeys.has(key)) continue;
-      chunk.mesh.setEnabled(false);
+      this.#setChunkEnabled(chunk, false);
       this.#chunks.delete(key);
       this.#afterUpdate.delete(key);
       this.#cacheRecentChunk(key, chunk);
@@ -547,7 +590,7 @@ export class VoxelWorldRenderer {
 
   #cacheRecentChunk(key: string, chunk: RenderedChunk): void {
     const previous = this.#recentChunks.get(key);
-    previous?.mesh.dispose(false, false);
+    if (previous !== undefined) this.#disposeChunkMeshes(previous);
     this.#recentChunks.delete(key);
     this.#recentChunks.set(key, chunk);
 
@@ -556,7 +599,7 @@ export class VoxelWorldRenderer {
       if (oldestKey === undefined) break;
       const oldest = this.#recentChunks.get(oldestKey);
       this.#recentChunks.delete(oldestKey);
-      oldest?.mesh.dispose(false, false);
+      if (oldest !== undefined) this.#disposeChunkMeshes(oldest);
     }
   }
 
@@ -565,19 +608,17 @@ export class VoxelWorldRenderer {
     if (cached === undefined) return false;
     this.#recentChunks.delete(key);
     if (cached.revision !== this.#getRevision(key)) {
-      cached.mesh.dispose(false, false);
+      this.#disposeChunkMeshes(cached);
       return false;
     }
-    cached.mesh.setEnabled(true);
+    this.#setChunkEnabled(cached, true);
     this.#chunks.set(key, cached);
     this.#urgentKeys.delete(key);
     return true;
   }
 
   #disposeRecentChunks(): void {
-    for (const chunk of this.#recentChunks.values()) {
-      chunk.mesh.dispose(false, false);
-    }
+    for (const chunk of this.#recentChunks.values()) this.#disposeChunkMeshes(chunk);
     this.#recentChunks.clear();
   }
 
@@ -600,15 +641,28 @@ export class VoxelWorldRenderer {
     }
   }
 
-  #prepareEditChunk(chunkX: number, chunkZ: number): EditChunkTarget {
+  #prepareEditChunk(
+    chunkX: number,
+    chunkZ: number,
+    sectionIndices: readonly number[],
+  ): EditChunkTarget {
     const key = createChunkKey(chunkX, chunkZ);
     this.#discardRecentChunk(key);
     this.#workers.cancel(key);
     this.#editWorkers.cancel(key);
     this.#pendingRevisions.delete(key);
+    const dirty = this.#editDirtySections.get(key) ?? new Set<number>();
+    for (const sectionIndex of sectionIndices) dirty.add(sectionIndex);
+    this.#editDirtySections.set(key, dirty);
     const revision = this.#getRevision(key) + 1;
     this.#revisions.set(key, revision);
-    return { chunkX, chunkZ, key, revision };
+    return {
+      chunkX,
+      chunkZ,
+      key,
+      revision,
+      sectionIndices: [...dirty].sort((a, b) => a - b),
+    };
   }
 
   #buildEditChunk(target: EditChunkTarget): Promise<ChunkBuildSuccess> {
@@ -622,6 +676,7 @@ export class VoxelWorldRenderer {
           target.chunkZ,
         ),
         mode: 'geometry-only',
+        sectionIndices: target.sectionIndices,
       },
       {
         jobKey: target.key,
@@ -640,6 +695,7 @@ export class VoxelWorldRenderer {
     this.#discardRecentChunk(key);
     this.#workers.cancel(key);
     this.#editWorkers.cancel(key);
+    this.#editDirtySections.delete(key);
     this.#pendingRevisions.delete(key);
     this.#revisions.set(key, this.#getRevision(key) + 1);
     if (this.#desiredKeys.has(key)) {
@@ -655,7 +711,7 @@ export class VoxelWorldRenderer {
     const recent = this.#recentChunks.get(key);
     if (recent === undefined) return;
     this.#recentChunks.delete(key);
-    recent.mesh.dispose(false, false);
+    this.#disposeChunkMeshes(recent);
   }
 
   #scheduleChunk(chunkX: number, chunkZ: number, priority: number): void {
@@ -746,40 +802,57 @@ export class VoxelWorldRenderer {
 
     this.#discardRecentChunk(key);
     const previous = this.#chunks.get(key);
-    const mesh = previous?.mesh ?? new Mesh(`voxel-chunk-${key}`, this.#scene);
-    if (previous === undefined) {
-      mesh.position.set(
-        response.chunkX * CHUNK_SIZE,
-        0,
-        response.chunkZ * CHUNK_SIZE,
+    const sections = new Map(previous?.sections ?? []);
+
+    for (const payload of response.sections) {
+      const previousSection = sections.get(payload.sectionIndex);
+      const mesh =
+        previousSection?.mesh ??
+        new Mesh(
+          `voxel-chunk-${key}-section-${String(payload.sectionIndex)}`,
+          this.#scene,
+        );
+      if (previousSection === undefined) {
+        mesh.position.set(
+          response.chunkX * CHUNK_SIZE,
+          0,
+          response.chunkZ * CHUNK_SIZE,
+        );
+        mesh.useVertexColors = true;
+        mesh.isPickable = true;
+        mesh.metadata = {
+          cameraBlocker: true,
+          chunkKey: key,
+          sectionIndex: payload.sectionIndex,
+        };
+      } else {
+        mesh.unfreezeNormals();
+      }
+
+      const vertexData = new VertexData();
+      vertexData.positions = payload.meshData.positions;
+      vertexData.normals = payload.meshData.normals;
+      vertexData.indices = payload.meshData.indices;
+      vertexData.colors = payload.meshData.colors;
+      vertexData.uvs = payload.meshData.uvs;
+      vertexData.applyToMesh(mesh, true);
+      this.#materials.applyToMesh(
+        mesh,
+        payload.meshData.materialRanges,
+        payload.meshData.positions.length / 3,
       );
-      mesh.useVertexColors = true;
-      mesh.isPickable = true;
-      mesh.metadata = { cameraBlocker: true, chunkKey: key };
-    } else {
-      mesh.unfreezeNormals();
+      mesh.freezeWorldMatrix();
+      mesh.freezeNormals();
+      sections.set(payload.sectionIndex, {
+        mesh,
+        quadCount: payload.meshData.quadCount,
+        sourceFaceCount: payload.meshData.sourceFaceCount,
+      });
     }
 
-    const vertexData = new VertexData();
-    vertexData.positions = response.meshData.positions;
-    vertexData.normals = response.meshData.normals;
-    vertexData.indices = response.meshData.indices;
-    vertexData.colors = response.meshData.colors;
-    vertexData.uvs = response.meshData.uvs;
-    vertexData.applyToMesh(mesh, true);
-    this.#materials.applyToMesh(
-      mesh,
-      response.meshData.materialRanges,
-      response.meshData.positions.length / 3,
-    );
-    mesh.freezeWorldMatrix();
-    mesh.freezeNormals();
-
     this.#chunks.set(key, {
-      mesh,
+      sections,
       revision,
-      quadCount: response.meshData.quadCount,
-      sourceFaceCount: response.meshData.sourceFaceCount,
       buildMilliseconds: response.buildMilliseconds,
     });
     this.#urgentKeys.delete(key);
@@ -789,6 +862,14 @@ export class VoxelWorldRenderer {
       this.#afterUpdate.delete(key);
       for (const callback of callbacks) callback();
     }
+  }
+
+  #setChunkEnabled(chunk: RenderedChunk, enabled: boolean): void {
+    for (const section of chunk.sections.values()) section.mesh.setEnabled(enabled);
+  }
+
+  #disposeChunkMeshes(chunk: RenderedChunk): void {
+    for (const section of chunk.sections.values()) section.mesh.dispose(false, false);
   }
 
   #getPriority(chunkX: number, chunkZ: number): number {
