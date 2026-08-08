@@ -13,8 +13,10 @@ import { bootstrap } from './app/bootstrap';
 import { initializeBuildBadge } from './buildInfo';
 import { installForwardChunkPrefetchRuntime } from './world/ForwardChunkPrefetchRuntime';
 import { installSmoothBlockEditRuntime } from './world/SmoothBlockEditRuntime';
+import { installTerrainVarietyRuntime } from './world/TerrainVarietyRuntime';
 
 installSmoothBlockEditRuntime();
+installTerrainVarietyRuntime();
 installForwardChunkPrefetchRuntime();
 initializeBuildBadge();
 void bootstrap();
