@@ -50,4 +50,34 @@ describe('executeChunkBuild', () => {
       baseline.meshData.positions,
     );
   });
+
+  it('keeps fast edit geometry identical to a full-light build', () => {
+    const request = {
+      type: 'build-chunk' as const,
+      worldSeed: 'worker-fast-edit-test',
+      chunkX: 0,
+      chunkZ: 0,
+      modifications: [
+        [15, 10, 4, BlockType.Air],
+        [16, 10, 4, BlockType.Stone],
+      ] as const,
+    };
+    const full = executeChunkBuild({
+      ...request,
+      requestId: 10,
+      mode: 'full',
+    });
+    const fast = executeChunkBuild({
+      ...request,
+      requestId: 11,
+      mode: 'geometry-only',
+    });
+
+    expect(fast.meshData.positions).toEqual(full.meshData.positions);
+    expect(fast.meshData.normals).toEqual(full.meshData.normals);
+    expect(fast.meshData.indices).toEqual(full.meshData.indices);
+    expect(fast.meshData.uvs).toEqual(full.meshData.uvs);
+    expect(fast.meshData.quadCount).toBe(full.meshData.quadCount);
+    expect(fast.meshData.sourceFaceCount).toBe(full.meshData.sourceFaceCount);
+  });
 });
