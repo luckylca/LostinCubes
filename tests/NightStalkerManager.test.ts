@@ -1,5 +1,6 @@
 import { NullEngine, Scene, StandardMaterial } from '@babylonjs/core';
 import { afterEach, describe, expect, it } from 'vitest';
+import { rayEntityAabbDistance } from '../src/entities/ClassicEntityManager';
 import { NightStalkerManager } from '../src/entities/NightStalkerManager';
 import type { PlayerState } from '../src/game/session/GameSession';
 import { ItemType } from '../src/inventory/ItemDefinitions';
@@ -41,7 +42,7 @@ function advance(
     manager.update(
       player,
       dayTime,
-      Math.min(0.1, seconds - index * 0.1),
+      Math.min(0.1, Math.max(seconds - index * 0.1, 0.001)),
     );
   }
 }
@@ -111,6 +112,46 @@ describe('NightStalkerManager unified facade', () => {
     manager.dispose();
   });
 
+  it('places the low spider root near the ground instead of player foot height', () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const manager = new NightStalkerManager(scene, createFlatWorld(), {
+      onPlayerDamage: () => undefined,
+      onDrop: () => undefined,
+    });
+
+    advance(manager, createPlayer(), 0.9, 2.5);
+    const spiderRoot = scene.transformNodes.find((node) =>
+      node.name.startsWith('entity-spider-'),
+    );
+    expect(spiderRoot).toBeDefined();
+    expect(spiderRoot?.position.y).toBeLessThan(0.9);
+    expect(spiderRoot?.position.y).toBeGreaterThan(0.55);
+    manager.dispose();
+  });
+
+  it('uses full entity boxes for melee ray hits instead of one center point', () => {
+    const distance = rayEntityAabbDistance(
+      { x: 0, y: 1.6, z: 0 },
+      { x: 0, y: 0, z: 1 },
+      { x: -0.8, y: 0.5, z: 2 },
+      { x: 0.8, y: 1.2, z: 3 },
+      3.25,
+    );
+    expect(distance).toBeCloseTo(2);
+
+    expect(
+      rayEntityAabbDistance(
+        { x: 0, y: 1.6, z: 0 },
+        { x: 0, y: 0, z: 1 },
+        { x: -0.8, y: 0.5, z: 4 },
+        { x: 0.8, y: 1.2, z: 5 },
+        3.25,
+      ),
+    ).toBeNull();
+  });
+
   it('uses the same registry for arrows and primed TNT', () => {
     const engine = new NullEngine();
     engines.push(engine);
@@ -124,6 +165,25 @@ describe('NightStalkerManager unified facade', () => {
     expect(manager.shootArrow(player, ItemType.Bow)).toBe(true);
     expect(manager.primeTnt(2, 1.4, 2)).toBe(true);
     expect(manager.activeCount).toBe(2);
+    manager.dispose();
+  });
+
+  it('creates a visible shockwave and debris when TNT detonates', () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const manager = new NightStalkerManager(scene, createFlatWorld(), {
+      onPlayerDamage: () => undefined,
+      onDrop: () => undefined,
+    });
+    expect(manager.primeTnt(2, 1.4, 2)).toBe(true);
+
+    advance(manager, createPlayer(), 0.5, 4.1);
+
+    expect(scene.meshes.some((mesh) => mesh.name.startsWith('explosion-wave-'))).toBe(true);
+    expect(
+      scene.meshes.filter((mesh) => mesh.name.startsWith('explosion-particle-')).length,
+    ).toBeGreaterThanOrEqual(18);
     manager.dispose();
   });
 
