@@ -1,3 +1,4 @@
+import { TransformNode } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
 import type { PlayerState, VectorState } from '../game/session/GameSession';
 import type { ItemType } from '../inventory/ItemDefinitions';
@@ -51,11 +52,6 @@ function browserStorage(): Storage | null {
   }
 }
 
-/**
- * Compatibility facade kept so GameApp does not need a risky wholesale rewrite.
- * It also owns player-facing combat cadence and physical creature occupancy;
- * identity/AI/projectiles remain in ClassicEntityManager.
- */
 export class NightStalkerManager {
   readonly #scene: Scene;
   readonly #entities: ClassicEntityManager;
@@ -110,8 +106,6 @@ export class NightStalkerManager {
       return { hit: false, killed: false, damage: 0 };
     }
     const result = this.#entities.attack(player, heldItem);
-    // A click that actually intersects an entity consumes the combat interval.
-    // Empty swings remain responsive and do not lock out the next real target.
     if (result.hit) this.#combatCooldown = PLAYER_COMBAT_COOLDOWN_SECONDS;
     return result;
   }
@@ -123,10 +117,6 @@ export class NightStalkerManager {
     return fired;
   }
 
-  /**
-   * Dynamic cylinder-style player collision against living creature roots.
-   * Visual parts stay non-pickable; physics uses the stable hidden body roots.
-   */
   public canPlayerOccupy(
     position: PlayerVector,
     playerRadius = 0.34,
@@ -135,10 +125,17 @@ export class NightStalkerManager {
     for (const mesh of this.#scene.meshes) {
       const match = BODY_PATTERN.exec(mesh.name);
       const kind = match?.groups?.kind;
-      if (kind === undefined || mesh.parent === null || mesh.isDisposed()) continue;
+      const parent = mesh.parent;
+      if (
+        kind === undefined ||
+        !(parent instanceof TransformNode) ||
+        mesh.isDisposed()
+      ) {
+        continue;
+      }
       const collision = CREATURE_COLLISION[kind];
       if (collision === undefined) continue;
-      const root = mesh.parent.getAbsolutePosition();
+      const root = parent.getAbsolutePosition();
       const horizontalDistance = Math.hypot(
         position.x - root.x,
         position.z - root.z,
