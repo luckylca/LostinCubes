@@ -16,20 +16,12 @@ const MINIMUM_FRAME_TRAVEL = 0.003;
 const MINIMUM_PREFETCH_SHIFT = 2.2;
 let installed = false;
 
-/**
- * Continuously promotes the 3x3 near-field in front of a moving player.
- *
- * VoxelWorldRenderer already has a low-priority forward row, but that row is
- * recomputed mainly when the center chunk changes. This runtime makes the
- * safety near-field proactive: while the player is still well inside the
- * current chunk we use recent world-space travel to request the next area at
- * critical worker priority. By the time the movement gate reaches it, the mesh
- * is normally already CPU-built and GPU-uploaded.
- */
 export function installForwardChunkPrefetchRuntime(): void {
   if (installed) return;
   installed = true;
 
+  // The wrapper deliberately forwards the VoxelWorldRenderer receiver.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
   const originalUpdate = VoxelWorldRenderer.prototype.update;
   VoxelWorldRenderer.prototype.update = function prefetchingUpdate(
     playerX: number,
