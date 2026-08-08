@@ -134,6 +134,44 @@ describe('ChunkWorkerPool', () => {
     await Promise.all([background, urgent]);
   });
 
+  it('keeps a geometry worker alive and retains only the latest repeated edit', async () => {
+    ControlledWorker.instances = [];
+    const pool = new ChunkWorkerPool(
+      1,
+      () => new ControlledWorker() as unknown as Worker,
+    );
+    const geometryInput = {
+      ...BUILD_INPUT,
+      mode: 'geometry-only' as const,
+    };
+    const first = pool
+      .buildChunk(geometryInput, { jobKey: 'edited', priority: -10_000 })
+      .catch((error: unknown) => error);
+    const worker = ControlledWorker.instances[0];
+
+    // VoxelWorldRenderer calls cancel before rescheduling an edited chunk. A
+    // running geometry job must survive that call so its worker-local terrain
+    // cache is not destroyed.
+    expect(pool.cancel('edited')).toBe(0);
+    expect(worker?.terminated).toBe(false);
+
+    const superseded = pool
+      .buildChunk(geometryInput, { jobKey: 'edited', priority: -10_000 })
+      .catch((error: unknown) => error);
+    const latest = pool
+      .buildChunk(geometryInput, { jobKey: 'edited', priority: -10_000 })
+      .catch((error: unknown) => error);
+
+    expect(await superseded).toBeInstanceOf(ChunkBuildCancelledError);
+    expect(ControlledWorker.instances).toHaveLength(1);
+    expect(worker?.terminated).toBe(false);
+    expect(worker?.posted).toHaveLength(1);
+    expect(pool.queuedCount).toBe(2);
+
+    pool.dispose();
+    await Promise.all([first, latest]);
+  });
+
   it('continues synchronously when a runtime worker error occurs', async () => {
     const pool = new ChunkWorkerPool(
       1,
