@@ -162,13 +162,12 @@
               <p class="equipment-help">当前护甲会映射到对应装备位并显示在人物身上。</p>
             </section>
 
-            <section class="crafting-book recipe-drawer" aria-label="合成区域与配方书">
-              <h3 hidden>真实合成与配方书</h3>
-              <button type="button" class="recipe-drawer-toggle" aria-expanded="false">配方书</button>
-              <div class="recipe-drawer-content" hidden>
+            <details class="crafting-book recipe-drawer" aria-label="合成区域与配方书">
+              <summary class="recipe-drawer-toggle">配方书</summary>
+              <div class="recipe-drawer-content">
                 <div class="recipe-list" data-crafting-recipes></div>
               </div>
-            </section>
+            </details>
 
             <section class="inventory-content" aria-label="玩家物品">
               <h3>储物栏</h3>
