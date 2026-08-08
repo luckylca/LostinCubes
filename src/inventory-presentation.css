@@ -43,9 +43,13 @@
 .equipment-slot-label { font-size:.66rem; }
 .equipment-icon { width:1.55rem;height:1.55rem; }
 .equipment-help { margin:.55rem 0 0;color:#879487;font-size:.64rem;line-height:1.4; }
-.recipe-drawer { margin:0 1.2rem 1.2rem;border:1px solid rgb(225 255 231 / 12%);border-radius:.55rem;background:rgb(7 16 10 / 54%); }
-.recipe-drawer > summary { padding:.72rem .85rem;color:#dcecdf;cursor:pointer;font-size:.78rem;font-weight:700;letter-spacing:.06em; }
-.recipe-drawer .crafting-book { padding:0 .85rem .85rem; }
+.recipe-drawer { margin:0 1.2rem 1.2rem;border:1px solid rgb(225 255 231 / 12%);border-radius:.55rem;background:rgb(7 16 10 / 54%);overflow:hidden; }
+.recipe-drawer-toggle { display:block;width:100%;padding:.72rem .85rem;border:0;color:#dcecdf;background:transparent;text-align:left;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;letter-spacing:.06em; }
+.recipe-drawer-toggle::after { content:'＋';float:right;color:#9fbaa3; }
+.recipe-drawer-toggle[aria-expanded='true']::after { content:'－'; }
+.recipe-drawer-content[hidden] { display:none; }
+.recipe-drawer-content { padding:0 .85rem .85rem; }
+.recipe-drawer .crafting-book { padding:0; }
 .recipe-drawer .crafting-book > h3 { display:none; }
 .recipe-drawer .recipe-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
 
