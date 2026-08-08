@@ -47,6 +47,11 @@ export async function bootstrap(): Promise<void> {
     }
 
     const loadingScreen = requireElement('#loading-screen');
+    const loadingSpinner = requireElement('#loading-spinner');
+    const loadingActionElement = requireElement('#loading-action');
+    if (!(loadingActionElement instanceof HTMLButtonElement)) {
+      throw new Error('Required loading action has the wrong type: #loading-action');
+    }
     const gameHud = requireElement('#game-hud');
     const storage = browserStorage();
     const catalog = new WorldCatalog(storage);
@@ -56,6 +61,9 @@ export async function bootstrap(): Promise<void> {
     });
     setActiveRuntimeWorld(selectedWorld);
     loadingScreen.classList.remove('is-hidden');
+    loadingScreen.classList.remove('runtime-wait', 'death-screen');
+    loadingSpinner.hidden = false;
+    loadingActionElement.hidden = true;
     document.documentElement.dataset.gameState = 'loading';
 
     const ui: GameUiElements = {
@@ -66,6 +74,10 @@ export async function bootstrap(): Promise<void> {
       hotbar: requireElement('#hotbar'),
       targetReticle: requireElement('#target-reticle'),
       inventoryRoot: requireElement('#inventory-screen'),
+      loadingScreen,
+      loadingMessage,
+      loadingSpinner,
+      loadingAction: loadingActionElement,
     };
 
     app = new GameApp(canvasElement, ui);
