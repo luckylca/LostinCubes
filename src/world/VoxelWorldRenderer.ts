@@ -43,6 +43,8 @@ export interface VoxelWorldStats {
   readonly loadedChunks: number;
   readonly desiredChunks: number;
   readonly pendingChunks: number;
+  readonly criticalPendingChunks: number;
+  readonly nearFieldReady: boolean;
   readonly cachedChunks: number;
   readonly cancelledBuilds: number;
   readonly visibleQuads: number;
@@ -52,11 +54,16 @@ export interface VoxelWorldStats {
   readonly averageBuildMilliseconds: number;
 }
 
-const MAXIMUM_MESH_UPLOADS_PER_FRAME = 2;
-const RECENT_CHUNK_CACHE_LIMIT = 24;
+const MAXIMUM_URGENT_MESH_UPLOADS_PER_FRAME = 2;
+const MAXIMUM_BACKGROUND_MESH_UPLOADS_PER_FRAME = 1;
+const RECENT_CHUNK_CACHE_LIMIT = 32;
 const BLOCK_EDIT_PRIORITY = -10_000;
+const CRITICAL_CHUNK_PRIORITY = -100_000;
+const BACKGROUND_RELIGHT_PRIORITY = 10_000;
 const FORWARD_PREFETCH_MINIMUM_TRAVEL = 0.012;
 const EDIT_RELIGHT_DEBOUNCE_MILLISECONDS = 220;
+const BUSY_RELIGHT_RETRY_MILLISECONDS = 120;
+const NEAR_FIELD_RADIUS = 1;
 
 /**
  * Returns only chunks whose geometry can change when one voxel changes. A
@@ -82,6 +89,20 @@ export function getBlockEditGeometryChunks(
   return chunks;
 }
 
+/** Returns the stable 3x3 chunk safety window around one chunk coordinate. */
+export function getNearFieldChunkKeys(
+  centerChunkX: number,
+  centerChunkZ: number,
+): readonly string[] {
+  const keys: string[] = [];
+  for (let offsetZ = -NEAR_FIELD_RADIUS; offsetZ <= NEAR_FIELD_RADIUS; offsetZ += 1) {
+    for (let offsetX = -NEAR_FIELD_RADIUS; offsetX <= NEAR_FIELD_RADIUS; offsetX += 1) {
+      keys.push(createChunkKey(centerChunkX + offsetX, centerChunkZ + offsetZ));
+    }
+  }
+  return keys;
+}
+
 /** Streams a bounded, cancellable, direction-aware chunk window. */
 export class VoxelWorldRenderer {
   readonly #scene: Scene;
@@ -93,6 +114,8 @@ export class VoxelWorldRenderer {
   readonly #chunks = new Map<string, RenderedChunk>();
   readonly #recentChunks = new Map<string, RenderedChunk>();
   readonly #desiredKeys = new Set<string>();
+  readonly #criticalKeys = new Set<string>();
+  readonly #urgentKeys = new Set<string>();
   readonly #revisions = new Map<string, number>();
   readonly #pendingRevisions = new Map<string, number>();
   readonly #completed: CompletedChunk[] = [];
@@ -112,8 +135,10 @@ export class VoxelWorldRenderer {
     world: VoxelWorldData,
     renderRadius = 2,
   ) {
-    if (!Number.isInteger(renderRadius) || renderRadius < 0) {
-      throw new RangeError('renderRadius must be a non-negative integer.');
+    if (!Number.isInteger(renderRadius) || renderRadius < NEAR_FIELD_RADIUS) {
+      throw new RangeError(
+        `renderRadius must be an integer >= ${String(NEAR_FIELD_RADIUS)}.`,
+      );
     }
 
     this.#scene = scene;
@@ -132,18 +157,42 @@ export class VoxelWorldRenderer {
     this.#lastPlayerZ = playerZ;
     this.#updateDesiredKeys(centerChunkX, centerChunkZ);
 
-    const centerKey = createChunkKey(centerChunkX, centerChunkZ);
-    const revision = this.#getRevision(centerKey);
-    const response = await this.#buildChunk(
-      centerChunkX,
-      centerChunkZ,
-      centerKey,
-      0,
+    // The game is still behind its loading screen here, so spend that time on
+    // a real safety window rather than revealing the player after only the
+    // center chunk exists. All 3x3 near-field meshes are generated and uploaded
+    // before gameplay starts.
+    const initialTargets = [...this.#criticalKeys]
+      .map((key) => {
+        const [chunkX, chunkZ] = this.#parseChunkKey(key);
+        return {
+          key,
+          chunkX,
+          chunkZ,
+          distance: Math.abs(chunkX - centerChunkX) + Math.abs(chunkZ - centerChunkZ),
+          revision: this.#getRevision(key),
+        };
+      })
+      .sort((left, right) => left.distance - right.distance);
+
+    const responses = await Promise.all(
+      initialTargets.map((target) =>
+        this.#buildChunk(
+          target.chunkX,
+          target.chunkZ,
+          target.key,
+          CRITICAL_CHUNK_PRIORITY + target.distance,
+        ),
+      ),
     );
-    if (!this.#disposed) {
-      this.#applyChunk(centerKey, revision, response);
-      this.#scheduleMissingChunks();
+    if (this.#disposed) return;
+    for (let index = 0; index < initialTargets.length; index += 1) {
+      const target = initialTargets[index];
+      const response = responses[index];
+      if (target !== undefined && response !== undefined) {
+        this.#applyChunk(target.key, target.revision, response);
+      }
     }
+    this.#scheduleMissingChunks();
   }
 
   public update(playerX: number, playerZ: number): VoxelWorldStats {
@@ -167,6 +216,48 @@ export class VoxelWorldRenderer {
     return this.getStats();
   }
 
+  /**
+   * Ensures the 3x3 safety window around a candidate player position is either
+   * already visible or promoted to the front of both worker and upload queues.
+   * Callers may use the boolean as a movement gate: false means "do not enter
+   * this position yet", never "walk into visual void and hope it catches up".
+   */
+  public ensureNearFieldReady(worldX: number, worldZ: number): boolean {
+    if (this.#disposed) return false;
+    const centerChunkX = worldToChunkCoordinate(Math.floor(worldX));
+    const centerChunkZ = worldToChunkCoordinate(Math.floor(worldZ));
+    let ready = true;
+
+    for (const key of getNearFieldChunkKeys(centerChunkX, centerChunkZ)) {
+      this.#desiredKeys.add(key);
+      if (this.#chunks.has(key) || this.#restoreRecentChunk(key)) {
+        this.#urgentKeys.delete(key);
+        continue;
+      }
+      ready = false;
+      if (this.#urgentKeys.has(key)) continue;
+
+      this.#urgentKeys.add(key);
+      const [chunkX, chunkZ] = this.#parseChunkKey(key);
+      const revision = this.#getRevision(key);
+      // A background build may already be queued with low priority. Promote it
+      // once by replacing that job; subsequent physics probes see urgentKeys and
+      // leave the in-flight critical build alone.
+      if (this.#pendingRevisions.get(key) === revision) {
+        this.#workers.cancel(key);
+        this.#pendingRevisions.delete(key);
+      }
+      const distance =
+        Math.abs(chunkX - centerChunkX) + Math.abs(chunkZ - centerChunkZ);
+      this.#scheduleChunk(
+        chunkX,
+        chunkZ,
+        CRITICAL_CHUNK_PRIORITY + distance,
+      );
+    }
+    return ready;
+  }
+
   public invalidateBlock(worldX: number, worldY: number, worldZ: number): void {
     if (!Number.isInteger(worldY)) {
       throw new RangeError('worldY must be an integer.');
@@ -184,10 +275,6 @@ export class VoxelWorldRenderer {
       return;
     }
 
-    // Fast edit geometry stays independent from full relighting. During rapid
-    // mining the same edit worker keeps its terrain cache and only current +
-    // latest geometry work survives. Full 3x3 lighting is coalesced after the
-    // player stops editing briefly instead of competing with every click.
     void Promise.all(targets.map((target) => this.#buildEditChunk(target)))
       .then((responses) => {
         if (this.#disposed) return;
@@ -204,8 +291,6 @@ export class VoxelWorldRenderer {
           }
         }
 
-        // Apply every boundary-sharing mesh in the same continuation so the
-        // browser cannot present a one-sided chunk seam between them.
         for (let index = 0; index < targets.length; index += 1) {
           const target = targets[index];
           const response = responses[index];
@@ -273,6 +358,9 @@ export class VoxelWorldRenderer {
         this.#workers.queuedCount +
         this.#editWorkers.queuedCount +
         this.#completed.length,
+      criticalPendingChunks: this.#urgentKeys.size,
+      nearFieldReady: this.#criticalKeys.size > 0 &&
+        [...this.#criticalKeys].every((key) => this.#chunks.has(key)),
       cachedChunks: this.#recentChunks.size,
       cancelledBuilds:
         this.#workers.cancelledCount + this.#editWorkers.cancelledCount,
@@ -302,6 +390,8 @@ export class VoxelWorldRenderer {
     this.#chunks.clear();
     this.#disposeRecentChunks();
     this.#desiredKeys.clear();
+    this.#criticalKeys.clear();
+    this.#urgentKeys.clear();
     this.#pendingRevisions.clear();
     this.#completed.length = 0;
     this.#afterUpdate.clear();
@@ -332,21 +422,37 @@ export class VoxelWorldRenderer {
         );
       }
     }
+    this.#scheduleRelightFlush(EDIT_RELIGHT_DEBOUNCE_MILLISECONDS);
+  }
 
+  #scheduleRelightFlush(delayMilliseconds: number): void {
     if (this.#relightTimer !== null) clearTimeout(this.#relightTimer);
     this.#relightTimer = setTimeout(() => {
       this.#relightTimer = null;
       this.#flushDeferredRelighting();
-    }, EDIT_RELIGHT_DEBOUNCE_MILLISECONDS);
+    }, delayMilliseconds);
   }
 
   #flushDeferredRelighting(): void {
     if (this.#disposed || this.#deferredRelightKeys.size === 0) return;
+    // Never let cosmetic/full-light correction compete with a missing movement
+    // safety chunk. Keep the temporary geometry lighting a little longer and
+    // spend all worker/upload capacity on making nearby terrain exist first.
+    if (this.#urgentKeys.size > 0) {
+      this.#scheduleRelightFlush(BUSY_RELIGHT_RETRY_MILLISECONDS);
+      return;
+    }
+
     const keys = [...this.#deferredRelightKeys];
     this.#deferredRelightKeys.clear();
     for (const key of keys) {
       const [chunkX, chunkZ] = this.#parseChunkKey(key);
-      this.#invalidateChunk(chunkX, chunkZ);
+      const distancePriority = Math.max(this.#getPriority(chunkX, chunkZ), 0);
+      this.#invalidateChunk(
+        chunkX,
+        chunkZ,
+        BACKGROUND_RELIGHT_PRIORITY + distancePriority,
+      );
     }
   }
 
@@ -365,6 +471,11 @@ export class VoxelWorldRenderer {
 
   #updateDesiredKeys(centerChunkX: number, centerChunkZ: number): void {
     this.#desiredKeys.clear();
+    this.#criticalKeys.clear();
+    for (const key of getNearFieldChunkKeys(centerChunkX, centerChunkZ)) {
+      this.#criticalKeys.add(key);
+    }
+
     for (
       let chunkZ = centerChunkZ - this.#renderRadius;
       chunkZ <= centerChunkZ + this.#renderRadius;
@@ -413,6 +524,9 @@ export class VoxelWorldRenderer {
     for (const key of this.#pendingRevisions.keys()) {
       if (!this.#desiredKeys.has(key)) this.#pendingRevisions.delete(key);
     }
+    for (const key of [...this.#urgentKeys]) {
+      if (!this.#desiredKeys.has(key)) this.#urgentKeys.delete(key);
+    }
     for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
       const completed = this.#completed[index];
       if (completed !== undefined && !this.#desiredKeys.has(completed.key)) {
@@ -456,6 +570,7 @@ export class VoxelWorldRenderer {
     }
     cached.mesh.setEnabled(true);
     this.#chunks.set(key, cached);
+    this.#urgentKeys.delete(key);
     return true;
   }
 
@@ -471,11 +586,12 @@ export class VoxelWorldRenderer {
     for (const key of this.#desiredKeys) {
       if (this.#chunks.has(key) || this.#restoreRecentChunk(key)) continue;
       const [chunkX, chunkZ] = this.#parseChunkKey(key);
-      coordinates.push([
-        chunkX,
-        chunkZ,
-        this.#getPriority(chunkX, chunkZ),
-      ]);
+      const priority = this.#criticalKeys.has(key)
+        ? CRITICAL_CHUNK_PRIORITY +
+          Math.abs(chunkX - (this.#centerChunkX ?? chunkX)) +
+          Math.abs(chunkZ - (this.#centerChunkZ ?? chunkZ))
+        : this.#getPriority(chunkX, chunkZ);
+      coordinates.push([chunkX, chunkZ, priority]);
     }
     coordinates.sort((left, right) => left[2] - right[2]);
 
@@ -488,8 +604,6 @@ export class VoxelWorldRenderer {
     const key = createChunkKey(chunkX, chunkZ);
     this.#discardRecentChunk(key);
     this.#workers.cancel(key);
-    // ChunkWorkerPool keeps an in-flight geometry-only job alive and cancels
-    // only an older queued edit. This preserves worker-local terrain caches.
     this.#editWorkers.cancel(key);
     this.#pendingRevisions.delete(key);
     const revision = this.#getRevision(key) + 1;
@@ -585,13 +699,27 @@ export class VoxelWorldRenderer {
   }
 
   #applyCompletedChunks(): void {
+    const hasUrgentCompletion = this.#completed.some((item) =>
+      this.#urgentKeys.has(item.key),
+    );
+    const uploadBudget = hasUrgentCompletion
+      ? MAXIMUM_URGENT_MESH_UPLOADS_PER_FRAME
+      : MAXIMUM_BACKGROUND_MESH_UPLOADS_PER_FRAME;
     let applied = 0;
-    while (
-      applied < MAXIMUM_MESH_UPLOADS_PER_FRAME &&
-      this.#completed.length > 0
-    ) {
-      const completed = this.#completed.shift();
+
+    while (applied < uploadBudget && this.#completed.length > 0) {
+      let index = this.#completed.findIndex((item) =>
+        this.#urgentKeys.has(item.key),
+      );
+      if (index < 0) {
+        index = this.#completed.findIndex((item) =>
+          this.#criticalKeys.has(item.key) && !this.#chunks.has(item.key),
+        );
+      }
+      if (index < 0) index = 0;
+      const [completed] = this.#completed.splice(index, 1);
       if (completed === undefined) break;
+
       if (this.#pendingRevisions.get(completed.key) === completed.revision) {
         this.#pendingRevisions.delete(completed.key);
       }
@@ -638,8 +766,6 @@ export class VoxelWorldRenderer {
     vertexData.indices = response.meshData.indices;
     vertexData.colors = response.meshData.colors;
     vertexData.uvs = response.meshData.uvs;
-    // Updatable buffers allow repeated edits to reuse the same Babylon mesh
-    // instead of allocating/discarding a complete GPU object for every block.
     vertexData.applyToMesh(mesh, true);
     this.#materials.applyToMesh(
       mesh,
@@ -656,6 +782,7 @@ export class VoxelWorldRenderer {
       sourceFaceCount: response.meshData.sourceFaceCount,
       buildMilliseconds: response.buildMilliseconds,
     });
+    this.#urgentKeys.delete(key);
 
     const callbacks = this.#afterUpdate.get(key);
     if (callbacks !== undefined) {
@@ -667,9 +794,13 @@ export class VoxelWorldRenderer {
   #getPriority(chunkX: number, chunkZ: number): number {
     const centerX = this.#centerChunkX ?? chunkX;
     const centerZ = this.#centerChunkZ ?? chunkZ;
+    const key = createChunkKey(chunkX, chunkZ);
     const deltaX = chunkX - centerX;
     const deltaZ = chunkZ - centerZ;
     const manhattan = Math.abs(deltaX) + Math.abs(deltaZ);
+    if (this.#criticalKeys.has(key) && !this.#chunks.has(key)) {
+      return CRITICAL_CHUNK_PRIORITY + manhattan;
+    }
     const travelLength = Math.hypot(this.#travelX, this.#travelZ);
     const forwardBias =
       travelLength > 0.0001
