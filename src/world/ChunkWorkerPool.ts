@@ -11,6 +11,12 @@ type WorkerFactory = () => Worker;
 export interface ChunkBuildOptions {
   readonly jobKey: string;
   readonly priority: number;
+  /**
+   * `hard` keeps the legacy keyed replacement behavior and terminates an
+   * in-flight worker. `latest` preserves the running job/worker but discards
+   * older queued work with the same key, leaving only current + latest.
+   */
+  readonly replacement?: 'hard' | 'latest';
 }
 
 interface QueuedBuild {
@@ -108,7 +114,11 @@ export class ChunkWorkerPool {
       return Promise.reject(new RangeError('priority must be finite.'));
     }
 
-    this.cancel(options.jobKey);
+    if (options.replacement === 'latest') {
+      this.#cancelQueued(options.jobKey);
+    } else {
+      this.cancel(options.jobKey);
+    }
     const request: ChunkBuildRequest = {
       type: 'build-chunk',
       requestId: this.#nextRequestId,
@@ -140,23 +150,8 @@ export class ChunkWorkerPool {
   }
 
   public cancel(jobKey: string): number {
-    let cancelled = 0;
+    let cancelled = this.#cancelQueued(jobKey);
     const cancellation = new ChunkBuildCancelledError(jobKey);
-
-    const fallback = this.#fallbackPending.get(jobKey);
-    if (fallback !== undefined) {
-      this.#fallbackPending.delete(jobKey);
-      fallback.reject(cancellation);
-      cancelled += 1;
-    }
-
-    for (let index = this.#queue.length - 1; index >= 0; index -= 1) {
-      const queued = this.#queue[index];
-      if (queued?.jobKey !== jobKey) continue;
-      this.#queue.splice(index, 1);
-      queued.reject(cancellation);
-      cancelled += 1;
-    }
 
     for (let index = 0; index < this.#slots.length; index += 1) {
       const slot = this.#slots[index];
@@ -173,7 +168,6 @@ export class ChunkWorkerPool {
       cancelled += 1;
     }
 
-    this.#cancelledCount += cancelled;
     if (cancelled > 0) this.#pump();
     return cancelled;
   }
@@ -227,6 +221,29 @@ export class ChunkWorkerPool {
       slot.worker.terminate();
     }
     this.#slots.length = 0;
+  }
+
+  #cancelQueued(jobKey: string): number {
+    let cancelled = 0;
+    const cancellation = new ChunkBuildCancelledError(jobKey);
+
+    const fallback = this.#fallbackPending.get(jobKey);
+    if (fallback !== undefined) {
+      this.#fallbackPending.delete(jobKey);
+      fallback.reject(cancellation);
+      cancelled += 1;
+    }
+
+    for (let index = this.#queue.length - 1; index >= 0; index -= 1) {
+      const queued = this.#queue[index];
+      if (queued?.jobKey !== jobKey) continue;
+      this.#queue.splice(index, 1);
+      queued.reject(cancellation);
+      cancelled += 1;
+    }
+
+    this.#cancelledCount += cancelled;
+    return cancelled;
   }
 
   #createSlot(): WorkerSlot {
