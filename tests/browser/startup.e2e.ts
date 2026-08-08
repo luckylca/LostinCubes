@@ -216,7 +216,7 @@ test('opens inventory and performs real recipe crafting', async ({ page }) => {
   expect(runtimeErrors).toEqual([]);
 });
 
-test('switches held items and camera controls', async ({ page }) => {
+test('switches held item and first-person camera mode', async ({ page }) => {
   const runtimeErrors = collectRuntimeErrors(page);
   await bootPersistedWorld(page);
 
@@ -228,6 +228,20 @@ test('switches held items and camera controls', async ({ page }) => {
   await expect(canvas).toHaveAttribute('data-held-item', 'iron-pickaxe');
   await expect(page.locator('#hud-view')).toContainText('铁镐');
 
+  await page.keyboard.press('v');
+  await expect(page.locator('#hud-view')).toContainText('第一人称');
+  await expect(page.locator('#hud-view')).toContainText('铁镐');
+  await expect(canvas).toHaveAttribute('data-camera-mode', 'first-person');
+  await expect(canvas).toHaveAttribute('data-held-item', 'iron-pickaxe');
+  await expect(page.locator('#crosshair')).toHaveCSS('opacity', '1');
+  expect(runtimeErrors).toEqual([]);
+});
+
+test('supports fallback mouse drag camera look', async ({ page }) => {
+  const runtimeErrors = collectRuntimeErrors(page);
+  await bootPersistedWorld(page);
+
+  const canvas = page.locator('#game-canvas');
   const canvasBounds = await canvas.boundingBox();
   expect(canvasBounds?.width ?? 0).toBeGreaterThan(100);
   expect(canvasBounds?.height ?? 0).toBeGreaterThan(100);
@@ -240,19 +254,12 @@ test('switches held items and camera controls', async ({ page }) => {
   const endY = canvasBounds.y + canvasBounds.height - 20;
   await page.mouse.move(lookX, startY);
   await page.mouse.down({ button: 'right' });
-  await page.mouse.move(lookX, endY, { steps: 12 });
+  await page.mouse.move(lookX, endY);
   await page.mouse.up({ button: 'right' });
   await expect
     .poll(async () => Number(await canvas.getAttribute('data-player-pitch')))
     .toBeLessThan(-1.5);
   await expect(canvas).toHaveAttribute('data-has-target', 'true');
-
-  await page.keyboard.press('v');
-  await expect(page.locator('#hud-view')).toContainText('第一人称');
-  await expect(page.locator('#hud-view')).toContainText('铁镐');
-  await expect(canvas).toHaveAttribute('data-camera-mode', 'first-person');
-  await expect(canvas).toHaveAttribute('data-held-item', 'iron-pickaxe');
-  await expect(page.locator('#crosshair')).toHaveCSS('opacity', '1');
   expect(runtimeErrors).toEqual([]);
 });
 
