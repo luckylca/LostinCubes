@@ -1,7 +1,4 @@
-import {
-  applyExplicitTestLoadout,
-  browserSearch,
-} from '../debug/TestLoadout';
+import { applyExplicitTestLoadout } from '../debug/TestLoadout';
 import { resolveRuntimeWorldId } from '../world/ActiveWorldRuntime';
 import { PlayerInventory } from './PlayerInventory';
 
@@ -14,8 +11,15 @@ function createInventoryKey(worldSeed: string): string {
   return `lost-in-cubes:inventory:${resolveRuntimeWorldId(worldSeed)}`;
 }
 
-function withExplicitTestLoadout(inventory: PlayerInventory): PlayerInventory {
-  applyExplicitTestLoadout(inventory, browserSearch());
+/**
+ * v0.3.2 is an explicitly requested browser playtest release, so the Batch 3
+ * loadout is filled on the normal game URL. Storage-only/server-side callers
+ * remain pure, which keeps persistence semantics independent of the playtest.
+ */
+function withCurrentPlaytestLoadout(inventory: PlayerInventory): PlayerInventory {
+  if (typeof window !== 'undefined') {
+    applyExplicitTestLoadout(inventory, '?test=1');
+  }
   return inventory;
 }
 
@@ -24,20 +28,20 @@ export function loadPlayerInventory(
   storage: InventoryStorage | null,
 ): PlayerInventory {
   if (storage === null) {
-    return withExplicitTestLoadout(new PlayerInventory());
+    return withCurrentPlaytestLoadout(new PlayerInventory());
   }
 
   try {
     const serialized = storage.getItem(createInventoryKey(worldSeed));
     if (serialized === null) {
-      return withExplicitTestLoadout(new PlayerInventory());
+      return withCurrentPlaytestLoadout(new PlayerInventory());
     }
-    return withExplicitTestLoadout(
+    return withCurrentPlaytestLoadout(
       new PlayerInventory(JSON.parse(serialized) as unknown),
     );
   } catch (error: unknown) {
     console.warn('Inventory save could not be restored; using defaults.', error);
-    return withExplicitTestLoadout(new PlayerInventory());
+    return withCurrentPlaytestLoadout(new PlayerInventory());
   }
 }
 

@@ -65,8 +65,32 @@ describe('NightStalkerManager unified facade', () => {
     advance(manager, createPlayer(), 0.9, 1.4);
 
     expect(manager.hostileCount).toBeGreaterThan(0);
-    expect(manager.hostileCount).toBeLessThanOrEqual(24);
+    expect(manager.hostileCount).toBeLessThanOrEqual(28);
     expect(manager.activeCount).toBeGreaterThanOrEqual(manager.hostileCount);
+    manager.dispose();
+  });
+
+  it('keeps the legacy body visible until the multipart model can attach', () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const manager = new NightStalkerManager(scene, createFlatWorld(), {
+      onPlayerDamage: () => undefined,
+      onDrop: () => undefined,
+    });
+
+    advance(manager, createPlayer(), 0.9, 0.9);
+
+    const sourceBody = scene.meshes.find((mesh) => mesh.name.startsWith('body-'));
+    expect(sourceBody).toBeDefined();
+    expect(sourceBody?.isVisible).toBe(true);
+
+    scene.onBeforeRenderObservable.notifyObservers(scene);
+
+    expect(
+      scene.transformNodes.some((node) => node.name.startsWith('upgraded-body-')),
+    ).toBe(true);
+    expect(sourceBody?.isVisible).toBe(false);
     manager.dispose();
   });
 

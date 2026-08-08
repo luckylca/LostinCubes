@@ -7,7 +7,7 @@ import {
   ClassicEntityManager,
   type PlayerAttackResult,
 } from './ClassicEntityManager';
-import { EntityVisualUpgradeRuntime } from './EntityVisualUpgradeRuntime';
+import { CreatureVisualRuntime } from './CreatureVisualRuntime';
 
 installBlockRegistryBlastAlias();
 
@@ -34,22 +34,20 @@ function browserStorage(): Storage | null {
 /**
  * Compatibility facade kept so GameApp does not need a risky wholesale rewrite.
  * All actual entity identity, AI, projectiles, persistence and spatial queries
- * now live in ClassicEntityManager/EntityRegistry. EntityVisualUpgradeRuntime
- * replaces the legacy single-box creature presentation with textured multipart
- * voxel models without changing gameplay state.
+ * live in ClassicEntityManager/EntityRegistry. CreatureVisualRuntime upgrades
+ * creature presentation after Babylon has attached each body to its entity root,
+ * preventing the invisible-mob race caused by onNewMeshAdded firing too early.
  */
 export class NightStalkerManager {
   readonly #entities: ClassicEntityManager;
-  readonly #visuals: EntityVisualUpgradeRuntime;
+  readonly #visuals: CreatureVisualRuntime;
 
   public constructor(
     scene: Scene,
     world: VoxelWorldData,
     callbacks: NightStalkerCallbacks,
   ) {
-    // Install the visual observer before ClassicEntityManager creates/restores
-    // meshes so restored entities are upgraded on the same frame.
-    this.#visuals = new EntityVisualUpgradeRuntime(scene);
+    this.#visuals = new CreatureVisualRuntime(scene);
     this.#entities = new ClassicEntityManager(
       scene,
       world,
