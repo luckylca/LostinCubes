@@ -28,11 +28,11 @@ function createMaterial(
   name: string,
   diffuse: Color3,
   scene: Scene,
-  emissive = Color3.Black(),
+  emissive: Color3 = diffuse.scale(0.055),
 ): StandardMaterial {
   const material = new StandardMaterial(name, scene);
   material.diffuseColor = diffuse;
-  material.ambientColor = diffuse.scale(0.45);
+  material.ambientColor = diffuse.scale(0.58);
   material.emissiveColor = emissive;
   material.specularColor = Color3.Black();
   material.freeze();
@@ -47,6 +47,7 @@ function createBox(
   material: StandardMaterial,
   scene: Scene,
   renderingGroupId: number,
+  rotation: VectorTuple = [0, 0, 0],
 ): Mesh {
   const mesh = MeshBuilder.CreateBox(
     name,
@@ -55,6 +56,7 @@ function createBox(
   );
   mesh.parent = parent;
   mesh.position.set(...position);
+  mesh.rotation.set(...rotation);
   mesh.material = material;
   mesh.isPickable = false;
   mesh.renderOutline = true;
@@ -182,12 +184,30 @@ export class HeldItemModel {
       this.#buildBlock(block, parent, scale, renderingGroupId, output);
       return;
     }
+
+    if (item === ItemType.Bow) {
+      this.#buildBow(parent, scale, renderingGroupId, output);
+      return;
+    }
+    if (item === ItemType.Arrow) {
+      this.#buildArrow(parent, scale, renderingGroupId, output);
+      return;
+    }
+
     const definition = getItemDefinition(item);
     if (definition.kind === 'material' || definition.kind === 'food') {
       this.#buildMaterial(item, parent, scale, renderingGroupId, output);
       return;
     }
-    if (definition.kind !== 'tool' || definition.toolKind === null) return;
+    if (definition.kind === 'armor') {
+      this.#buildArmor(item, parent, scale, renderingGroupId, output);
+      return;
+    }
+    if (definition.kind !== 'tool' || definition.toolKind === null) {
+      this.#buildGenericItem(item, parent, scale, renderingGroupId, output);
+      return;
+    }
+
     const head =
       definition.toolTier === 'iron'
         ? this.#getMaterial(
@@ -211,6 +231,171 @@ export class HeldItemModel {
       output,
       head,
     );
+  }
+
+  #buildBow(
+    parent: TransformNode,
+    scale: number,
+    renderingGroupId: number,
+    output: Mesh[],
+  ): void {
+    const wood = this.#getMaterial('held-bow-wood', new Color3(0.48, 0.29, 0.13));
+    const string = this.#getMaterial('held-bow-string', new Color3(0.84, 0.83, 0.76));
+    output.push(
+      createBox(
+        'held-bow-grip',
+        parent,
+        [0.11 * scale, 0.34 * scale, 0.1 * scale],
+        [0, -0.04 * scale, 0],
+        wood,
+        this.#scene,
+        renderingGroupId,
+      ),
+      createBox(
+        'held-bow-upper-limb',
+        parent,
+        [0.1 * scale, 0.48 * scale, 0.1 * scale],
+        [0.13 * scale, 0.34 * scale, 0],
+        wood,
+        this.#scene,
+        renderingGroupId,
+        [0, 0, -0.38],
+      ),
+      createBox(
+        'held-bow-lower-limb',
+        parent,
+        [0.1 * scale, 0.48 * scale, 0.1 * scale],
+        [0.13 * scale, -0.42 * scale, 0],
+        wood,
+        this.#scene,
+        renderingGroupId,
+        [0, 0, 0.38],
+      ),
+      createBox(
+        'held-bow-string-upper',
+        parent,
+        [0.035 * scale, 0.62 * scale, 0.035 * scale],
+        [0.31 * scale, 0.24 * scale, 0],
+        string,
+        this.#scene,
+        renderingGroupId,
+        [0, 0, 0.36],
+      ),
+      createBox(
+        'held-bow-string-lower',
+        parent,
+        [0.035 * scale, 0.62 * scale, 0.035 * scale],
+        [0.31 * scale, -0.34 * scale, 0],
+        string,
+        this.#scene,
+        renderingGroupId,
+        [0, 0, -0.36],
+      ),
+    );
+  }
+
+  #buildArrow(
+    parent: TransformNode,
+    scale: number,
+    renderingGroupId: number,
+    output: Mesh[],
+  ): void {
+    const shaft = this.#getMaterial('held-arrow-shaft-material', new Color3(0.48, 0.32, 0.16));
+    const tip = this.#getMaterial('held-arrow-tip-material', new Color3(0.72, 0.75, 0.74));
+    const feather = this.#getMaterial('held-arrow-feather-material', new Color3(0.88, 0.88, 0.82));
+    output.push(
+      createBox(
+        'held-arrow-shaft',
+        parent,
+        [0.055 * scale, 0.82 * scale, 0.055 * scale],
+        [0, -0.02 * scale, 0],
+        shaft,
+        this.#scene,
+        renderingGroupId,
+      ),
+      createBox(
+        'held-arrow-tip',
+        parent,
+        [0.16 * scale, 0.18 * scale, 0.16 * scale],
+        [0, 0.48 * scale, 0],
+        tip,
+        this.#scene,
+        renderingGroupId,
+        [0, Math.PI / 4, 0],
+      ),
+      createBox(
+        'held-arrow-feather-a',
+        parent,
+        [0.2 * scale, 0.2 * scale, 0.035 * scale],
+        [0, -0.47 * scale, 0],
+        feather,
+        this.#scene,
+        renderingGroupId,
+      ),
+      createBox(
+        'held-arrow-feather-b',
+        parent,
+        [0.035 * scale, 0.2 * scale, 0.2 * scale],
+        [0, -0.47 * scale, 0],
+        feather,
+        this.#scene,
+        renderingGroupId,
+      ),
+    );
+  }
+
+  #buildArmor(
+    item: ItemTypeValue,
+    parent: TransformNode,
+    scale: number,
+    renderingGroupId: number,
+    output: Mesh[],
+  ): void {
+    const iron = this.#getMaterial('held-armor-iron', new Color3(0.75, 0.78, 0.78));
+    const darkIron = this.#getMaterial('held-armor-shadow', new Color3(0.48, 0.52, 0.52));
+    const add = (
+      name: string,
+      size: VectorTuple,
+      position: VectorTuple,
+      material = iron,
+    ): void => {
+      output.push(
+        createBox(
+          name,
+          parent,
+          [size[0] * scale, size[1] * scale, size[2] * scale],
+          [position[0] * scale, position[1] * scale, position[2] * scale],
+          material,
+          this.#scene,
+          renderingGroupId,
+        ),
+      );
+    };
+
+    if (item === ItemType.IronHelmet) {
+      add('held-iron-helmet-top', [0.5, 0.12, 0.42], [0, 0.18, 0]);
+      add('held-iron-helmet-left', [0.12, 0.34, 0.42], [-0.19, 0, 0]);
+      add('held-iron-helmet-right', [0.12, 0.34, 0.42], [0.19, 0, 0]);
+      return;
+    }
+    if (item === ItemType.IronChestplate) {
+      add('held-iron-chestplate-body', [0.5, 0.5, 0.12], [0, 0, 0]);
+      add('held-iron-chestplate-shoulder-l', [0.2, 0.18, 0.16], [-0.29, 0.18, 0], darkIron);
+      add('held-iron-chestplate-shoulder-r', [0.2, 0.18, 0.16], [0.29, 0.18, 0], darkIron);
+      return;
+    }
+    if (item === ItemType.IronLeggings) {
+      add('held-iron-leggings-belt', [0.48, 0.16, 0.12], [0, 0.17, 0]);
+      add('held-iron-leggings-left', [0.18, 0.46, 0.12], [-0.14, -0.13, 0]);
+      add('held-iron-leggings-right', [0.18, 0.46, 0.12], [0.14, -0.13, 0]);
+      return;
+    }
+    if (item === ItemType.IronBoots) {
+      add('held-iron-boots-left', [0.2, 0.3, 0.28], [-0.13, -0.06, 0.05]);
+      add('held-iron-boots-right', [0.2, 0.3, 0.28], [0.13, -0.06, 0.05]);
+      return;
+    }
+    this.#buildGenericItem(item, parent, scale, renderingGroupId, output);
   }
 
   #buildMaterial(
@@ -257,21 +442,95 @@ export class HeldItemModel {
       );
       return;
     }
+    if (item === ItemType.Bone) {
+      const bone = this.#getMaterial('held-bone-material', new Color3(0.86, 0.84, 0.73));
+      output.push(
+        createBox('held-bone-shaft', parent, [0.1 * scale, 0.62 * scale, 0.1 * scale], [0, 0, 0], bone, this.#scene, renderingGroupId, [0, 0, -0.42]),
+        createBox('held-bone-end-a', parent, [0.2 * scale, 0.13 * scale, 0.13 * scale], [-0.13 * scale, 0.29 * scale, 0], bone, this.#scene, renderingGroupId, [0, 0, -0.42]),
+        createBox('held-bone-end-b', parent, [0.2 * scale, 0.13 * scale, 0.13 * scale], [0.13 * scale, -0.29 * scale, 0], bone, this.#scene, renderingGroupId, [0, 0, -0.42]),
+      );
+      return;
+    }
+    if (item === ItemType.Feather) {
+      const feather = this.#getMaterial('held-feather-material', new Color3(0.93, 0.93, 0.88));
+      const shaft = this.#getMaterial('held-feather-shaft', new Color3(0.7, 0.66, 0.52));
+      output.push(
+        createBox('held-feather-shaft-mesh', parent, [0.045 * scale, 0.72 * scale, 0.045 * scale], [0, -0.04 * scale, 0], shaft, this.#scene, renderingGroupId, [0, 0, -0.28]),
+        createBox('held-feather-vane', parent, [0.3 * scale, 0.5 * scale, 0.045 * scale], [0.08 * scale, 0.08 * scale, 0], feather, this.#scene, renderingGroupId, [0, 0, -0.28]),
+      );
+      return;
+    }
+    if (item === ItemType.String) {
+      const thread = this.#getMaterial('held-string-material', new Color3(0.82, 0.82, 0.78));
+      output.push(
+        createBox('held-string-a', parent, [0.035 * scale, 0.66 * scale, 0.035 * scale], [-0.08 * scale, -0.02 * scale, 0], thread, this.#scene, renderingGroupId, [0, 0, -0.55]),
+        createBox('held-string-b', parent, [0.035 * scale, 0.66 * scale, 0.035 * scale], [0.08 * scale, -0.02 * scale, 0], thread, this.#scene, renderingGroupId, [0, 0, 0.55]),
+      );
+      return;
+    }
+    if (item === ItemType.Tnt) {
+      const red = this.#getMaterial('held-tnt-red', new Color3(0.75, 0.11, 0.08));
+      const band = this.#getMaterial('held-tnt-band', new Color3(0.85, 0.82, 0.68));
+      output.push(
+        createBox('held-tnt', parent, [0.42 * scale, 0.42 * scale, 0.42 * scale], [0, -0.04 * scale, 0], red, this.#scene, renderingGroupId),
+        createBox('held-tnt-band', parent, [0.43 * scale, 0.13 * scale, 0.43 * scale], [0, -0.04 * scale, 0], band, this.#scene, renderingGroupId),
+      );
+      return;
+    }
+    if (item === ItemType.RawPorkchop || item === ItemType.RawBeef) {
+      const color = item === ItemType.RawPorkchop
+        ? new Color3(0.76, 0.37, 0.4)
+        : new Color3(0.58, 0.18, 0.17);
+      output.push(
+        createBox(
+          `held-${item}`,
+          parent,
+          [0.42 * scale, 0.12 * scale, 0.3 * scale],
+          [0, -0.04 * scale, 0],
+          this.#getMaterial(`held-meat-${item}`, color),
+          this.#scene,
+          renderingGroupId,
+          [0.08, 0.2, -0.18],
+        ),
+      );
+      return;
+    }
+    if (item === ItemType.IronIngot) {
+      output.push(
+        createBox(
+          'held-iron-ingot',
+          parent,
+          [0.42 * scale, 0.15 * scale, 0.24 * scale],
+          [0, -0.05 * scale, 0],
+          this.#getMaterial('held-iron-ingot-material', new Color3(0.77, 0.79, 0.77)),
+          this.#scene,
+          renderingGroupId,
+        ),
+      );
+      return;
+    }
+
+    this.#buildGenericItem(item, parent, scale, renderingGroupId, output);
+  }
+
+  #buildGenericItem(
+    item: ItemTypeValue,
+    parent: TransformNode,
+    scale: number,
+    renderingGroupId: number,
+    output: Mesh[],
+  ): void {
     const color = colorFromTuple(getItemColor(item));
-    const material = this.#getMaterial(`held-material-${item}`, color);
-    const size: VectorTuple =
-      item === ItemType.IronIngot
-        ? [0.42 * scale, 0.15 * scale, 0.24 * scale]
-        : [0.3 * scale, 0.24 * scale, 0.28 * scale];
     output.push(
       createBox(
         `held-${item}`,
         parent,
-        size,
+        [0.31 * scale, 0.25 * scale, 0.16 * scale],
         [0, -0.05 * scale, 0],
-        material,
+        this.#getMaterial(`held-material-${item}`, color),
         this.#scene,
         renderingGroupId,
+        [0.08, 0.24, -0.14],
       ),
     );
   }
@@ -296,7 +555,7 @@ export class HeldItemModel {
           baseColor,
           block === BlockType.RuneStone
             ? new Color3(0.025, 0.11, 0.07)
-            : Color3.Black(),
+            : baseColor.scale(0.045),
         ),
         this.#scene,
         renderingGroupId,
@@ -446,7 +705,7 @@ export class HeldItemModel {
   #getMaterial(
     key: string,
     diffuse: Color3,
-    emissive = Color3.Black(),
+    emissive: Color3 = diffuse.scale(0.055),
   ): StandardMaterial {
     const existing = this.#materials.get(key);
     if (existing !== undefined) return existing;
