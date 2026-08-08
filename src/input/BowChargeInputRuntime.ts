@@ -17,7 +17,6 @@ function getCanvas(): HTMLCanvasElement | null {
 
 function chargePower(seconds: number): number {
   const t = Math.min(Math.max(seconds / FULL_CHARGE_SECONDS, 0), 1);
-  // Smooth low-power start and a clear payoff near full draw.
   return Math.min((t * t + 2 * t) / 3, 1);
 }
 
@@ -48,15 +47,12 @@ function cancel(state: BowChargeState): void {
   renderCharge(0, false);
 }
 
-/**
- * Converts the existing bow edge-trigger into a held draw gesture without
- * changing block-breaking input. GameApp still owns ammo/durability and only
- * sees one synthetic attack edge when the player releases a valid draw.
- */
 export function installBowChargeInputRuntime(): void {
   if (installed) return;
   installed = true;
 
+  // The wrapper intentionally preserves dynamic InputManager `this`.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
   const originalPoll = InputManager.prototype.poll;
   InputManager.prototype.poll = function chargedBowPoll(
     issuedAtTick: number,
@@ -89,9 +85,7 @@ export function installBowChargeInputRuntime(): void {
     renderCharge(0, false);
     if (seconds < MINIMUM_CHARGE_SECONDS) return command;
 
-    // GameApp interprets this single release pulse as the normal bow shot.
-    // Preserve charge power on the canvas for presentation/diagnostics.
-    if (canvas !== null) canvas.dataset.lastBowCharge = power.toFixed(4);
+    canvas.dataset.lastBowCharge = power.toFixed(4);
     return { ...command, breakBlock: true };
   };
 }
