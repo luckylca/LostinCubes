@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getBlockEditGeometryChunks,
+  getBlockEditSectionIndices,
   getNearFieldChunkKeys,
 } from '../src/world/VoxelWorldRenderer';
 
@@ -33,6 +34,22 @@ describe('getBlockEditGeometryChunks', () => {
       [-2, -1],
       [-1, -2],
     ]);
+  });
+});
+
+describe('getBlockEditSectionIndices', () => {
+  it('rebuilds one 16x8x16 section for interior edits', () => {
+    expect(getBlockEditSectionIndices(3)).toEqual([0]);
+    expect(getBlockEditSectionIndices(12)).toEqual([1]);
+    expect(getBlockEditSectionIndices(27)).toEqual([3]);
+  });
+
+  it('includes vertical neighbors only on section boundaries', () => {
+    expect(getBlockEditSectionIndices(7)).toEqual([0, 1]);
+    expect(getBlockEditSectionIndices(8)).toEqual([0, 1]);
+    expect(getBlockEditSectionIndices(15)).toEqual([1, 2]);
+    expect(getBlockEditSectionIndices(16)).toEqual([1, 2]);
+    expect(getBlockEditSectionIndices(31)).toEqual([3]);
   });
 });
 
