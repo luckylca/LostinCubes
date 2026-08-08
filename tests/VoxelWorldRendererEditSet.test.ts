@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { getBlockEditGeometryChunks } from '../src/world/VoxelWorldRenderer';
+import {
+  getBlockEditGeometryChunks,
+  getNearFieldChunkKeys,
+} from '../src/world/VoxelWorldRenderer';
 
 describe('getBlockEditGeometryChunks', () => {
   it('rebuilds only the edited chunk for an interior voxel', () => {
@@ -29,6 +32,22 @@ describe('getBlockEditGeometryChunks', () => {
       [-1, -1],
       [-2, -1],
       [-1, -2],
+    ]);
+  });
+});
+
+describe('getNearFieldChunkKeys', () => {
+  it('always protects a complete 3x3 window around the player chunk', () => {
+    expect(getNearFieldChunkKeys(4, -2)).toEqual([
+      '3,-3',
+      '4,-3',
+      '5,-3',
+      '3,-2',
+      '4,-2',
+      '5,-2',
+      '3,-1',
+      '4,-1',
+      '5,-1',
     ]);
   });
 });
