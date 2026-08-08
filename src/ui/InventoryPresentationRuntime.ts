@@ -1,3 +1,5 @@
+import { InventoryView } from './InventoryView';
+
 const ARMOR = [
   ['head', 'item-iron-helmet', '头盔'],
   ['chest', 'item-iron-chestplate', '胸甲'],
@@ -5,12 +7,17 @@ const ARMOR = [
   ['feet', 'item-iron-boots', '靴子'],
 ] as const;
 
-let armed = false;
-let initialized = false;
+let installed = false;
 
-function hasItem(root: HTMLElement, className: string): HTMLElement | null {
-  return root.querySelector<HTMLElement>(
-    `.inventory-storage .${className}, .inventory-hotbar .${className}`,
+function getRoot(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('#inventory-screen');
+}
+
+function hasItem(root: HTMLElement, className: string): boolean {
+  return (
+    root.querySelector<HTMLElement>(
+      `.inventory-storage .${className}, .inventory-hotbar .${className}`,
+    ) !== null
   );
 }
 
@@ -18,26 +25,26 @@ function syncEquipment(root: HTMLElement, panel: HTMLElement): void {
   const avatar = panel.querySelector<HTMLElement>('[data-player-preview]');
   if (avatar === null) return;
   for (const [role, className] of ARMOR) {
-    const source = hasItem(root, className);
+    const equipped = hasItem(root, className);
     const slot = panel.querySelector<HTMLElement>(
       `[data-equipment-role="${role}"]`,
     );
-    const equipped = source !== null;
     avatar.classList.toggle(`wearing-${role}`, equipped);
     if (slot === null) continue;
     slot.classList.toggle('is-equipped', equipped);
     const icon = slot.querySelector<HTMLElement>('.equipment-icon');
     if (icon !== null) {
-      icon.className = `equipment-icon inventory-item ${equipped ? className : 'item-empty'}`;
+      const nextClass = `equipment-icon inventory-item ${equipped ? className : 'item-empty'}`;
+      if (icon.className !== nextClass) icon.className = nextClass;
     }
   }
 }
 
-function createEquipmentPanel(root: HTMLElement): HTMLElement | null {
-  const layout = root.querySelector<HTMLElement>('.inventory-layout');
-  if (layout === null) return null;
+function ensureEquipmentPanel(root: HTMLElement): HTMLElement | null {
   const existing = root.querySelector<HTMLElement>('.player-equipment-panel');
   if (existing !== null) return existing;
+  const layout = root.querySelector<HTMLElement>('.inventory-layout');
+  if (layout === null) return null;
 
   const panel = document.createElement('section');
   panel.className = 'player-equipment-panel';
@@ -63,53 +70,76 @@ function createEquipmentPanel(root: HTMLElement): HTMLElement | null {
   return panel;
 }
 
-function tuckRecipeBook(root: HTMLElement): void {
+function ensureRecipeDrawer(root: HTMLElement): void {
+  if (root.querySelector('.recipe-drawer') !== null) return;
   const book = root.querySelector<HTMLElement>('.crafting-book');
-  if (book === null) return;
-  if (book.closest('.recipe-drawer') !== null) return;
   const inventoryPanel = root.querySelector<HTMLElement>('.inventory-panel');
-  if (inventoryPanel === null) return;
+  if (book === null || inventoryPanel === null) return;
 
-  const drawer = document.createElement('details');
+  const drawer = document.createElement('section');
   drawer.className = 'recipe-drawer';
-  const summary = document.createElement('summary');
-  summary.textContent = '配方书';
-  drawer.append(summary);
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'recipe-drawer-toggle';
+  toggle.textContent = '配方书';
+  toggle.setAttribute('aria-expanded', 'false');
+
+  const content = document.createElement('div');
+  content.className = 'recipe-drawer-content';
+  content.hidden = true;
+
+  toggle.addEventListener('click', () => {
+    const nextOpen = content.hidden;
+    content.hidden = !nextOpen;
+    toggle.setAttribute('aria-expanded', String(nextOpen));
+  });
+
   book.replaceWith(drawer);
-  drawer.append(book);
+  drawer.append(toggle, content);
+  content.append(book);
   inventoryPanel.append(drawer);
 }
 
-function tryInitialize(): boolean {
-  if (initialized) return true;
-  const root = document.querySelector<HTMLElement>('#inventory-screen');
-  if (root === null) return false;
-  const panel = createEquipmentPanel(root);
-  if (panel === null) return false;
-
-  tuckRecipeBook(root);
-  const observer = new MutationObserver(() => syncEquipment(root, panel));
-  observer.observe(root, { subtree: true, childList: true });
-  syncEquipment(root, panel);
-  initialized = true;
-  return true;
+function ensurePresentation(): void {
+  const root = getRoot();
+  if (root === null) return;
+  const panel = ensureEquipmentPanel(root);
+  ensureRecipeDrawer(root);
+  if (panel !== null) syncEquipment(root, panel);
 }
 
-export function installInventoryPresentationRuntime(): void {
-  if (armed) return;
-  armed = true;
-  if (tryInitialize()) return;
+function syncPresentation(): void {
+  const root = getRoot();
+  const panel = root?.querySelector<HTMLElement>('.player-equipment-panel');
+  if (root === null || panel === null) return;
+  syncEquipment(root, panel);
+}
 
-  // GameApp owns the inventory markup and can mount it after the entry module
-  // has already installed runtime extensions. Observe only until the required
-  // DOM exists, then disconnect permanently; this is startup wiring, not a
-  // long-lived document-wide observer.
-  const mountObserver = new MutationObserver(() => {
-    if (!tryInitialize()) return;
-    mountObserver.disconnect();
-  });
-  mountObserver.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-  });
+/**
+ * Hooks the inventory's own lifecycle instead of observing its DOM tree.
+ * InventoryView already knows exactly when slots are rebuilt; piggybacking on
+ * open/render avoids MutationObserver churn and keeps the recipe drawer stable
+ * inside the scroll container.
+ */
+export function installInventoryPresentationRuntime(): void {
+  if (installed) return;
+  installed = true;
+
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const originalOpen = InventoryView.prototype.open;
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const originalRender = InventoryView.prototype.render;
+
+  InventoryView.prototype.open = function presentedOpen(station = 'inventory'): void {
+    ensurePresentation();
+    originalOpen.call(this, station);
+    syncPresentation();
+  };
+
+  InventoryView.prototype.render = function presentedRender(): void {
+    ensurePresentation();
+    originalRender.call(this);
+    syncPresentation();
+  };
 }
