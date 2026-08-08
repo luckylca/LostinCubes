@@ -166,7 +166,12 @@ export class InputManager {
       moveZ,
       lookX: this.#uiOpen ? 0 : this.#lookDeltaX,
       lookY: this.#uiOpen ? 0 : this.#lookDeltaY,
-      jump: !this.#uiOpen && this.#jumpRequested,
+      // Ground jumping only needs an edge pulse, but swimming requires jump to
+      // remain true for every frame Space is held so the fluid motor can keep
+      // applying upward velocity.
+      jump:
+        !this.#uiOpen &&
+        (this.#jumpRequested || this.#keys.has('Space')),
       sprint:
         !this.#uiOpen &&
         (this.#keys.has('ShiftLeft') ||
