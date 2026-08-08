@@ -30,7 +30,6 @@ import {
   canReplaceBlockForPlacement,
   getFluidReplacementAfterBreak,
 } from './FluidRules';
-import { maskRemovedVoxelImmediately } from './VoxelEditMaskPlugin';
 import { raycastVoxels } from './VoxelRaycast';
 import type { VoxelCoordinate, VoxelRaycastHit } from './VoxelRaycast';
 import type { VoxelWorldData } from './VoxelWorldData';
@@ -148,7 +147,6 @@ function createCrackTextures(scene: Scene): RawTexture[] {
 }
 
 export class VoxelInteractionController {
-  readonly #scene: Scene;
   readonly #world: VoxelWorldData;
   readonly #highlight: Mesh;
   readonly #highlightMaterial: StandardMaterial;
@@ -169,7 +167,6 @@ export class VoxelInteractionController {
     world: VoxelWorldData,
     callbacks: VoxelInteractionCallbacks,
   ) {
-    this.#scene = scene;
     this.#world = world;
     this.#callbacks = callbacks;
 
@@ -374,13 +371,6 @@ export class VoxelInteractionController {
     ) {
       return false;
     }
-
-    // The logical break is authoritative now. Hide the matching fragments on
-    // the current old chunk mesh before scheduling its asynchronous rebuild,
-    // so the mined voxel disappears on this render instead of when the worker
-    // eventually finishes.
-    maskRemovedVoxelImmediately(this.#scene, x, y, z);
-
     this.#callbacks.onBlockChanged(x, y, z);
     this.#callbacks.onToolUsed(brokenBlock);
     this.#callbacks.onBlockBroken(brokenBlock, { x, y, z });
