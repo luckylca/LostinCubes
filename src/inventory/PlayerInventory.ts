@@ -4,6 +4,7 @@ import {
   getMiningSpeedMultiplier,
   isItemType,
   isToolItem,
+  ItemType,
   itemFromBlock,
   itemToBlock,
 } from './ItemDefinitions';
@@ -71,8 +72,8 @@ function normalizeSlot(value: unknown): MutableInventorySlot {
   if (item === null) return createEmptySlot();
 
   const definition = getItemDefinition(item);
-  if (definition.kind === 'tool') {
-    const maximum = definition.maximumDurability ?? 1;
+  if (definition.maximumDurability !== null) {
+    const maximum = definition.maximumDurability;
     const durability =
       typeof candidate.durability === 'number' &&
       Number.isInteger(candidate.durability)
@@ -230,14 +231,14 @@ export class PlayerInventory {
       return null;
     }
     const definition = getItemDefinition(stack.item);
-    if (definition.kind !== 'tool') {
+    if (definition.maximumDurability === null) {
       const remaining = this.addItem(stack.item, stack.count);
       return remaining > 0
         ? { item: stack.item, count: remaining, durability: null }
         : null;
     }
 
-    const maximum = definition.maximumDurability ?? 1;
+    const maximum = definition.maximumDurability;
     const durability =
       stack.durability === null || !Number.isInteger(stack.durability)
         ? maximum
@@ -291,6 +292,23 @@ export class PlayerInventory {
         if (remaining === 0) break;
       }
     }
+
+    // Shooting already has an atomic "spawn projectile, then consume one Arrow"
+    // path in GameApp. Keep Bow and Arrow as separate inventory items, and make
+    // that successful Arrow consumption also wear the selected Bow by one use.
+    // No crafting recipe consumes Arrow as an ingredient, so unrelated crafting
+    // cannot accidentally damage the Bow.
+    const firedSelectedBow =
+      (totals.get(ItemType.Arrow) ?? 0) > 0 &&
+      this.selectedItem === ItemType.Bow;
+    if (firedSelectedBow) {
+      const bowSlot = this.#slots[this.selectedInventoryIndex];
+      if (bowSlot?.durability !== null && bowSlot?.durability !== undefined) {
+        bowSlot.durability -= 1;
+        if (bowSlot.durability <= 0) this.#clearSlot(bowSlot);
+      }
+    }
+
     this.#revision += 1;
     return true;
   }
