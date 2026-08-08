@@ -13,6 +13,9 @@ export interface WorldSceneBundle {
   readonly updateLighting: (dayTime: number) => void;
 }
 
+type RenderQuality = 'high' | 'balanced' | 'performance';
+const QUALITY_KEY = 'lost-in-cubes:render-quality';
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
@@ -25,9 +28,27 @@ function mixColor(night: Color3, day: Color3, amount: number): Color3 {
   );
 }
 
+function readQuality(): RenderQuality {
+  try {
+    const value = window.localStorage.getItem(QUALITY_KEY);
+    if (value === 'balanced' || value === 'performance') return value;
+  } catch {
+    // Keep high quality when storage is unavailable.
+  }
+  return 'high';
+}
+
+function qualityFactor(value: string): number {
+  if (value === 'performance') return 1.6;
+  if (value === 'balanced') return 1.25;
+  return 1;
+}
+
 export class BabylonEngine {
   public readonly engine: Engine;
   readonly #resizeHandler: () => void;
+  readonly #qualityHandler: (event: Event) => void;
+  readonly #nativeHardwareScaling: number;
 
   public constructor(canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, {
@@ -36,6 +57,13 @@ export class BabylonEngine {
       preserveDrawingBuffer: false,
       stencil: true,
     });
+    this.#nativeHardwareScaling = this.engine.getHardwareScalingLevel();
+    this.#applyQuality(readQuality());
+    this.#qualityHandler = (event: Event): void => {
+      const detail = event instanceof CustomEvent ? String(event.detail) : 'high';
+      this.#applyQuality(detail);
+    };
+    window.addEventListener('lostincubes:render-quality', this.#qualityHandler);
     this.#resizeHandler = () => this.engine.resize();
     window.addEventListener('resize', this.#resizeHandler);
     this.engine.resize();
@@ -105,6 +133,14 @@ export class BabylonEngine {
 
   public dispose(): void {
     window.removeEventListener('resize', this.#resizeHandler);
+    window.removeEventListener('lostincubes:render-quality', this.#qualityHandler);
     this.engine.dispose();
+  }
+
+  #applyQuality(value: string): void {
+    this.engine.setHardwareScalingLevel(
+      this.#nativeHardwareScaling * qualityFactor(value),
+    );
+    this.engine.resize();
   }
 }
