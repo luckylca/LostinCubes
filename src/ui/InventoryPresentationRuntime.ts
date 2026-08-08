@@ -46,11 +46,11 @@ export function installInventoryPresentationRuntime(): void {
   installed = true;
 
   const root = document.querySelector<HTMLElement>('#inventory-screen');
-  const toggle = root?.querySelector<HTMLButtonElement>('.recipe-drawer-toggle');
-  const content = root?.querySelector<HTMLElement>('.recipe-drawer-content');
-  if (root === null || toggle === null || toggle === undefined || content === null || content === undefined) {
-    return;
-  }
+  if (root === null) return;
+
+  const toggle = root.querySelector<HTMLButtonElement>('.recipe-drawer-toggle');
+  const content = root.querySelector<HTMLElement>('.recipe-drawer-content');
+  if (toggle === null || content === null) return;
 
   let recipeOpen = false;
 
