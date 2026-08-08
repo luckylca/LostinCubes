@@ -126,10 +126,14 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
     4,
   );
   const recipeDrawer = page.locator('.recipe-drawer');
+  const recipeToggle = recipeDrawer.locator('.recipe-drawer-toggle');
+  const recipeContent = recipeDrawer.locator('.recipe-drawer-content');
   await expect(recipeDrawer).toBeVisible();
-  await expect(recipeDrawer).not.toHaveAttribute('open', '');
-  await recipeDrawer.locator('summary').click();
-  await expect(recipeDrawer).toHaveAttribute('open', '');
+  await expect(recipeToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(recipeContent).toBeHidden();
+  await recipeToggle.click();
+  await expect(recipeToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(recipeContent).toBeVisible();
   await expect(page.locator('.recipe-card')).toHaveCount(4);
   await expect(page.locator('.recipe-card[data-recipe-id="torches"]')).toContainText(
     '火把 ×4',
