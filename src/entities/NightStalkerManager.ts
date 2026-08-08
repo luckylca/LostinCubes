@@ -203,13 +203,11 @@ export class NightStalkerManager {
     if (currentMeshCount === this.#lastObservedSceneMeshCount) return;
     this.#lastObservedSceneMeshCount = currentMeshCount;
 
-    for (const mesh of this.#scene.meshes) {
-      if (!isSourceCreatureBody(mesh)) continue;
-      this.#collisionBodies.add(mesh);
-      // Re-announcing is idempotent: collision bodies use a Set and the visual
-      // runtime ignores bodies already pending or already upgraded. This covers
-      // Babylon MeshBuilder construction timing without per-frame scene scans.
-      this.#scene.onNewMeshAddedObservable.notifyObservers(mesh);
+    for (const abstractMesh of this.#scene.meshes) {
+      if (!(abstractMesh instanceof Mesh)) continue;
+      if (!isSourceCreatureBody(abstractMesh)) continue;
+      this.#collisionBodies.add(abstractMesh);
+      this.#scene.onNewMeshAddedObservable.notifyObservers(abstractMesh);
     }
   }
 }
