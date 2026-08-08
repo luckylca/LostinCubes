@@ -140,9 +140,10 @@ describe('KinematicPlayerMotor', () => {
 
     let previousY = motor.getState().position.y;
     let maximumFrameRise = 0;
-    for (let index = 0; index < 60; index += 1) {
+    let swimmingUp = true;
+    for (let index = 0; index < 90; index += 1) {
       const state = motor.update(
-        { ...STILL_INPUT, jump: true, moveZ: 1 },
+        { ...STILL_INPUT, jump: swimmingUp, moveZ: 1 },
         1 / 60,
       );
       maximumFrameRise = Math.max(
@@ -150,6 +151,7 @@ describe('KinematicPlayerMotor', () => {
         state.position.y - previousY,
       );
       previousY = state.position.y;
+      if (state.position.z > 0.82) swimmingUp = false;
     }
 
     expect(maximumFrameRise).toBeLessThan(0.16);
