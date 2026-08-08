@@ -74,7 +74,7 @@ function createClassicFluidPixels(
 export class VoxelMaterialLibrary {
   readonly #multiMaterial: MultiMaterial;
   readonly #materials: StandardMaterial[] = [];
-  readonly #editMasks = new VoxelEditMaskRegistry();
+  readonly #editMasks: VoxelEditMaskRegistry;
   readonly #editMaskPlugins: VoxelEditMaskPlugin[] = [];
   readonly #fluidTextures = new Map<BlockTexture, RawTexture>();
   readonly #removeAnimationObserver: () => void;
@@ -85,6 +85,7 @@ export class VoxelMaterialLibrary {
 
   public constructor(scene: Scene) {
     this.#multiMaterial = new MultiMaterial('voxel-world-materials', scene);
+    this.#editMasks = new VoxelEditMaskRegistry(scene);
 
     for (const textureKind of BLOCK_TEXTURE_KINDS) {
       const source = getBlockTexturePixels(textureKind);
@@ -183,28 +184,6 @@ export class VoxelMaterialLibrary {
         mesh,
       );
     }
-  }
-
-  public maskRemovedBlock(
-    chunkKey: string,
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ): void {
-    this.#editMasks.mask(chunkKey, worldX, worldY, worldZ);
-  }
-
-  public unmaskBlock(
-    chunkKey: string,
-    worldX: number,
-    worldY: number,
-    worldZ: number,
-  ): void {
-    this.#editMasks.unmask(chunkKey, worldX, worldY, worldZ);
-  }
-
-  public clearEditMasksForChunk(chunkKey: string): void {
-    this.#editMasks.clearChunk(chunkKey);
   }
 
   public dispose(): void {
