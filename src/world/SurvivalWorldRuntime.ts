@@ -6,9 +6,11 @@ import {
 import { getBiomeLabel } from './BiomeDefinition';
 import type { BiomeType } from './BiomeDefinition';
 import {
+  CHUNK_SECTION_HEIGHT,
   CHUNK_SIZE,
-  createChunkKey,
   worldToChunkCoordinate,
+  worldToLocalCoordinate,
+  worldYToSectionIndex,
 } from './VoxelChunk';
 import {
   WorldTickManager,
@@ -57,6 +59,48 @@ function sampleBodyLevels(position: PlayerVector): readonly number[] {
     blockCoordinate(position.y),
     blockCoordinate(position.y + 0.52),
   ];
+}
+
+function sectionEdge(worldY: number): -1 | 0 | 1 {
+  const localY = ((worldY % CHUNK_SECTION_HEIGHT) + CHUNK_SECTION_HEIGHT) % CHUNK_SECTION_HEIGHT;
+  if (localY === 0) return -1;
+  if (localY === CHUNK_SECTION_HEIGHT - 1) return 1;
+  return 0;
+}
+
+function chunkEdge(localCoordinate: number): -1 | 0 | 1 {
+  if (localCoordinate === 0) return -1;
+  if (localCoordinate === CHUNK_SIZE - 1) return 1;
+  return 0;
+}
+
+/**
+ * Collapse many simulation changes into the minimum set of section rebuild
+ * triggers. One representative is enough for interior edits because a section
+ * rebuild reads the world's latest state for every voxel. Boundary direction is
+ * part of the key so a changed face still rebuilds the correct neighbouring
+ * chunk/section when necessary.
+ */
+export function compactRuntimeRenderChanges(
+  source: readonly WorldTickChange[],
+): readonly WorldTickChange[] {
+  const representatives = new Map<string, WorldTickChange>();
+  for (const change of source) {
+    const chunkX = worldToChunkCoordinate(change.worldX);
+    const chunkZ = worldToChunkCoordinate(change.worldZ);
+    const localX = worldToLocalCoordinate(change.worldX);
+    const localZ = worldToLocalCoordinate(change.worldZ);
+    const key = [
+      chunkX,
+      chunkZ,
+      worldYToSectionIndex(change.worldY),
+      chunkEdge(localX),
+      sectionEdge(change.worldY),
+      chunkEdge(localZ),
+    ].join(':');
+    if (!representatives.has(key)) representatives.set(key, change);
+  }
+  return [...representatives.values()];
 }
 
 /** Registers the active single-player world without coupling GameApp to it. */
@@ -135,7 +179,7 @@ export function isPlayerHeadSuffocating(position: PlayerVector): boolean {
   );
 }
 
-/** Runs bounded random/scheduled ticks and rebuilds each touched chunk once. */
+/** Runs bounded random/scheduled ticks and coalesces their render invalidation. */
 export function updateSurvivalWorld(
   position: PlayerVector,
   stepSeconds: number,
@@ -150,24 +194,14 @@ export function updateSurvivalWorld(
   );
   if (changed <= 0) return 0;
 
-  const touchedChunks = new Set<string>();
-  for (const change of changes) {
-    touchedChunks.add(
-      createChunkKey(
-        worldToChunkCoordinate(change.worldX),
-        worldToChunkCoordinate(change.worldZ),
-      ),
-    );
-  }
-  for (const key of touchedChunks) {
-    const separator = key.indexOf(',');
-    const chunkX = Number(key.slice(0, separator));
-    const chunkZ = Number(key.slice(separator + 1));
-    renderer.invalidateBlock(
-      chunkX * CHUNK_SIZE,
-      0,
-      chunkZ * CHUNK_SIZE,
-    );
+  // The old code converted every touched chunk to its artificial origin
+  // (chunkX*16, y=0, chunkZ*16). That coordinate is always on two chunk borders,
+  // so VoxelWorldRenderer rebuilt the current, west and north chunks and always
+  // section 0 even when the real change was elsewhere. Use real representative
+  // coordinates instead and let the renderer's existing latest-job coalescing
+  // collapse repeated edits further.
+  for (const change of compactRuntimeRenderChanges(changes)) {
+    renderer.invalidateBlock(change.worldX, change.worldY, change.worldZ);
   }
   return changed;
 }

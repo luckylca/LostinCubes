@@ -13,7 +13,12 @@ const HORIZONTAL_RADIUS = 12;
 const VERTICAL_RADIUS = 9;
 const LEAF_LOG_RADIUS = 4;
 const SAPLING_GROWTH_CHANCE = 1 / 28;
-const SCHEDULED_TICK_LIMIT_PER_UPDATE = 32;
+// Scheduled block logic runs on the main simulation thread. A large fluid
+// cascade must slow down instead of monopolising one frame and freezing input,
+// time progression and rendering.
+const SCHEDULED_TICK_LIMIT_PER_UPDATE = 8;
+const SCHEDULED_TICK_SIMULATION_RADIUS = HORIZONTAL_RADIUS + 8;
+const MAXIMUM_SCHEDULED_TICKS = 2_048;
 const SUPPORT_TICK_DELAY_SECONDS = 0.05;
 const WATER_TICK_DELAY_SECONDS = 0.14;
 const LAVA_TICK_DELAY_SECONDS = 0.38;
@@ -105,6 +110,8 @@ export class WorldTickManager {
   #state: number;
   #elapsed = 0;
   #clock = 0;
+  #activeCenterX = 0;
+  #activeCenterZ = 0;
 
   public constructor(
     world: RandomTickWorld,
@@ -122,6 +129,8 @@ export class WorldTickManager {
     stepSeconds: number,
   ): number {
     if (!Number.isFinite(stepSeconds) || stepSeconds <= 0) return 0;
+    this.#activeCenterX = Math.floor(playerX);
+    this.#activeCenterZ = Math.floor(playerZ);
     this.#clock += stepSeconds;
     let changed = this.#runScheduledTicks();
 
@@ -173,6 +182,11 @@ export class WorldTickManager {
     const dueAt = this.#clock + delay;
     const existing = this.#scheduled.get(key);
     if (existing !== undefined && existing.dueAt <= dueAt) return;
+    // Never let a pathological fluid/support cascade turn into an unbounded JS
+    // Map. Existing coordinates can still be pulled earlier when the cap is hit.
+    if (existing === undefined && this.#scheduled.size >= MAXIMUM_SCHEDULED_TICKS) {
+      return;
+    }
     this.#scheduled.set(key, { key, worldX, worldY, worldZ, dueAt });
   }
 
@@ -212,18 +226,30 @@ export class WorldTickManager {
   }
 
   #runScheduledTicks(): number {
-    let processed = 0;
-    let changed = 0;
-    while (processed < SCHEDULED_TICK_LIMIT_PER_UPDATE) {
-      let next: ScheduledBlockTick | null = null;
-      for (const candidate of this.#scheduled.values()) {
-        if (candidate.dueAt > this.#clock) continue;
-        if (next === null || candidate.dueAt < next.dueAt) next = candidate;
+    // The previous implementation scanned the complete Map once for every tick
+    // processed (up to 32 full scans per simulation step). During fluid spread
+    // that turned a large queue into a main-thread O(limit × queue) freeze. Scan
+    // once, retain only the earliest bounded due work, then execute that batch.
+    const due: ScheduledBlockTick[] = [];
+    for (const [key, candidate] of this.#scheduled) {
+      if (!this.#isWithinSimulationDistance(candidate.worldX, candidate.worldZ)) {
+        this.#scheduled.delete(key);
+        continue;
       }
-      if (next === null) break;
+      if (candidate.dueAt > this.#clock) continue;
+      due.push(candidate);
+    }
+    due.sort(
+      (left, right) => left.dueAt - right.dueAt || left.key.localeCompare(right.key),
+    );
+
+    let changed = 0;
+    const count = Math.min(due.length, SCHEDULED_TICK_LIMIT_PER_UPDATE);
+    for (let index = 0; index < count; index += 1) {
+      const next = due[index];
+      if (next === undefined || this.#scheduled.get(next.key) !== next) continue;
       this.#scheduled.delete(next.key);
       changed += this.#tickScheduled(next.worldX, next.worldY, next.worldZ);
-      processed += 1;
     }
     return changed;
   }
@@ -330,6 +356,7 @@ export class WorldTickManager {
     for (const [offsetX, offsetZ] of HORIZONTAL_NEIGHBORS) {
       const targetX = worldX + offsetX;
       const targetZ = worldZ + offsetZ;
+      if (!this.#isWithinSimulationDistance(targetX, targetZ)) continue;
       const target = this.#world.sampleBlock(targetX, worldY, targetZ);
       if (target === fluid) {
         const targetKey = coordinateKey(targetX, worldY, targetZ);
@@ -366,6 +393,7 @@ export class WorldTickManager {
     fluid: BlockTypeValue,
     level: number,
   ): boolean {
+    if (!this.#isWithinSimulationDistance(worldX, worldZ)) return false;
     const key = coordinateKey(worldX, worldY, worldZ);
     const previous = this.#world.sampleBlock(worldX, worldY, worldZ);
     const changed = this.#world.setBlock(worldX, worldY, worldZ, fluid);
@@ -555,6 +583,13 @@ export class WorldTickManager {
     });
     this.notifyBlockChanged(worldX, worldY, worldZ);
     return true;
+  }
+
+  #isWithinSimulationDistance(worldX: number, worldZ: number): boolean {
+    return (
+      Math.abs(worldX - this.#activeCenterX) <= SCHEDULED_TICK_SIMULATION_RADIUS &&
+      Math.abs(worldZ - this.#activeCenterZ) <= SCHEDULED_TICK_SIMULATION_RADIUS
+    );
   }
 
   #nextFloat(): number {
