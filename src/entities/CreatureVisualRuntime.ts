@@ -5,12 +5,7 @@ import {
   StandardMaterial,
   TransformNode,
 } from '@babylonjs/core';
-import type {
-  AbstractMesh,
-  Observer,
-  Scene,
-  Vector3,
-} from '@babylonjs/core';
+import type { AbstractMesh, Observer, Scene, Vector3 } from '@babylonjs/core';
 import type { EntityKind } from './EntityRegistry';
 
 type CreatureKind = Exclude<EntityKind, 'arrow' | 'tnt' | 'dropped-item'>;
@@ -40,6 +35,21 @@ interface ModelGroups {
   readonly dark: Mesh[];
 }
 
+const CREATURE_KINDS = [
+  'zombie',
+  'skeleton',
+  'spider',
+  'creeper',
+  'cow',
+  'pig',
+  'sheep',
+] as const satisfies readonly CreatureKind[];
+const MATERIAL_ROLES = [
+  'primary',
+  'secondary',
+  'detail',
+  'dark',
+] as const satisfies readonly MaterialRole[];
 const BODY_PATTERN = /^body-(?<kind>zombie|skeleton|spider|creeper|cow|pig|sheep)-/;
 const HIT_PRESENTATION_SECONDS = 0.24;
 const HIT_LIFT = 0.34;
@@ -140,12 +150,33 @@ function addFace(
   spacing: number,
   mouthWidth = 0.22,
 ): void {
-  // Details sit clearly in front of the head plane. The previous model used a
-  // very small offset and could z-fight into a featureless white skeleton head.
+  // Keep details clearly in front of the head plane to avoid z-fighting into
+  // the blank white skull that was visible on some GPUs/camera angles.
   const faceZ = z + 0.035;
-  addBox(scene, groups, 'dark', `${prefix}-eye-l`, [0.12, 0.12, 0.055], [-spacing, y, faceZ]);
-  addBox(scene, groups, 'dark', `${prefix}-eye-r`, [0.12, 0.12, 0.055], [spacing, y, faceZ]);
-  addBox(scene, groups, 'dark', `${prefix}-mouth`, [mouthWidth, 0.075, 0.055], [0, y - 0.17, faceZ]);
+  addBox(
+    scene,
+    groups,
+    'dark',
+    `${prefix}-eye-l`,
+    [0.12, 0.12, 0.055],
+    [-spacing, y, faceZ],
+  );
+  addBox(
+    scene,
+    groups,
+    'dark',
+    `${prefix}-eye-r`,
+    [0.12, 0.12, 0.055],
+    [spacing, y, faceZ],
+  );
+  addBox(
+    scene,
+    groups,
+    'dark',
+    `${prefix}-mouth`,
+    [mouthWidth, 0.075, 0.055],
+    [0, y - 0.17, faceZ],
+  );
 }
 
 function addFourLegs(
@@ -174,18 +205,64 @@ function buildHumanoid(
   const torsoWidth = skeleton ? 0.4 : 0.54;
   const torsoDepth = skeleton ? 0.22 : 0.3;
   addBox(scene, groups, 'primary', `${prefix}-head`, [0.5, 0.5, 0.5], [0, 0.7, 0]);
-  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-torso`, [torsoWidth, 0.72, torsoDepth], [0, 0.08, 0]);
+  addBox(
+    scene,
+    groups,
+    skeleton ? 'primary' : 'secondary',
+    `${prefix}-torso`,
+    [torsoWidth, 0.72, torsoDepth],
+    [0, 0.08, 0],
+  );
   addFace(scene, groups, prefix, 0.75, 0.25, 0.12, skeleton ? 0.26 : 0.22);
   if (skeleton) {
-    addBox(scene, groups, 'dark', `${prefix}-nose`, [0.075, 0.1, 0.055], [0, 0.65, 0.29]);
+    addBox(
+      scene,
+      groups,
+      'dark',
+      `${prefix}-nose`,
+      [0.075, 0.1, 0.055],
+      [0, 0.65, 0.29],
+    );
   }
-  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-arm-l`, [limb, 0.72, limb], [-0.39, 0.05, 0]);
-  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-arm-r`, [limb, 0.72, limb], [0.39, 0.05, 0]);
-  addBox(scene, groups, skeleton ? 'secondary' : 'detail', `${prefix}-leg-l`, [limb + 0.02, 0.72, limb + 0.02], [-0.14, -0.62, 0]);
-  addBox(scene, groups, skeleton ? 'secondary' : 'detail', `${prefix}-leg-r`, [limb + 0.02, 0.72, limb + 0.02], [0.14, -0.62, 0]);
+  addBox(
+    scene,
+    groups,
+    skeleton ? 'primary' : 'secondary',
+    `${prefix}-arm-l`,
+    [limb, 0.72, limb],
+    [-0.39, 0.05, 0],
+  );
+  addBox(
+    scene,
+    groups,
+    skeleton ? 'primary' : 'secondary',
+    `${prefix}-arm-r`,
+    [limb, 0.72, limb],
+    [0.39, 0.05, 0],
+  );
+  addBox(
+    scene,
+    groups,
+    skeleton ? 'secondary' : 'detail',
+    `${prefix}-leg-l`,
+    [limb + 0.02, 0.72, limb + 0.02],
+    [-0.14, -0.62, 0],
+  );
+  addBox(
+    scene,
+    groups,
+    skeleton ? 'secondary' : 'detail',
+    `${prefix}-leg-r`,
+    [limb + 0.02, 0.72, limb + 0.02],
+    [0.14, -0.62, 0],
+  );
 }
 
-function buildSkeletonBow(scene: Scene, groups: ModelGroups, prefix: string): void {
+function buildSkeletonBow(
+  scene: Scene,
+  groups: ModelGroups,
+  prefix: string,
+): void {
   addBox(scene, groups, 'detail', `${prefix}-bow-upper`, [0.08, 0.55, 0.08], [0.53, 0.3, 0.18], [0, 0, -0.28]);
   addBox(scene, groups, 'detail', `${prefix}-bow-lower`, [0.08, 0.55, 0.08], [0.53, -0.19, 0.18], [0, 0, 0.28]);
   addBox(scene, groups, 'detail', `${prefix}-bow-grip`, [0.1, 0.18, 0.1], [0.46, 0.05, 0.18]);
@@ -194,7 +271,11 @@ function buildSkeletonBow(scene: Scene, groups: ModelGroups, prefix: string): vo
   addBox(scene, groups, 'secondary', `${prefix}-held-arrow-head`, [0.11, 0.11, 0.13], [0.2, 0.08, 0.77], [0, 0, Math.PI / 4]);
 }
 
-function buildParts(scene: Scene, kind: CreatureKind, suffix: string): ModelGroups {
+function buildParts(
+  scene: Scene,
+  kind: CreatureKind,
+  suffix: string,
+): ModelGroups {
   const groups = emptyGroups();
   const prefix = `${kind}-${suffix}`;
   switch (kind) {
@@ -215,7 +296,14 @@ function buildParts(scene: Scene, kind: CreatureKind, suffix: string): ModelGrou
       addBox(scene, groups, 'secondary', `${prefix}-head`, [0.58, 0.4, 0.52], [0, 0.02, 0.46]);
       addBox(scene, groups, 'primary', `${prefix}-torso`, [0.84, 0.48, 0.76], [0, 0.02, -0.18]);
       for (const x of [-0.18, -0.06, 0.06, 0.18]) {
-        addBox(scene, groups, 'detail', `${prefix}-eye-${String(x)}`, [0.075, 0.07, 0.04], [x, 0.08, 0.745]);
+        addBox(
+          scene,
+          groups,
+          'detail',
+          `${prefix}-eye-${String(x)}`,
+          [0.075, 0.07, 0.04],
+          [x, 0.08, 0.745],
+        );
       }
       for (const side of [-1, 1] as const) {
         for (let index = 0; index < 4; index += 1) {
@@ -257,23 +345,19 @@ function buildParts(scene: Scene, kind: CreatureKind, suffix: string): ModelGrou
   return groups;
 }
 
-function mergeGroup(
-  root: TransformNode,
+function mergeTemplateGroup(
   parts: Mesh[],
   name: string,
   material: StandardMaterial,
-): void {
-  if (parts.length === 0) return;
+): Mesh | null {
+  if (parts.length === 0) return null;
   const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
-  if (merged === null) return;
+  if (merged === null) return null;
   merged.name = name;
-  merged.parent = root;
   merged.material = material;
   merged.isPickable = false;
-  merged.freezeWorldMatrix();
-  // Parent motion invalidates a frozen child world matrix, so unfreeze after the
-  // initial merge. Geometry/material state remains shared and immutable.
-  merged.unfreezeWorldMatrix();
+  merged.isVisible = false;
+  return merged;
 }
 
 export class CreatureVisualRuntime {
@@ -281,18 +365,24 @@ export class CreatureVisualRuntime {
   readonly #pending = new Set<Mesh>();
   readonly #models = new Map<Mesh, CreatureModel>();
   readonly #materials = new Map<string, StandardMaterial>();
+  readonly #templates = new Map<CreatureKind, Map<MaterialRole, Mesh>>();
   readonly #meshObserver: Observer<AbstractMesh>;
   readonly #frameObserver: Observer<Scene>;
 
   public constructor(scene: Scene) {
     this.#scene = scene;
     this.#meshObserver = scene.onNewMeshAddedObservable.add((mesh) => this.#queue(mesh));
+
+    // Build the seven tiny creature templates while the world is already in its
+    // startup/loading phase. Night-time spawns can then clone shared Geometry
+    // and Material state instead of constructing boxes, merging vertices and
+    // uploading a fresh geometry buffer every 0.75 s.
+    for (const kind of CREATURE_KINDS) this.#templates.set(kind, this.#buildTemplate(kind));
+
     this.#frameObserver = scene.onBeforeRenderObservable.add(() => {
       this.#flushPending();
       this.#updateModels();
     });
-    // Existing persistent entities need one startup scan. New entities are
-    // event-driven afterwards; we never rescan scene.meshes every render frame.
     for (const mesh of scene.meshes) this.#queue(mesh);
   }
 
@@ -302,7 +392,13 @@ export class CreatureVisualRuntime {
     this.#pending.clear();
     for (const model of this.#models.values()) model.root.dispose(false, false);
     this.#models.clear();
-    for (const sharedMaterial of this.#materials.values()) sharedMaterial.dispose(false, false);
+    for (const templates of this.#templates.values()) {
+      for (const template of templates.values()) template.dispose(false, false);
+    }
+    this.#templates.clear();
+    for (const sharedMaterial of this.#materials.values()) {
+      sharedMaterial.dispose(false, false);
+    }
     this.#materials.clear();
   }
 
@@ -311,7 +407,7 @@ export class CreatureVisualRuntime {
     const match = BODY_PATTERN.exec(abstractMesh.name);
     const kind = match?.groups?.kind;
     if (kind === undefined || !isCreatureKind(kind)) return;
-    if (this.#models.has(abstractMesh)) return;
+    if (this.#models.has(abstractMesh) || this.#pending.has(abstractMesh)) return;
     this.#pending.add(abstractMesh);
   }
 
@@ -326,6 +422,35 @@ export class CreatureVisualRuntime {
     );
     this.#materials.set(key, created);
     return created;
+  }
+
+  #buildTemplate(kind: CreatureKind): Map<MaterialRole, Mesh> {
+    const templates = new Map<MaterialRole, Mesh>();
+    const groups = buildParts(this.#scene, kind, 'template');
+    for (const role of MATERIAL_ROLES) {
+      const merged = mergeTemplateGroup(
+        groups[role],
+        `creature-template-${kind}-${role}`,
+        this.#material(kind, role),
+      );
+      if (merged !== null) templates.set(role, merged);
+    }
+    return templates;
+  }
+
+  #cloneTemplate(kind: CreatureKind, root: TransformNode, bodyName: string): void {
+    const templates = this.#templates.get(kind);
+    if (templates === undefined) return;
+    for (const [role, template] of templates) {
+      const clone = template.clone(`${bodyName}-${role}`, root);
+      if (clone === null) continue;
+      clone.position.set(0, 0, 0);
+      clone.rotation.set(0, 0, 0);
+      clone.scaling.set(1, 1, 1);
+      clone.material = template.material;
+      clone.isPickable = false;
+      clone.isVisible = true;
+    }
   }
 
   #flushPending(): void {
@@ -346,11 +471,7 @@ export class CreatureVisualRuntime {
       try {
         const root = new TransformNode(`upgraded-${body.name}`, this.#scene);
         root.parent = parent;
-        const groups = buildParts(this.#scene, kind, String(body.uniqueId));
-        mergeGroup(root, groups.primary, `${body.name}-primary`, this.#material(kind, 'primary'));
-        mergeGroup(root, groups.secondary, `${body.name}-secondary`, this.#material(kind, 'secondary'));
-        mergeGroup(root, groups.detail, `${body.name}-detail`, this.#material(kind, 'detail'));
-        mergeGroup(root, groups.dark, `${body.name}-dark`, this.#material(kind, 'dark'));
+        this.#cloneTemplate(kind, root, body.name);
         this.#models.set(body, {
           sourceBody: body,
           root,
@@ -390,9 +511,6 @@ export class CreatureVisualRuntime {
       const hurt = body.material?.name.startsWith('hurt-') === true;
 
       if (hurt && !model.wasHurt) {
-        // ClassicEntityManager applies gameplay knockback immediately. Keep the
-        // rendered model at its old horizontal position for one frame, then ease
-        // it through a short upward arc so hits read like a physical bounce.
         if (travel > 0.03) {
           model.correctionX = -deltaX;
           model.correctionZ = -deltaZ;
