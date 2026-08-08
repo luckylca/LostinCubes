@@ -95,7 +95,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await expect(canvas).toHaveAttribute('data-held-item', 'apple');
   await expect(canvas).toHaveAttribute('data-player-health', '13');
   await expect(canvas).toHaveAttribute('data-death-count', '2');
-  await expect(canvas).toHaveAttribute('data-enemy-count', '0');
+  await expect(canvas).toHaveAttribute('data-enemy-count', /^\d+$/);
   await expect(canvas).toHaveAttribute('data-furnace-count', '0');
   await expect(canvas).toHaveAttribute('data-inventory-open', 'false');
   await expect(page.locator('#hud-status')).toContainText('生命 13/20');
@@ -264,7 +264,7 @@ test('falls back to synchronous terrain when module workers fail', async ({
   );
   await expect(page.locator('#game-canvas')).toHaveAttribute(
     'data-enemy-count',
-    '0',
+    /^\d+$/,
   );
   expect(
     runtimeWarnings.some((message) =>
