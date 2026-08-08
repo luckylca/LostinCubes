@@ -1,4 +1,4 @@
-import { NullEngine, Scene } from '@babylonjs/core';
+import { NullEngine, Scene, StandardMaterial } from '@babylonjs/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { NightStalkerManager } from '../src/entities/NightStalkerManager';
 import type { PlayerState } from '../src/game/session/GameSession';
@@ -70,7 +70,7 @@ describe('NightStalkerManager unified facade', () => {
     manager.dispose();
   });
 
-  it('keeps the legacy body visible until the multipart model can attach', () => {
+  it('replaces the legacy collider with a complete lit multipart body', () => {
     const engine = new NullEngine();
     engines.push(engine);
     const scene = new Scene(engine);
@@ -91,6 +91,23 @@ describe('NightStalkerManager unified facade', () => {
       scene.transformNodes.some((node) => node.name.startsWith('upgraded-body-')),
     ).toBe(true);
     expect(sourceBody?.isVisible).toBe(false);
+
+    const torso = scene.meshes.find((mesh) => mesh.name.endsWith('-torso'));
+    expect(torso).toBeDefined();
+    const torsoMaterial = torso?.material;
+    expect(torsoMaterial).toBeInstanceOf(StandardMaterial);
+    if (torsoMaterial instanceof StandardMaterial) {
+      expect(
+        torsoMaterial.diffuseColor.r +
+          torsoMaterial.diffuseColor.g +
+          torsoMaterial.diffuseColor.b,
+      ).toBeGreaterThan(0.2);
+      expect(
+        torsoMaterial.emissiveColor.r +
+          torsoMaterial.emissiveColor.g +
+          torsoMaterial.emissiveColor.b,
+      ).toBeGreaterThan(0);
+    }
     manager.dispose();
   });
 
