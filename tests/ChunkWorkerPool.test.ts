@@ -44,6 +44,28 @@ class RuntimeFailingWorker {
   }
 }
 
+class ControlledWorker {
+  public static instances: ControlledWorker[] = [];
+  public readonly posted: unknown[] = [];
+  public terminated = false;
+
+  public constructor() {
+    ControlledWorker.instances.push(this);
+  }
+
+  public addEventListener(): void {
+    // This fake only records scheduling; it never completes a build.
+  }
+
+  public postMessage(message: unknown): void {
+    this.posted.push(message);
+  }
+
+  public terminate(): void {
+    this.terminated = true;
+  }
+}
+
 describe('ChunkWorkerPool', () => {
   it('replaces an older build with the same stable job key', async () => {
     const pool = new ChunkWorkerPool(1);
@@ -79,6 +101,37 @@ describe('ChunkWorkerPool', () => {
     expect(await removedResult).toBeInstanceOf(ChunkBuildCancelledError);
     await expect(retained).resolves.toMatchObject({ chunkX: 1 });
     pool.dispose();
+  });
+
+  it('preempts an in-flight background build for an urgent edit', async () => {
+    ControlledWorker.instances = [];
+    const pool = new ChunkWorkerPool(
+      1,
+      () => new ControlledWorker() as unknown as Worker,
+    );
+    const background = pool
+      .buildChunk(
+        { ...BUILD_INPUT, chunkX: 7 },
+        { jobKey: 'background', priority: 700 },
+      )
+      .catch(() => null);
+
+    const firstWorker = ControlledWorker.instances[0];
+    expect(firstWorker?.posted).toHaveLength(1);
+
+    const urgent = pool
+      .buildChunk(BUILD_INPUT, { jobKey: 'edited', priority: -10_000 })
+      .catch(() => null);
+
+    expect(firstWorker?.terminated).toBe(true);
+    expect(ControlledWorker.instances).toHaveLength(2);
+    expect(ControlledWorker.instances[1]?.posted[0]).toMatchObject({
+      chunkX: 0,
+      chunkZ: 0,
+    });
+
+    pool.dispose();
+    await Promise.all([background, urgent]);
   });
 
   it('continues synchronously when a runtime worker error occurs', async () => {
