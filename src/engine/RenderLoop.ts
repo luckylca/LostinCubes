@@ -57,8 +57,15 @@ export class RenderLoop {
 
   readonly #frame = (): void => {
     const frameSeconds = this.#engine.getDeltaTime() / 1000;
-    this.#hooks.beforeFrame();
+    let inputPrepared = false;
     this.#clock.advance(frameSeconds, (stepSeconds, tick) => {
+      if (!inputPrepared) {
+        // InputManager accumulates mouse deltas and edge pulses between polls.
+        // Poll only when a fixed step is about to consume the command so a
+        // render-only engine frame cannot clear and overwrite those deltas.
+        this.#hooks.beforeFrame();
+        inputPrepared = true;
+      }
       this.#hooks.fixedUpdate(stepSeconds, tick);
     });
 
