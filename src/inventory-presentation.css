@@ -1,0 +1,118 @@
+.inventory-layout {
+  grid-template-columns: minmax(12rem, .62fr) minmax(30rem, 1.55fr);
+}
+
+.player-equipment-panel {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  padding: .8rem;
+  border: 1px solid rgb(225 255 231 / 12%);
+  border-radius: .55rem;
+  background: rgb(7 16 10 / 46%);
+}
+.player-equipment-panel h3 { margin:0 0 .65rem;color:#dcecdf;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase; }
+.inventory-avatar {
+  position: relative;
+  width: 7.5rem;
+  height: 11rem;
+  margin: .2rem auto .8rem;
+  perspective: 20rem;
+  transform: rotateY(-8deg);
+}
+.inventory-avatar span { position:absolute;display:block;box-sizing:border-box; }
+.avatar-head { left:2.55rem;top:.35rem;width:2.4rem;height:2.4rem;background:linear-gradient(135deg,#d7a77d,#a87758);border:.12rem solid #241b16; }
+.avatar-head::before { content:"";position:absolute;left:.38rem;right:.38rem;top:.82rem;height:.22rem;background:linear-gradient(90deg,#1b1d20 0 26%,transparent 27% 73%,#1b1d20 74%); }
+.avatar-body { left:2.25rem;top:2.85rem;width:3rem;height:3.75rem;background:linear-gradient(90deg,#416b83,#31556c);border:.12rem solid #1a242a; }
+.avatar-arm { top:2.95rem;width:1.08rem;height:4rem;background:linear-gradient(#d2a078 0 34%,#416b83 35% 100%);border:.1rem solid #202525; }
+.avatar-arm-l { left:1.12rem;transform:rotate(4deg); }
+.avatar-arm-r { right:1.12rem;transform:rotate(-4deg); }
+.avatar-leg { top:6.55rem;width:1.34rem;height:4.05rem;background:linear-gradient(#383d69 0 72%,#26272b 73%);border:.1rem solid #202025; }
+.avatar-leg-l { left:2.28rem; }
+.avatar-leg-r { right:2.28rem; }
+.avatar-armor { opacity:0;pointer-events:none; }
+.avatar-helmet { left:2.38rem;top:.17rem;width:2.74rem;height:2rem;border:.22rem solid #c6cecb;border-bottom:0;border-radius:.32rem .32rem .1rem .1rem; }
+.avatar-chest { left:2.05rem;top:2.68rem;width:3.4rem;height:2.8rem;background:linear-gradient(135deg,#dde2df,#929b98);clip-path:polygon(15% 0,35% 13%,65% 13%,85% 0,100% 20%,84% 39%,75% 100%,25% 100%,16% 39%,0 20%); }
+.avatar-legs { left:2.18rem;top:5.4rem;width:3.15rem;height:3.4rem;border:.3rem solid #aab3b0;border-top-width:.5rem;border-bottom:0;clip-path:polygon(0 0,100% 0,90% 100%,62% 100%,50% 38%,38% 100%,10% 100%); }
+.avatar-boots { left:2.15rem;top:9.35rem;width:1.55rem;height:1.35rem;background:#99a4a0;box-shadow:1.68rem 0 0 #99a4a0; }
+.inventory-avatar.wearing-head .avatar-helmet,
+.inventory-avatar.wearing-chest .avatar-chest,
+.inventory-avatar.wearing-legs .avatar-legs,
+.inventory-avatar.wearing-feet .avatar-boots { opacity:1; }
+.equipment-slots { display:grid;grid-template-columns:repeat(2,1fr);gap:.35rem; }
+.equipment-slot { position:relative;display:grid;grid-template-columns:auto 2.1rem;align-items:center;gap:.35rem;min-height:2.6rem;padding:.28rem .4rem;border:1px solid rgb(255 255 255 / 12%);border-radius:.35rem;background:rgb(0 0 0 / 22%);color:#929d94; }
+.equipment-slot.is-equipped { color:#e7eee6;border-color:rgb(198 226 190 / 35%); }
+.equipment-slot-label { font-size:.66rem; }
+.equipment-icon { width:1.55rem;height:1.55rem; }
+.equipment-help { margin:.55rem 0 0;color:#879487;font-size:.64rem;line-height:1.4; }
+
+.inventory-layout > .crafting-book {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: start;
+  min-width: 0;
+  margin: .55rem 0 0;
+  padding: .72rem .85rem;
+  border: 1px solid rgb(225 255 231 / 12%);
+  border-radius: .55rem;
+  background: rgb(7 16 10 / 54%);
+}
+.inventory-layout > .inventory-content {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+}
+.crafting-book > .recipe-drawer-toggle {
+  display: block;
+  width: 100%;
+  min-height: 2.15rem;
+  padding: .25rem 0;
+  border: 0;
+  color: #dcecdf;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+.crafting-book > .recipe-drawer-toggle::after {
+  content: '＋';
+  float: right;
+  color: #9fbaa3;
+}
+.crafting-book > .recipe-drawer-toggle[aria-expanded='true']::after {
+  content: '－';
+}
+.crafting-book > .recipe-drawer-content[hidden] {
+  display: none !important;
+}
+.crafting-book > .recipe-drawer-content {
+  margin-top: .55rem;
+}
+.crafting-book > .recipe-drawer-content > .recipe-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width:850px) {
+  .inventory-layout { grid-template-columns:1fr; }
+  .player-equipment-panel {
+    grid-column: 1;
+    grid-row: auto;
+    display:grid;
+    grid-template-columns:9rem 1fr;
+    align-items:center;
+  }
+  .inventory-layout > .crafting-book,
+  .inventory-layout > .inventory-content {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .player-equipment-panel h3,.equipment-help { grid-column:1/-1; }
+  .inventory-avatar { margin:.2rem auto;transform:scale(.78) rotateY(-8deg);transform-origin:center; }
+}
+@media (max-width:560px) {
+  .player-equipment-panel { grid-template-columns:1fr; }
+  .crafting-book > .recipe-drawer-content > .recipe-list { grid-template-columns:1fr; }
+}

@@ -127,10 +127,49 @@
           </header>
           <p class="inventory-message" data-inventory-message>左键整组，右键半组或单个。</p>
           <div class="inventory-layout">
-            <section class="crafting-book" aria-label="合成区域与配方书">
-              <h3>真实合成与配方书</h3>
-              <div class="recipe-list" data-crafting-recipes></div>
+            <section class="player-equipment-panel" aria-label="人物与装备">
+              <h3>人物 / 装备</h3>
+              <div class="inventory-avatar" data-player-preview aria-label="玩家模型预览">
+                <span class="avatar-head"></span>
+                <span class="avatar-body"></span>
+                <span class="avatar-arm avatar-arm-l"></span>
+                <span class="avatar-arm avatar-arm-r"></span>
+                <span class="avatar-leg avatar-leg-l"></span>
+                <span class="avatar-leg avatar-leg-r"></span>
+                <span class="avatar-armor avatar-helmet"></span>
+                <span class="avatar-armor avatar-chest"></span>
+                <span class="avatar-armor avatar-legs"></span>
+                <span class="avatar-armor avatar-boots"></span>
+              </div>
+              <div class="equipment-slots">
+                <div class="equipment-slot" data-equipment-role="head" title="头盔">
+                  <span class="equipment-slot-label">头盔</span>
+                  <span class="equipment-icon inventory-item item-empty"></span>
+                </div>
+                <div class="equipment-slot" data-equipment-role="chest" title="胸甲">
+                  <span class="equipment-slot-label">胸甲</span>
+                  <span class="equipment-icon inventory-item item-empty"></span>
+                </div>
+                <div class="equipment-slot" data-equipment-role="legs" title="护腿">
+                  <span class="equipment-slot-label">护腿</span>
+                  <span class="equipment-icon inventory-item item-empty"></span>
+                </div>
+                <div class="equipment-slot" data-equipment-role="feet" title="靴子">
+                  <span class="equipment-slot-label">靴子</span>
+                  <span class="equipment-icon inventory-item item-empty"></span>
+                </div>
+              </div>
+              <p class="equipment-help">当前护甲会映射到对应装备位并显示在人物身上。</p>
             </section>
+
+            <section class="crafting-book recipe-drawer" aria-label="合成区域与配方书">
+              <h3 hidden>真实合成与配方书</h3>
+              <button type="button" class="recipe-drawer-toggle" aria-expanded="false">配方书</button>
+              <div class="recipe-drawer-content" hidden>
+                <div class="recipe-list" data-crafting-recipes></div>
+              </div>
+            </section>
+
             <section class="inventory-content" aria-label="玩家物品">
               <h3>储物栏</h3>
               <div class="inventory-grid inventory-storage" data-inventory-storage></div>

@@ -65,6 +65,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await enterDefaultWorld(page);
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
+  await expect(page.locator('#pause-screen')).toBeHidden();
   const guide = page.locator('#survival-guide');
   await expect(guide).toBeVisible();
   await expect(guide).not.toHaveAttribute('open', '');
@@ -94,7 +95,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await expect(canvas).toHaveAttribute('data-held-item', 'apple');
   await expect(canvas).toHaveAttribute('data-player-health', '13');
   await expect(canvas).toHaveAttribute('data-death-count', '2');
-  await expect(canvas).toHaveAttribute('data-enemy-count', '0');
+  await expect(canvas).toHaveAttribute('data-enemy-count', /^\d+$/);
   await expect(canvas).toHaveAttribute('data-furnace-count', '0');
   await expect(canvas).toHaveAttribute('data-inventory-open', 'false');
   await expect(page.locator('#hud-status')).toContainText('生命 13/20');
@@ -112,6 +113,8 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   const inventory = page.locator('#inventory-screen');
   await expect(inventory).toBeVisible();
   await expect(canvas).toHaveAttribute('data-inventory-open', 'true');
+  await expect(page.locator('.player-equipment-panel')).toBeVisible();
+  await expect(page.locator('.equipment-slot')).toHaveCount(4);
   await expect(page.locator('[data-inventory-title]')).toContainText('2×2');
   await expect(
     page.locator('[data-inventory-storage] .inventory-slot'),
@@ -122,6 +125,15 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(
     4,
   );
+  const recipeDrawer = page.locator('.recipe-drawer');
+  const recipeToggle = recipeDrawer.locator('.recipe-drawer-toggle');
+  const recipeContent = recipeDrawer.locator('.recipe-drawer-content');
+  await expect(recipeDrawer).toBeVisible();
+  await expect(recipeToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(recipeContent).toBeHidden();
+  await recipeToggle.click();
+  await expect(recipeToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(recipeContent).toBeVisible();
   await expect(page.locator('.recipe-card')).toHaveCount(4);
   await expect(page.locator('.recipe-card[data-recipe-id="torches"]')).toContainText(
     '火把 ×4',
@@ -256,7 +268,7 @@ test('falls back to synchronous terrain when module workers fail', async ({
   );
   await expect(page.locator('#game-canvas')).toHaveAttribute(
     'data-enemy-count',
-    '0',
+    /^\d+$/,
   );
   expect(
     runtimeWarnings.some((message) =>

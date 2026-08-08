@@ -1,5 +1,5 @@
-import { TransformNode } from '@babylonjs/core';
-import type { Scene } from '@babylonjs/core';
+import { Mesh, TransformNode } from '@babylonjs/core';
+import type { AbstractMesh, Observer, Scene } from '@babylonjs/core';
 import type { PlayerState, VectorState } from '../game/session/GameSession';
 import type { ItemType } from '../inventory/ItemDefinitions';
 import type { PlayerVector } from '../player/KinematicPlayerMotor';
@@ -15,7 +15,9 @@ installBlockRegistryBlastAlias();
 
 const PLAYER_COMBAT_COOLDOWN_SECONDS = 0.5;
 const CREATURE_AMBIENT_INTERVAL_SECONDS = 4.2;
+const ENTITY_SIMULATION_STEP_SECONDS = 1 / 30;
 const BODY_PATTERN = /^body-(?<kind>zombie|skeleton|spider|creeper|cow|pig|sheep)-/;
+const BATCHED_BODY_SUFFIX = /-(?:primary|secondary|detail|dark)$/;
 const CREATURE_COLLISION: Readonly<Record<string, readonly [radius: number, halfHeight: number]>> = {
   zombie: [0.38, 0.9],
   skeleton: [0.34, 0.9],
@@ -52,13 +54,21 @@ function browserStorage(): Storage | null {
   }
 }
 
+function isSourceCreatureBody(mesh: Mesh): boolean {
+  return BODY_PATTERN.test(mesh.name) && !BATCHED_BODY_SUFFIX.test(mesh.name);
+}
+
 export class NightStalkerManager {
   readonly #scene: Scene;
   readonly #entities: ClassicEntityManager;
   readonly #visuals: CreatureVisualRuntime;
   readonly #onMonsterAmbient: (() => void) | undefined;
+  readonly #collisionBodies = new Set<Mesh>();
+  readonly #meshObserver: Observer<AbstractMesh>;
   #combatCooldown = 0;
   #ambientElapsed = 0;
+  #entityAccumulator = 0;
+  #lastObservedSceneMeshCount = 0;
 
   public constructor(
     scene: Scene,
@@ -67,6 +77,10 @@ export class NightStalkerManager {
   ) {
     this.#scene = scene;
     this.#onMonsterAmbient = callbacks.onMonsterAmbient;
+    this.#meshObserver = scene.onNewMeshAddedObservable.add((mesh) => {
+      this.#registerCollisionBody(mesh);
+    });
+    for (const mesh of scene.meshes) this.#registerCollisionBody(mesh);
     this.#visuals = new CreatureVisualRuntime(scene);
     this.#entities = new ClassicEntityManager(
       scene,
@@ -80,28 +94,33 @@ export class NightStalkerManager {
         onBlockChanged: callbacks.onBlockChanged,
       },
     );
+    this.#lastObservedSceneMeshCount = scene.meshes.length;
   }
 
   public update(player: PlayerState, dayTime: number, stepSeconds: number): void {
-    if (Number.isFinite(stepSeconds) && stepSeconds > 0) {
-      this.#combatCooldown = Math.max(this.#combatCooldown - stepSeconds, 0);
-      if (this.hostileCount > 0 && !player.paused) {
-        this.#ambientElapsed += stepSeconds;
-        if (this.#ambientElapsed >= CREATURE_AMBIENT_INTERVAL_SECONDS) {
-          this.#ambientElapsed %= CREATURE_AMBIENT_INTERVAL_SECONDS;
-          this.#onMonsterAmbient?.();
-        }
-      } else {
-        this.#ambientElapsed = 0;
+    if (!Number.isFinite(stepSeconds) || stepSeconds <= 0) return;
+    this.#combatCooldown = Math.max(this.#combatCooldown - stepSeconds, 0);
+    if (this.hostileCount > 0 && !player.paused) {
+      this.#ambientElapsed += stepSeconds;
+      if (this.#ambientElapsed >= CREATURE_AMBIENT_INTERVAL_SECONDS) {
+        this.#ambientElapsed %= CREATURE_AMBIENT_INTERVAL_SECONDS;
+        this.#onMonsterAmbient?.();
       }
+    } else {
+      this.#ambientElapsed = 0;
     }
-    this.#entities.update(player, dayTime, stepSeconds);
+
+    this.#entityAccumulator += stepSeconds;
+    if (this.#entityAccumulator + Number.EPSILON < ENTITY_SIMULATION_STEP_SECONDS) {
+      return;
+    }
+    const entityStepSeconds = this.#entityAccumulator;
+    this.#entityAccumulator = 0;
+    this.#entities.update(player, dayTime, entityStepSeconds);
+    this.#refreshCreatureRegistrationsIfNeeded();
   }
 
-  public attack(
-    player: PlayerState,
-    heldItem: ItemType | null,
-  ): PlayerAttackResult {
+  public attack(player: PlayerState, heldItem: ItemType | null): PlayerAttackResult {
     if (this.#combatCooldown > 0) {
       return { hit: false, killed: false, damage: 0 };
     }
@@ -122,17 +141,16 @@ export class NightStalkerManager {
     playerRadius = 0.34,
     playerHalfHeight = 0.9,
   ): boolean {
-    for (const mesh of this.#scene.meshes) {
+    this.#refreshCreatureRegistrationsIfNeeded();
+    for (const mesh of this.#collisionBodies) {
+      if (mesh.isDisposed()) {
+        this.#collisionBodies.delete(mesh);
+        continue;
+      }
       const match = BODY_PATTERN.exec(mesh.name);
       const kind = match?.groups?.kind;
       const parent = mesh.parent;
-      if (
-        kind === undefined ||
-        !(parent instanceof TransformNode) ||
-        mesh.isDisposed()
-      ) {
-        continue;
-      }
+      if (kind === undefined || !(parent instanceof TransformNode)) continue;
       const collision = CREATURE_COLLISION[kind];
       if (collision === undefined) continue;
       const root = parent.getAbsolutePosition();
@@ -141,9 +159,7 @@ export class NightStalkerManager {
         position.z - root.z,
       );
       if (horizontalDistance >= playerRadius + collision[0]) continue;
-      if (Math.abs(position.y - root.y) >= playerHalfHeight + collision[1]) {
-        continue;
-      }
+      if (Math.abs(position.y - root.y) >= playerHalfHeight + collision[1]) continue;
       return false;
     }
     return true;
@@ -170,7 +186,28 @@ export class NightStalkerManager {
   }
 
   public dispose(): void {
+    this.#scene.onNewMeshAddedObservable.remove(this.#meshObserver);
+    this.#collisionBodies.clear();
     this.#visuals.dispose();
     this.#entities.dispose();
+  }
+
+  #registerCollisionBody(abstractMesh: AbstractMesh): void {
+    if (!(abstractMesh instanceof Mesh)) return;
+    if (!isSourceCreatureBody(abstractMesh)) return;
+    this.#collisionBodies.add(abstractMesh);
+  }
+
+  #refreshCreatureRegistrationsIfNeeded(): void {
+    const currentMeshCount = this.#scene.meshes.length;
+    if (currentMeshCount === this.#lastObservedSceneMeshCount) return;
+    this.#lastObservedSceneMeshCount = currentMeshCount;
+
+    for (const abstractMesh of this.#scene.meshes) {
+      if (!(abstractMesh instanceof Mesh)) continue;
+      if (!isSourceCreatureBody(abstractMesh)) continue;
+      this.#collisionBodies.add(abstractMesh);
+      this.#scene.onNewMeshAddedObservable.notifyObservers(abstractMesh);
+    }
   }
 }

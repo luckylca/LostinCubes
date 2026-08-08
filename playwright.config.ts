@@ -3,7 +3,9 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/browser',
   testMatch: '**/*.e2e.ts',
-  timeout: 60_000,
+  // World readiness still has its own strict 45 s assertion. The suite timeout
+  // also has to cover the subsequent inventory, crafting, and camera checks.
+  timeout: 120_000,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

@@ -93,7 +93,7 @@ describe('NightStalkerManager unified facade', () => {
     manager.dispose();
   });
 
-  it('replaces the legacy collider with a complete lit multipart body', () => {
+  it('replaces the legacy collider with a compact lit batched body', () => {
     const engine = new NullEngine();
     engines.push(engine);
     const scene = new Scene(engine);
@@ -115,26 +115,29 @@ describe('NightStalkerManager unified facade', () => {
     ).toBe(true);
     expect(sourceBody?.isVisible).toBe(false);
 
-    const torso = scene.meshes.find((mesh) => mesh.name.endsWith('-torso'));
-    expect(torso).toBeDefined();
-    const torsoMaterial = torso?.material;
-    expect(torsoMaterial).toBeInstanceOf(StandardMaterial);
-    if (torsoMaterial instanceof StandardMaterial) {
+    const batchedMeshes = scene.meshes.filter(
+      (mesh) => sourceBody !== undefined && mesh.name.startsWith(`${sourceBody.name}-`),
+    );
+    expect(batchedMeshes.length).toBeGreaterThanOrEqual(2);
+    expect(batchedMeshes.length).toBeLessThanOrEqual(4);
+    const material = batchedMeshes[0]?.material;
+    expect(material).toBeInstanceOf(StandardMaterial);
+    if (material instanceof StandardMaterial) {
       expect(
-        torsoMaterial.diffuseColor.r +
-          torsoMaterial.diffuseColor.g +
-          torsoMaterial.diffuseColor.b,
+        material.diffuseColor.r +
+          material.diffuseColor.g +
+          material.diffuseColor.b,
       ).toBeGreaterThan(0.2);
       expect(
-        torsoMaterial.emissiveColor.r +
-          torsoMaterial.emissiveColor.g +
-          torsoMaterial.emissiveColor.b,
+        material.emissiveColor.r +
+          material.emissiveColor.g +
+          material.emissiveColor.b,
       ).toBeGreaterThan(0);
     }
     manager.dispose();
   });
 
-  it('gives skeletons a visible held bow, bowstring, arrow and face details', () => {
+  it('batches skeleton bow, arrow and face detail into a few visible material groups', () => {
     const engine = new NullEngine();
     engines.push(engine);
     const scene = new Scene(engine);
@@ -146,31 +149,21 @@ describe('NightStalkerManager unified facade', () => {
     advance(manager, createPlayer(), 0.9, 1.7);
     scene.onBeforeRenderObservable.notifyObservers(scene);
 
-    expect(
-      scene.meshes.some(
-        (mesh) =>
-          mesh.name.includes('skeleton-') && mesh.name.includes('-bow-upper'),
-      ),
-    ).toBe(true);
-    expect(
-      scene.meshes.some(
-        (mesh) =>
-          mesh.name.includes('skeleton-') && mesh.name.includes('-bow-string'),
-      ),
-    ).toBe(true);
-    expect(
-      scene.meshes.some(
-        (mesh) =>
-          mesh.name.includes('skeleton-') &&
-          mesh.name.includes('-held-arrow-shaft'),
-      ),
-    ).toBe(true);
-    expect(
-      scene.meshes.some(
-        (mesh) =>
-          mesh.name.includes('skeleton-') && mesh.name.includes('-mouth'),
-      ),
-    ).toBe(true);
+    const skeletonBody = scene.meshes.find((mesh) =>
+      mesh.name.startsWith('body-skeleton-'),
+    );
+    expect(skeletonBody).toBeDefined();
+    expect(skeletonBody?.isVisible).toBe(false);
+    if (skeletonBody !== undefined) {
+      const prefix = `${skeletonBody.name}-`;
+      expect(scene.meshes.some((mesh) => mesh.name === `${prefix}primary`)).toBe(true);
+      expect(scene.meshes.some((mesh) => mesh.name === `${prefix}secondary`)).toBe(true);
+      expect(scene.meshes.some((mesh) => mesh.name === `${prefix}detail`)).toBe(true);
+      expect(scene.meshes.some((mesh) => mesh.name === `${prefix}dark`)).toBe(true);
+      expect(
+        scene.meshes.filter((mesh) => mesh.name.startsWith(prefix)).length,
+      ).toBeLessThanOrEqual(4);
+    }
     manager.dispose();
   });
 
