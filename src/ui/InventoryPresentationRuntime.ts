@@ -80,7 +80,7 @@ function ensureRecipeDrawer(root: HTMLElement): void {
   if (recipeList === null) return;
 
   const originalHeading = book.querySelector<HTMLElement>(':scope > h3');
-  if (originalHeading !== null) originalHeading.hidden = true;
+  originalHeading?.setAttribute('hidden', '');
 
   const toggle = document.createElement('button');
   toggle.type = 'button';
