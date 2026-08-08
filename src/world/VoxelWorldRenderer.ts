@@ -232,9 +232,8 @@ export class VoxelWorldRenderer {
     if (this.#disposed) return;
     for (let index = 0; index < initialTargets.length; index += 1) {
       const target = initialTargets[index];
-      const response = responses[index];
-      if (target !== undefined && response !== undefined) {
-        this.#applyChunk(target.key, target.revision, response);
+      if (target !== undefined) {
+        this.#applyChunk(target.key, target.revision, responses[index]);
       }
     }
     this.#scheduleMissingChunks();
