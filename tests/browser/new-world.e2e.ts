@@ -27,6 +27,16 @@ test('creates a fresh world and starts its chunk renderer cleanly', async ({
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
 
+  // Desktop HUD intentionally hides chunk diagnostics until pointer lock is
+  // active. Enter gameplay before asserting the renderer statistics.
+  const canvas = page.locator('#game-canvas');
+  await canvas.click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.pointerLockElement?.id ?? ''),
+    )
+    .toBe('game-canvas');
+
   const status = page.locator('#hud-status');
   await expect(status).toContainText('区块');
   await expect(status).toContainText('四边形');
