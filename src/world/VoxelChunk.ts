@@ -2,6 +2,8 @@ import type { BlockType } from './BlockType';
 
 export const CHUNK_SIZE = 16;
 export const CHUNK_HEIGHT = 32;
+export const CHUNK_SECTION_HEIGHT = 8;
+export const CHUNK_SECTION_COUNT = CHUNK_HEIGHT / CHUNK_SECTION_HEIGHT;
 export const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
 
 function assertInteger(value: number, label: string): void {
@@ -35,6 +37,16 @@ export function worldToLocalCoordinate(worldCoordinate: number): number {
     return 0;
   }
   return remainder < 0 ? remainder + CHUNK_SIZE : remainder;
+}
+
+export function worldYToSectionIndex(worldY: number): number {
+  assertInteger(worldY, 'worldY');
+  if (worldY < 0 || worldY >= CHUNK_HEIGHT) {
+    throw new RangeError(
+      `worldY must be between 0 and ${String(CHUNK_HEIGHT - 1)}.`,
+    );
+  }
+  return Math.floor(worldY / CHUNK_SECTION_HEIGHT);
 }
 
 export function createChunkKey(chunkX: number, chunkZ: number): string {

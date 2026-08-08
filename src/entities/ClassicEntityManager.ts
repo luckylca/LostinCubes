@@ -46,6 +46,8 @@ const MAXIMUM_SPAWN_RADIUS = 20;
 const DESPAWN_RADIUS = 46;
 const PLAYER_ATTACK_REACH = 3.25;
 const PLAYER_ATTACK_COOLDOWN_SECONDS = 0.5;
+const PLAYER_MELEE_KNOCKBACK_DISTANCE = 0.78;
+const ENTITY_KNOCKBACK_LOCK_SECONDS = 0.2;
 const ATTACK_HITBOX_PADDING = 0.12;
 const ATTACK_OCCLUSION_STEP = 0.12;
 const ARROW_GRAVITY = 7.2;
@@ -55,6 +57,11 @@ const CREEPER_FUSE_SECONDS = 1.5;
 const EXPLOSION_RADIUS = 3.4;
 const EXPLOSION_VISUAL_SECONDS = 0.58;
 const DAYLIGHT_BURN_DAMAGE_PER_SECOND = 2;
+const SKELETON_TURN_SPEED_RADIANS_PER_SECOND = 4.8;
+const SKELETON_FIRE_ALIGNMENT_RADIANS = 0.2;
+const CREATURE_MAXIMUM_STEP_HEIGHT = 1.05;
+const CREATURE_STEP_RISE_SPEED = 4.8;
+const CREATURE_DOWNWARD_SPEED = 5.5;
 
 interface KindDefinition {
   readonly health: number;
@@ -218,6 +225,23 @@ function distanceSquared(a: EntityVector, b: EntityVector): number {
   const y = a.y - b.y;
   const z = a.z - b.z;
   return x * x + y * y + z * z;
+}
+
+export function normalizeAngle(angle: number): number {
+  let normalized = angle % (Math.PI * 2);
+  if (normalized > Math.PI) normalized -= Math.PI * 2;
+  if (normalized < -Math.PI) normalized += Math.PI * 2;
+  return normalized;
+}
+
+export function turnAngleToward(
+  current: number,
+  target: number,
+  maximumDelta: number,
+): number {
+  const difference = normalizeAngle(target - current);
+  if (Math.abs(difference) <= maximumDelta) return target;
+  return normalizeAngle(current + Math.sign(difference) * maximumDelta);
 }
 
 function hostileDefinition(kind: EntityKind): KindDefinition | null {
@@ -419,8 +443,8 @@ export class ClassicEntityManager {
     const killed = this.#damageEntity(
       target.id,
       damage,
-      direction.x * 0.34,
-      direction.z * 0.34,
+      direction.x * PLAYER_MELEE_KNOCKBACK_DISTANCE,
+      direction.z * PLAYER_MELEE_KNOCKBACK_DISTANCE,
     );
     this.#callbacks.onEntityHit?.(damage, killed);
     return { hit: true, killed, damage };
@@ -536,6 +560,22 @@ export class ClassicEntityManager {
     return false;
   }
 
+  #hasLineOfSight(origin: EntityVector, target: EntityVector): boolean {
+    const delta = {
+      x: target.x - origin.x,
+      y: target.y - origin.y,
+      z: target.z - origin.z,
+    };
+    const distance = Math.hypot(delta.x, delta.y, delta.z);
+    if (distance <= 0.001) return true;
+    const direction = {
+      x: delta.x / distance,
+      y: delta.y / distance,
+      z: delta.z / distance,
+    };
+    return !this.#rayOccluded(origin, direction, distance);
+  }
+
   #trySpawnHostile(player: PlayerState, dayTime: number): void {
     const cycle = this.#hostileSpawnSequence;
     this.#hostileSpawnSequence += 1;
@@ -586,6 +626,8 @@ export class ClassicEntityManager {
         fuse: 0,
         burnProgress: 0,
         wanderPhase: this.#sequence * 0.73,
+        facingYaw: normalizeAngle(this.#sequence * 1.73),
+        knockbackSeconds: 0,
       },
     });
     if (entity !== null) this.#ensureVisual(entity);
@@ -624,6 +666,11 @@ export class ClassicEntityManager {
     let attackCooldown = Number(entity.state.attackCooldown ?? 0);
     let fuse = Number(entity.state.fuse ?? 0);
     let burnProgress = Number(entity.state.burnProgress ?? 0);
+    const knockbackSeconds = Math.max(
+      Number(entity.state.knockbackSeconds ?? 0) - seconds,
+      0,
+    );
+    let facingYaw = Number(entity.state.facingYaw ?? 0);
 
     if (
       (entity.kind === 'zombie' || entity.kind === 'skeleton') &&
@@ -651,46 +698,71 @@ export class ClassicEntityManager {
     let position = entity.position;
 
     if (entity.kind === 'skeleton') {
-      if (horizontalDistance < 5.5 && horizontalDistance > 0.01) {
-        position = this.#moveEntity(
-          entity,
-          -deltaX,
-          -deltaZ,
-          definition.speed * seconds,
-        );
-      } else if (horizontalDistance > 10 && horizontalDistance > 0.01) {
-        position = this.#moveEntity(
-          entity,
-          deltaX,
-          deltaZ,
-          definition.speed * seconds,
-        );
-      }
-      if (
-        horizontalDistance <= definition.attackRadius &&
-        attackCooldown <= 0 &&
-        !player.paused
-      ) {
-        this.#shootSkeletonArrow(entity, player, definition.damage);
-        attackCooldown = definition.attackCooldown;
+      const targetYaw = Math.atan2(deltaX, deltaZ);
+      facingYaw = turnAngleToward(
+        facingYaw,
+        targetYaw,
+        SKELETON_TURN_SPEED_RADIANS_PER_SECOND * seconds,
+      );
+      const alignment = Math.abs(normalizeAngle(targetYaw - facingYaw));
+      const arrowOrigin = {
+        x: entity.position.x,
+        y: entity.position.y + 0.65,
+        z: entity.position.z,
+      };
+      const playerAim = {
+        x: player.position.x,
+        y: player.position.y + 0.35,
+        z: player.position.z,
+      };
+      const canSeePlayer = this.#hasLineOfSight(arrowOrigin, playerAim);
+
+      if (knockbackSeconds <= 0) {
+        if (horizontalDistance < 5.5 && horizontalDistance > 0.01) {
+          position = this.#moveEntity(
+            entity,
+            -deltaX,
+            -deltaZ,
+            definition.speed * seconds,
+          );
+        } else if (horizontalDistance > 10 && horizontalDistance > 0.01) {
+          position = this.#moveEntity(
+            entity,
+            deltaX,
+            deltaZ,
+            definition.speed * seconds,
+          );
+        }
+        if (
+          horizontalDistance <= definition.attackRadius &&
+          alignment <= SKELETON_FIRE_ALIGNMENT_RADIANS &&
+          canSeePlayer &&
+          attackCooldown <= 0 &&
+          !player.paused
+        ) {
+          this.#shootSkeletonArrow(entity, player, definition.damage);
+          attackCooldown = definition.attackCooldown;
+        }
       }
     } else if (entity.kind === 'creeper') {
-      if (horizontalDistance <= definition.attackRadius) {
-        fuse += seconds;
-        if (fuse >= CREEPER_FUSE_SECONDS) {
-          this.#explode(entity.position, player, EXPLOSION_RADIUS, entity.id);
-          return;
+      if (knockbackSeconds <= 0) {
+        if (horizontalDistance <= definition.attackRadius) {
+          fuse += seconds;
+          if (fuse >= CREEPER_FUSE_SECONDS) {
+            this.#explode(entity.position, player, EXPLOSION_RADIUS, entity.id);
+            return;
+          }
+        } else {
+          fuse = Math.max(fuse - seconds * 1.5, 0);
+          position = this.#moveEntity(
+            entity,
+            deltaX,
+            deltaZ,
+            definition.speed * seconds,
+          );
         }
-      } else {
-        fuse = Math.max(fuse - seconds * 1.5, 0);
-        position = this.#moveEntity(
-          entity,
-          deltaX,
-          deltaZ,
-          definition.speed * seconds,
-        );
       }
-    } else {
+    } else if (knockbackSeconds <= 0) {
       if (horizontalDistance > definition.attackRadius) {
         position = this.#moveEntity(
           entity,
@@ -707,7 +779,14 @@ export class ClassicEntityManager {
     this.#registry.update(entity.id, {
       position,
       health,
-      state: { ...entity.state, attackCooldown, fuse, burnProgress },
+      state: {
+        ...entity.state,
+        attackCooldown,
+        fuse,
+        burnProgress,
+        knockbackSeconds,
+        facingYaw,
+      },
     });
   }
 
@@ -725,17 +804,24 @@ export class ClassicEntityManager {
     }
     const definition = KINDS[entity.kind as 'cow' | 'pig' | 'sheep'];
     const phase = Number(entity.state.wanderPhase ?? 0) + seconds * 0.45;
+    const knockbackSeconds = Math.max(
+      Number(entity.state.knockbackSeconds ?? 0) - seconds,
+      0,
+    );
     const directionX = Math.cos(phase * 1.7);
     const directionZ = Math.sin(phase * 1.23);
-    const position = this.#moveEntity(
-      entity,
-      directionX,
-      directionZ,
-      definition.speed * seconds * 0.42,
-    );
+    const position =
+      knockbackSeconds > 0
+        ? entity.position
+        : this.#moveEntity(
+            entity,
+            directionX,
+            directionZ,
+            definition.speed * seconds * 0.42,
+          );
     this.#registry.update(entity.id, {
       position,
-      state: { ...entity.state, wanderPhase: phase },
+      state: { ...entity.state, wanderPhase: phase, knockbackSeconds },
     });
   }
 
@@ -748,15 +834,55 @@ export class ClassicEntityManager {
     const definition = creatureDefinition(entity.kind);
     if (definition === null) return entity.position;
     const length = Math.hypot(deltaX, deltaZ);
-    if (length <= 0.001) return entity.position;
+    if (length <= 0.001 || moveDistance <= 0) return entity.position;
     const nextX = entity.position.x + (deltaX / length) * moveDistance;
     const nextZ = entity.position.z + (deltaZ / length) * moveDistance;
-    const nextY =
-      this.#world.sampleStandingY(nextX, nextZ) + definition.standingOffset;
-    if (!Number.isFinite(nextY) || Math.abs(nextY - entity.position.y) > 1.05) {
-      return entity.position;
+    const nextY = this.#sampleCreatureStandingY(nextX, nextZ, definition);
+    if (!Number.isFinite(nextY)) return entity.position;
+
+    const heightDelta = nextY - entity.position.y;
+    if (heightDelta > CREATURE_MAXIMUM_STEP_HEIGHT) return entity.position;
+
+    if (heightDelta > 0.06) {
+      const rise = Math.min(
+        heightDelta,
+        Math.max(moveDistance * CREATURE_STEP_RISE_SPEED, 0.045),
+      );
+      return {
+        x: entity.position.x,
+        y: entity.position.y + rise,
+        z: entity.position.z,
+      };
     }
-    return { x: nextX, y: nextY, z: nextZ };
+
+    const y =
+      heightDelta < -0.06
+        ? Math.max(
+            nextY,
+            entity.position.y -
+              Math.max(moveDistance * CREATURE_DOWNWARD_SPEED, 0.05),
+          )
+        : nextY;
+    return { x: nextX, y, z: nextZ };
+  }
+
+  #sampleCreatureStandingY(
+    worldX: number,
+    worldZ: number,
+    definition: KindDefinition,
+  ): number {
+    const radius = Math.max(definition.scale[0], definition.scale[2]) * 0.32;
+    const samples = [
+      this.#world.sampleStandingY(worldX, worldZ),
+      this.#world.sampleStandingY(worldX + radius, worldZ),
+      this.#world.sampleStandingY(worldX - radius, worldZ),
+      this.#world.sampleStandingY(worldX, worldZ + radius),
+      this.#world.sampleStandingY(worldX, worldZ - radius),
+    ];
+    const standingY = Math.max(...samples.filter(Number.isFinite));
+    return Number.isFinite(standingY)
+      ? standingY + definition.standingOffset
+      : Number.NaN;
   }
 
   #shootSkeletonArrow(
@@ -837,8 +963,8 @@ export class ClassicEntityManager {
         this.#damageEntity(
           target.id,
           damage,
-          velocity.x * 0.02,
-          velocity.z * 0.02,
+          velocity.x * 0.025,
+          velocity.z * 0.025,
         );
         this.#removeEntity(entity.id, false);
         return;
@@ -1011,25 +1137,23 @@ export class ClassicEntityManager {
       this.#killEntity(after);
       return true;
     }
+
+    let position = after.position;
     if (Math.abs(knockbackX) + Math.abs(knockbackZ) > 0.001) {
-      const definition = creatureDefinition(after.kind);
-      const standingOffset = definition?.standingOffset ?? 0;
-      const nextY =
-        this.#world.sampleStandingY(
-          after.position.x + knockbackX,
-          after.position.z + knockbackZ,
-        ) + standingOffset;
-      this.#registry.update(id, {
-        position: {
-          x: after.position.x + knockbackX,
-          y:
-            Math.abs(nextY - after.position.y) <= 1.1
-              ? nextY
-              : after.position.y,
-          z: after.position.z + knockbackZ,
-        },
-      });
+      position = this.#moveEntity(
+        after,
+        knockbackX,
+        knockbackZ,
+        Math.hypot(knockbackX, knockbackZ),
+      );
     }
+    this.#registry.update(id, {
+      position,
+      state: {
+        ...after.state,
+        knockbackSeconds: ENTITY_KNOCKBACK_LOCK_SECONDS,
+      },
+    });
     return false;
   }
 
@@ -1229,6 +1353,12 @@ export class ClassicEntityManager {
           entity.velocity.y,
           Math.hypot(entity.velocity.x, entity.velocity.z),
         );
+      } else if (entity.kind === 'skeleton') {
+        const facingYaw = Number(entity.state.facingYaw);
+        if (Number.isFinite(facingYaw)) visual.root.rotation.y = facingYaw;
+        visual.root.scaling.setAll(1);
+        visual.body.material =
+          visual.hurtSeconds > 0 ? visual.hurtMaterial : visual.material;
       } else if (entity.kind === 'creeper') {
         const progress = Math.min(
           Math.max(Number(entity.state.fuse ?? 0) / CREEPER_FUSE_SECONDS, 0),

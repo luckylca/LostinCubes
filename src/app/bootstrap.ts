@@ -1,3 +1,4 @@
+import './runtimeLoading.css';
 import { selectWorld } from '../ui/WorldSelectionView';
 import { setActiveRuntimeWorld } from '../world/ActiveWorldRuntime';
 import { WorldCatalog } from '../world/WorldCatalog';
@@ -10,6 +11,30 @@ function requireElement(selector: string): HTMLElement {
     throw new Error(`Required element not found: ${selector}`);
   }
   return element;
+}
+
+function ensureLoadingSpinner(loadingScreen: HTMLElement): HTMLElement {
+  const existing = document.querySelector<HTMLElement>('#loading-spinner');
+  if (existing !== null) return existing;
+  const spinner = document.createElement('div');
+  spinner.id = 'loading-spinner';
+  spinner.className = 'runtime-loading-spinner';
+  spinner.setAttribute('aria-hidden', 'true');
+  loadingScreen.append(spinner);
+  return spinner;
+}
+
+function ensureLoadingAction(loadingScreen: HTMLElement): HTMLButtonElement {
+  const existing = document.querySelector<HTMLButtonElement>('#loading-action');
+  if (existing !== null) return existing;
+  const action = document.createElement('button');
+  action.id = 'loading-action';
+  action.className = 'runtime-loading-action';
+  action.type = 'button';
+  action.textContent = '重生';
+  action.hidden = true;
+  loadingScreen.append(action);
+  return action;
 }
 
 function describeError(error: unknown): string {
@@ -47,6 +72,8 @@ export async function bootstrap(): Promise<void> {
     }
 
     const loadingScreen = requireElement('#loading-screen');
+    const loadingSpinner = ensureLoadingSpinner(loadingScreen);
+    const loadingActionElement = ensureLoadingAction(loadingScreen);
     const gameHud = requireElement('#game-hud');
     const storage = browserStorage();
     const catalog = new WorldCatalog(storage);
@@ -56,6 +83,9 @@ export async function bootstrap(): Promise<void> {
     });
     setActiveRuntimeWorld(selectedWorld);
     loadingScreen.classList.remove('is-hidden');
+    loadingScreen.classList.remove('runtime-wait', 'death-screen');
+    loadingSpinner.hidden = false;
+    loadingActionElement.hidden = true;
     document.documentElement.dataset.gameState = 'loading';
 
     const ui: GameUiElements = {
@@ -66,6 +96,10 @@ export async function bootstrap(): Promise<void> {
       hotbar: requireElement('#hotbar'),
       targetReticle: requireElement('#target-reticle'),
       inventoryRoot: requireElement('#inventory-screen'),
+      loadingScreen,
+      loadingMessage,
+      loadingSpinner,
+      loadingAction: loadingActionElement,
     };
 
     app = new GameApp(canvasElement, ui);

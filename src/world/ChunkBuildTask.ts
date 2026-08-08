@@ -2,10 +2,12 @@ import type { BlockType } from './BlockType';
 import type {
   ChunkBuildRequest,
   ChunkBuildSuccess,
+  ChunkSectionMeshPayload,
 } from './ChunkBuildProtocol';
-import { buildChunkMeshData } from './ChunkMeshBuilder';
+import { buildChunkSectionMeshData } from './ChunkMeshBuilder';
 import { ChunkVoxelCache } from './ChunkVoxelCache';
 import { TerrainGenerator } from './TerrainGenerator';
+import { CHUNK_SECTION_COUNT } from './VoxelChunk';
 import { buildChunkLightField } from './VoxelLightEngine';
 
 const GEOMETRY_CACHE_MARGIN = 1;
@@ -73,6 +75,23 @@ function getGeometryBaseCache(
   };
 }
 
+function resolveSectionIndices(request: ChunkBuildRequest): readonly number[] {
+  if (request.mode !== 'geometry-only' || request.sectionIndices === undefined) {
+    return Array.from({ length: CHUNK_SECTION_COUNT }, (_, index) => index);
+  }
+  const unique = [...new Set(request.sectionIndices)].sort((a, b) => a - b);
+  for (const sectionIndex of unique) {
+    if (
+      !Number.isInteger(sectionIndex) ||
+      sectionIndex < 0 ||
+      sectionIndex >= CHUNK_SECTION_COUNT
+    ) {
+      throw new RangeError(`Invalid chunk section index: ${String(sectionIndex)}`);
+    }
+  }
+  return unique;
+}
+
 export function executeChunkBuild(
   request: ChunkBuildRequest,
 ): ChunkBuildSuccess {
@@ -82,16 +101,15 @@ export function executeChunkBuild(
     modifications.set(createModificationKey(worldX, worldY, worldZ), block);
   }
 
-  let meshData;
+  const sectionIndices = resolveSectionIndices(request);
+  let sections: ChunkSectionMeshPayload[];
   let geometryBaseCacheHit: boolean | undefined;
   let proceduralTerrainSamples: number | undefined;
   if (request.mode === 'geometry-only') {
-    // The old "fast" edit path still called TerrainGenerator repeatedly for
-    // every greedy-mesh probe, which meant tens of thousands of procedural
-    // samples for one broken block. Cache the immutable procedural terrain once
-    // with the one-block halo meshing actually needs, then materialize the
-    // current sparse edits into another tiny 18×32×18 byte cache. Repeated edits
-    // in the same chunk therefore avoid procedural generation entirely.
+    // Keep the immutable terrain cache hot across rapid edits, but mesh only the
+    // vertical 16×8×16 sections touched by the voxel change. This is the key
+    // difference from the old edit path, which rebuilt and re-uploaded all 32 Y
+    // layers even when one block changed.
     const base = getGeometryBaseCache(
       request.worldSeed,
       request.chunkX,
@@ -107,11 +125,15 @@ export function executeChunkBuild(
         base.voxels.sample(worldX, worldY, worldZ),
       GEOMETRY_CACHE_MARGIN,
     );
-    meshData = buildChunkMeshData(
-      request.chunkX,
-      request.chunkZ,
-      editVoxels.sample,
-    );
+    sections = sectionIndices.map((sectionIndex) => ({
+      sectionIndex,
+      meshData: buildChunkSectionMeshData(
+        request.chunkX,
+        request.chunkZ,
+        sectionIndex,
+        editVoxels.sample,
+      ),
+    }));
   } else {
     const generator = new TerrainGenerator(request.worldSeed);
     const sampleProceduralBlock = (
@@ -125,10 +147,6 @@ export function executeChunkBuild(
       return modified ?? generator.sampleBlock(worldX, worldY, worldZ);
     };
 
-    // One chunk light field spans 46×32×46 cells. Materializing that bounded
-    // volume once avoids repeatedly evaluating terrain noise, caves, ores, and
-    // tree placement during the sky pass, block-light pass, propagation, and
-    // greedy mesh pass.
     const voxels = new ChunkVoxelCache(
       request.chunkX,
       request.chunkZ,
@@ -140,12 +158,16 @@ export function executeChunkBuild(
       voxels.sample,
       request.lightEmitters ?? [],
     );
-    meshData = buildChunkMeshData(
-      request.chunkX,
-      request.chunkZ,
-      voxels.sample,
-      lighting.sampleCombined,
-    );
+    sections = sectionIndices.map((sectionIndex) => ({
+      sectionIndex,
+      meshData: buildChunkSectionMeshData(
+        request.chunkX,
+        request.chunkZ,
+        sectionIndex,
+        voxels.sample,
+        lighting.sampleCombined,
+      ),
+    }));
   }
 
   return {
@@ -153,7 +175,7 @@ export function executeChunkBuild(
     requestId: request.requestId,
     chunkX: request.chunkX,
     chunkZ: request.chunkZ,
-    meshData,
+    sections,
     buildMilliseconds: performance.now() - startedAt,
     geometryBaseCacheHit,
     proceduralTerrainSamples,

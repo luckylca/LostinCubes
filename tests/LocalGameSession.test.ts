@@ -119,16 +119,33 @@ describe('LocalGameSession', () => {
     expect(session.getWorldState().player.health).toBeGreaterThan(0);
   });
 
-  it('respawns with full health after a lethal fall', () => {
+  it('keeps a lethal death in place until explicit respawn', () => {
     const session = createDropSession(40);
     for (let step = 0; step < 1_500; step += 1) {
       session.step(1 / 60);
       if (session.getWorldState().player.deathCount > 0) break;
     }
-    const state = session.getWorldState().player;
-    expect(state.deathCount).toBe(1);
-    expect(state.health).toBe(20);
-    expect(state.position.y).toBeCloseTo(40, 8);
+
+    const dead = session.getWorldState().player;
+    expect(dead.deathCount).toBe(1);
+    expect(dead.health).toBe(0);
+    expect(dead.paused).toBe(true);
+    expect(session.isDead).toBe(true);
+    expect(dead.position.y).not.toBeCloseTo(40, 3);
+
+    const deathPosition = { ...dead.position };
+    session.submitCommand(command({ moveZ: 1, lookX: 500 }));
+    session.step(1 / 30);
+    expect(session.getWorldState().player.position).toEqual(deathPosition);
+    expect(session.getWorldState().player.deathCount).toBe(1);
+
+    expect(session.respawnPlayer()).toBe(true);
+    const respawned = session.getWorldState().player;
+    expect(session.isDead).toBe(false);
+    expect(respawned.health).toBe(20);
+    expect(respawned.position.y).toBeCloseTo(40, 8);
+    expect(respawned.deathCount).toBe(1);
+    expect(session.respawnPlayer()).toBe(false);
   });
 
   it('drains oxygen underwater and begins drowning after it reaches zero', () => {

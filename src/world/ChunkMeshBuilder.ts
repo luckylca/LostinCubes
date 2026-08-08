@@ -12,7 +12,12 @@ import {
   type BlockTexture,
 } from './BlockTextureLibrary';
 import { lightLevelToBrightness, MAXIMUM_LIGHT_LEVEL } from './VoxelLightEngine';
-import { CHUNK_HEIGHT, CHUNK_SIZE } from './VoxelChunk';
+import {
+  CHUNK_HEIGHT,
+  CHUNK_SECTION_COUNT,
+  CHUNK_SECTION_HEIGHT,
+  CHUNK_SIZE,
+} from './VoxelChunk';
 
 type VectorTuple = readonly [number, number, number];
 type MutableVector = [number, number, number];
@@ -55,11 +60,7 @@ interface MaterialBucket {
   readonly uvs: number[];
 }
 
-const DIMENSIONS: VectorTuple = [CHUNK_SIZE, CHUNK_HEIGHT, CHUNK_SIZE];
-const MAXIMUM_MASK_SIZE = Math.max(
-  CHUNK_SIZE * CHUNK_HEIGHT,
-  CHUNK_SIZE * CHUNK_SIZE,
-);
+const MAXIMUM_MASK_SIZE = CHUNK_SIZE * Math.max(CHUNK_HEIGHT, CHUNK_SIZE);
 const FLUID_SURFACE_OFFSET = 0.38;
 
 function getComponent(vector: VectorTuple | MutableVector, axis: number): number {
@@ -180,18 +181,74 @@ function getCrossDimensions(
   return [0.44, -0.5, 0.46];
 }
 
-/**
- * Builds one chunk mesh. Full cubes retain greedy meshing. Plants, torches,
- * ladders, and saplings use two crossed alpha-tested quads. Fluids use one
- * shared chunk mesh with hidden internal faces and a slightly lowered exposed
- * surface, avoiding one mesh or simulation object per liquid voxel.
- */
+function assertYRange(yStart: number, yEnd: number): void {
+  if (
+    !Number.isInteger(yStart) ||
+    !Number.isInteger(yEnd) ||
+    yStart < 0 ||
+    yEnd > CHUNK_HEIGHT ||
+    yStart >= yEnd
+  ) {
+    throw new RangeError('Chunk mesh Y range must be a valid non-empty chunk interval.');
+  }
+}
+
+/** Builds only one vertical 16×8×16 section while sampling a one-cell halo. */
+export function buildChunkSectionMeshData(
+  chunkX: number,
+  chunkZ: number,
+  sectionIndex: number,
+  sampleWorldBlock: WorldBlockSampler,
+  sampleWorldLight: WorldLightSampler = () => MAXIMUM_LIGHT_LEVEL,
+): ChunkMeshData {
+  if (
+    !Number.isInteger(sectionIndex) ||
+    sectionIndex < 0 ||
+    sectionIndex >= CHUNK_SECTION_COUNT
+  ) {
+    throw new RangeError(
+      `sectionIndex must be between 0 and ${String(CHUNK_SECTION_COUNT - 1)}.`,
+    );
+  }
+  const yStart = sectionIndex * CHUNK_SECTION_HEIGHT;
+  return buildChunkMeshDataRange(
+    chunkX,
+    chunkZ,
+    yStart,
+    yStart + CHUNK_SECTION_HEIGHT,
+    sampleWorldBlock,
+    sampleWorldLight,
+  );
+}
+
+/** Builds the legacy complete chunk mesh. */
 export function buildChunkMeshData(
   chunkX: number,
   chunkZ: number,
   sampleWorldBlock: WorldBlockSampler,
   sampleWorldLight: WorldLightSampler = () => MAXIMUM_LIGHT_LEVEL,
 ): ChunkMeshData {
+  return buildChunkMeshDataRange(
+    chunkX,
+    chunkZ,
+    0,
+    CHUNK_HEIGHT,
+    sampleWorldBlock,
+    sampleWorldLight,
+  );
+}
+
+function buildChunkMeshDataRange(
+  chunkX: number,
+  chunkZ: number,
+  yStart: number,
+  yEnd: number,
+  sampleWorldBlock: WorldBlockSampler,
+  sampleWorldLight: WorldLightSampler,
+): ChunkMeshData {
+  assertYRange(yStart, yEnd);
+  const rangeHeight = yEnd - yStart;
+  const dimensions: VectorTuple = [CHUNK_SIZE, rangeHeight, CHUNK_SIZE];
   const buckets = new Map<BlockTexture, MaterialBucket>();
   const mask = new Int16Array(MAXIMUM_MASK_SIZE);
   const coordinate: MutableVector = [0, 0, 0];
@@ -199,7 +256,17 @@ export function buildChunkMeshData(
   let quadCount = 0;
   let sourceFaceCount = 0;
 
-  const sampleLocalBlock = (
+  const sampleSectionBlock = (
+    localX: number,
+    sectionY: number,
+    localZ: number,
+  ): BlockTypeValue =>
+    sampleWorldBlock(
+      chunkX * CHUNK_SIZE + localX,
+      yStart + sectionY,
+      chunkZ * CHUNK_SIZE + localZ,
+    );
+  const sampleChunkBlock = (
     localX: number,
     localY: number,
     localZ: number,
@@ -213,9 +280,9 @@ export function buildChunkMeshData(
   for (let axis = 0; axis < 3; axis += 1) {
     const axisU = (axis + 1) % 3;
     const axisV = (axis + 2) % 3;
-    const dimensionAxis = getComponent(DIMENSIONS, axis);
-    const dimensionU = getComponent(DIMENSIONS, axisU);
-    const dimensionV = getComponent(DIMENSIONS, axisV);
+    const dimensionAxis = getComponent(dimensions, axis);
+    const dimensionU = getComponent(dimensions, axisU);
+    const dimensionV = getComponent(dimensions, axisV);
     neighborOffset[0] = 0;
     neighborOffset[1] = 0;
     neighborOffset[2] = 0;
@@ -228,8 +295,8 @@ export function buildChunkMeshData(
         setComponent(coordinate, axisV, row);
         for (let column = 0; column < dimensionU; column += 1) {
           setComponent(coordinate, axisU, column);
-          const blockNear = sampleLocalBlock(...coordinate);
-          const blockFar = sampleLocalBlock(
+          const blockNear = sampleSectionBlock(...coordinate);
+          const blockFar = sampleSectionBlock(
             coordinate[0] + neighborOffset[0],
             coordinate[1] + neighborOffset[1],
             coordinate[2] + neighborOffset[2],
@@ -299,12 +366,15 @@ export function buildChunkMeshData(
           const cornerU = addVectors(base, edgeU);
           const cornerV = addVectors(base, edgeV);
           const cornerUV = addVectors(cornerU, edgeV);
-          const corners: readonly VectorTuple[] = [
+          const sectionCorners: readonly VectorTuple[] = [
             base,
             cornerU,
             cornerUV,
             cornerV,
           ];
+          const corners = sectionCorners.map(
+            (corner) => [corner[0], corner[1] + yStart, corner[2]] as const,
+          );
           const texture = getBlockFaceTexture(block, axis, positive);
           const bucket = getBucket(buckets, texture);
           const firstVertex = bucket.positions.length / 3;
@@ -316,7 +386,7 @@ export function buildChunkMeshData(
           setComponent(blockCoordinate, axisU, column);
           setComponent(blockCoordinate, axisV, row);
           const worldBlockX = chunkX * CHUNK_SIZE + blockCoordinate[0];
-          const worldBlockY = blockCoordinate[1];
+          const worldBlockY = yStart + blockCoordinate[1];
           const worldBlockZ = chunkZ * CHUNK_SIZE + blockCoordinate[2];
           const brightness = lightLevelToBrightness(
             sampleWorldLight(
@@ -362,10 +432,10 @@ export function buildChunkMeshData(
     [0, 0, 1, 2, true],
   ] as const;
 
-  for (let localY = 0; localY < CHUNK_HEIGHT; localY += 1) {
+  for (let localY = yStart; localY < yEnd; localY += 1) {
     for (let localZ = 0; localZ < CHUNK_SIZE; localZ += 1) {
       for (let localX = 0; localX < CHUNK_SIZE; localX += 1) {
-        const block = sampleLocalBlock(localX, localY, localZ);
+        const block = sampleChunkBlock(localX, localY, localZ);
         const definition = getBlockDefinition(block);
         if (definition.renderShape === 'cross') {
           const worldX = chunkX * CHUNK_SIZE + localX;
@@ -423,8 +493,7 @@ export function buildChunkMeshData(
         if (!isFluidBlock(block)) continue;
         const worldX = chunkX * CHUNK_SIZE + localX;
         const worldZ = chunkZ * CHUNK_SIZE + localZ;
-        const aboveSame =
-          sampleLocalBlock(localX, localY + 1, localZ) === block;
+        const aboveSame = sampleChunkBlock(localX, localY + 1, localZ) === block;
         const top = localY + (aboveSame ? 0.5 : FLUID_SURFACE_OFFSET);
         const bottom = localY - 0.5;
         const bucket = getBucket(
@@ -433,7 +502,7 @@ export function buildChunkMeshData(
         );
 
         for (const [dx, dy, dz, axis, positive] of fluidDirections) {
-          const neighbor = sampleLocalBlock(
+          const neighbor = sampleChunkBlock(
             localX + dx,
             localY + dy,
             localZ + dz,

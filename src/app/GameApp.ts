@@ -59,6 +59,7 @@ const SAVE_INTERVAL_SECONDS = 2;
 const FURNACE_REFRESH_SECONDS = 0.12;
 const WALK_STREAMING_LOOKAHEAD = 1.65;
 const SPRINT_STREAMING_LOOKAHEAD = 2.45;
+const RUNTIME_LOADING_DELAY_MILLISECONDS = 140;
 
 type CameraMode = PlayerState['cameraMode'];
 
@@ -70,6 +71,10 @@ export interface GameUiElements {
   readonly hotbar: HTMLElement;
   readonly targetReticle: HTMLElement;
   readonly inventoryRoot: HTMLElement;
+  readonly loadingScreen: HTMLElement;
+  readonly loadingMessage: HTMLElement;
+  readonly loadingSpinner: HTMLElement;
+  readonly loadingAction: HTMLButtonElement;
 }
 
 function formatCount(value: number): string {
@@ -168,6 +173,8 @@ export class GameApp {
   #saveElapsed = 0;
   #furnaceRefreshElapsed = 0;
   #smoothedFps = 60;
+  #respawning = false;
+  #nearFieldBlockedAt: number | null = null;
 
   public constructor(canvas: HTMLCanvasElement, ui: GameUiElements) {
     this.#engineHost = new BabylonEngine(canvas);
@@ -209,6 +216,35 @@ export class GameApp {
       inventoryViewHolder.current?.render();
       savePlayerInventory(WORLD_SEED, inventory, localStorage);
       renderedInventoryRevision = inventory.revision;
+    };
+
+    const showLoading = (
+      message: string,
+      mode: 'runtime' | 'death' | 'respawn',
+    ): void => {
+      this.#ui.loadingMessage.textContent = message;
+      this.#ui.loadingScreen.dataset.runtimeMode = mode;
+      this.#ui.loadingScreen.classList.toggle('runtime-wait', mode === 'runtime');
+      this.#ui.loadingScreen.classList.toggle('death-screen', mode === 'death');
+      this.#ui.loadingScreen.classList.remove('is-hidden');
+      this.#ui.loadingSpinner.hidden = mode === 'death';
+      this.#ui.loadingAction.hidden = mode !== 'death';
+    };
+    const hideRuntimeLoading = (): void => {
+      if (this.#ui.loadingScreen.dataset.runtimeMode !== 'runtime') return;
+      this.#ui.loadingScreen.classList.add('is-hidden');
+      this.#ui.loadingScreen.classList.remove('runtime-wait');
+      delete this.#ui.loadingScreen.dataset.runtimeMode;
+      this.#ui.loadingSpinner.hidden = false;
+      this.#nearFieldBlockedAt = null;
+    };
+    const finishLoadingOverlay = (): void => {
+      this.#ui.loadingScreen.classList.add('is-hidden');
+      this.#ui.loadingScreen.classList.remove('runtime-wait', 'death-screen');
+      delete this.#ui.loadingScreen.dataset.runtimeMode;
+      this.#ui.loadingSpinner.hidden = false;
+      this.#ui.loadingAction.hidden = true;
+      this.#nearFieldBlockedAt = null;
     };
 
     let breakHeld = false;
@@ -404,6 +440,28 @@ export class GameApp {
       initialPlayer.position.z,
     );
 
+    const respawn = async (): Promise<void> => {
+      if (!session.isDead || this.#respawning) return;
+      this.#respawning = true;
+      this.#ui.loadingAction.hidden = true;
+      this.#ui.loadingSpinner.hidden = false;
+      showLoading('正在加载出生点附近区块……', 'respawn');
+      try {
+        await worldRenderer.prepareNearField(SPAWN_X, SPAWN_Z);
+        if (!session.respawnPlayer()) return;
+        session.setMenuOpen(false);
+        input.setUiOpen(false);
+        breakHeld = false;
+        placeHeld = false;
+        finishLoadingOverlay();
+      } finally {
+        this.#respawning = false;
+      }
+    };
+    this.#ui.loadingAction.onclick = () => {
+      void respawn();
+    };
+
     const handleDeath = (worldState: Readonly<WorldState>): void => {
       if (worldState.player.deathCount <= observedDeathCount) return;
       observedDeathCount = worldState.player.deathCount;
@@ -414,6 +472,13 @@ export class GameApp {
       }
       interaction.setHeldItem(inventory.selectedItem);
       syncInventory();
+      breakHeld = false;
+      placeHeld = false;
+      input.setUiOpen(true);
+      session.setMenuOpen(true);
+      if (document.pointerLockElement !== null) document.exitPointerLock();
+      showLoading('你死了', 'death');
+      this.#ui.loadingAction.textContent = '重生';
     };
 
     const saveWorldState = (): void => {
@@ -499,11 +564,11 @@ export class GameApp {
       beforeFrame: () => {
         const worldState = session.getWorldState();
         const command = input.poll(worldState.tick);
-        if (command.toggleInventory) {
+        if (command.toggleInventory && !session.isDead) {
           if (inventoryView.isOpen) inventoryView.close();
           else openInventory('inventory');
         }
-        if (!inventoryView.isOpen) {
+        if (!inventoryView.isOpen && !session.isDead) {
           inventory.selectSlot(command.selectedHotbarSlot);
           interaction.setHeldItem(inventory.selectedItem);
           const attackPressed = command.breakBlock && !breakHeld;
@@ -579,6 +644,7 @@ export class GameApp {
         let submittedCommand = command;
         if (
           !inventoryView.isOpen &&
+          !session.isDead &&
           Math.hypot(command.moveX, command.moveZ) > 0.001
         ) {
           const probe = movementProbe(
@@ -589,6 +655,18 @@ export class GameApp {
           );
           const terrainReady = worldRenderer.ensureNearFieldReady(probe.x, probe.z);
           const creatureClear = enemies.canPlayerOccupy(probe);
+          if (!terrainReady) {
+            const now = performance.now();
+            this.#nearFieldBlockedAt ??= now;
+            if (
+              now - this.#nearFieldBlockedAt >= RUNTIME_LOADING_DELAY_MILLISECONDS &&
+              !this.#respawning
+            ) {
+              showLoading('正在加载前方区块……', 'runtime');
+            }
+          } else {
+            hideRuntimeLoading();
+          }
           if (!terrainReady || !creatureClear) {
             submittedCommand = {
               ...command,
@@ -597,6 +675,9 @@ export class GameApp {
               sprint: false,
             };
           }
+        } else if (!session.isDead) {
+          this.#nearFieldBlockedAt = null;
+          hideRuntimeLoading();
         }
         session.submitCommand(submittedCommand);
       },
@@ -624,6 +705,7 @@ export class GameApp {
   }
 
   public dispose(): void {
+    this.#ui.loadingAction.onclick = null;
     document.body.classList.remove(
       'camera-third-person',
       'inventory-open',
@@ -768,7 +850,9 @@ export class GameApp {
     )} · 饥饿 ${Math.ceil(player.hunger).toString()}/${String(
       player.maximumHunger,
     )} · 护甲 ${String(player.armorPoints)} · ${formatDayTime(dayTime)}`;
-    if (inventoryOpen) {
+    if (player.health === 0) {
+      this.#ui.status.textContent = '你死了 · 点击重生后会先加载出生点区块';
+    } else if (inventoryOpen) {
       this.#ui.status.textContent = `界面已打开 · ${survivalLabel} · E 或 Esc 关闭`;
     } else if (awaitingPointerLock) {
       this.#ui.status.textContent = player.paused
@@ -787,7 +871,7 @@ export class GameApp {
     this.#ui.viewMode.textContent = `${
       player.cameraMode === 'first-person' ? '第一人称' : '第三人称'
     } · ${getItemLabel(selectedItem)}${
-      player.deathCount > 0 ? ` · 重生 ${String(player.deathCount)}` : ''
+      player.deathCount > 0 ? ` · 死亡 ${String(player.deathCount)}` : ''
     }`;
     this.#ui.position.textContent = [
       player.position.x.toFixed(1),
