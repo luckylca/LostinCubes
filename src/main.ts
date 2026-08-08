@@ -18,13 +18,14 @@ import { initializeBuildBadge } from './buildInfo';
 import { installBowBallisticsRuntime } from './entities/BowBallisticsRuntime';
 import { installBowChargeInputRuntime } from './input/BowChargeInputRuntime';
 import { installInventoryPresentationRuntime } from './ui/InventoryPresentationRuntime';
-import { installForwardChunkPrefetchRuntime } from './world/ForwardChunkPrefetchRuntime';
 import { installSmoothBlockEditRuntime } from './world/SmoothBlockEditRuntime';
-import { installTerrainVarietyRuntime } from './world/TerrainVarietyRuntime';
 
+// v0.4.4 hotfix: do not install the v0.4.3 terrain/prefetch prototype wrappers.
+// TerrainGenerator already contains the continuous biome/height implementation,
+// and VoxelWorldRenderer already performs direction-biased forward streaming.
+// The extra wrappers duplicated those jobs on extremely hot paths, multiplying
+// worker CPU load and keeping substantially more chunk work resident at once.
 installSmoothBlockEditRuntime();
-installTerrainVarietyRuntime();
-installForwardChunkPrefetchRuntime();
 installBowBallisticsRuntime();
 installBowChargeInputRuntime();
 installPauseMenuRuntime();
