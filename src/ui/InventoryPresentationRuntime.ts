@@ -76,6 +76,8 @@ function ensureRecipeDrawer(root: HTMLElement): void {
   if (book === null || book.querySelector('.recipe-drawer-toggle') !== null) {
     return;
   }
+  const recipeList = book.querySelector<HTMLElement>('[data-crafting-recipes]');
+  if (recipeList === null) return;
 
   const originalHeading = book.querySelector<HTMLElement>(':scope > h3');
   if (originalHeading !== null) originalHeading.hidden = true;
@@ -85,13 +87,20 @@ function ensureRecipeDrawer(root: HTMLElement): void {
   toggle.className = 'recipe-drawer-toggle';
   toggle.textContent = '配方书';
   toggle.setAttribute('aria-expanded', 'false');
-  book.classList.add('is-collapsed');
+
+  const content = document.createElement('div');
+  content.className = 'recipe-drawer-content';
+  content.hidden = true;
 
   toggle.addEventListener('click', () => {
-    const nextOpen = book.classList.contains('is-collapsed');
-    book.classList.toggle('is-collapsed', !nextOpen);
+    const nextOpen = content.hidden;
+    content.hidden = !nextOpen;
     toggle.setAttribute('aria-expanded', String(nextOpen));
   });
+
+  book.classList.add('recipe-drawer');
+  recipeList.replaceWith(content);
+  content.append(recipeList);
   book.prepend(toggle);
 }
 
@@ -113,8 +122,8 @@ function syncPresentation(): void {
 
 /**
  * Hooks the inventory's own lifecycle instead of observing or relocating its
- * DOM. InventoryView keeps stable references to the recipe list, storage and
- * hotbar nodes, so presentation code only inserts controls beside those nodes.
+ * structural DOM. InventoryView's recipe-list node is preserved exactly; only
+ * a presentation wrapper is inserted around that node inside the same book.
  */
 export function installInventoryPresentationRuntime(): void {
   if (installed) return;
