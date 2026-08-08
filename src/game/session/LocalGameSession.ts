@@ -79,6 +79,7 @@ export class LocalGameSession implements GameSession {
   #cameraMode: CameraMode = 'third-person';
   #paused = false;
   #menuOpen = false;
+  #dead = false;
   #health = PLAYER_MAXIMUM_HEALTH;
   #hunger = PLAYER_MAXIMUM_HUNGER;
   #armorPoints = 0;
@@ -120,6 +121,7 @@ export class LocalGameSession implements GameSession {
     this.#cameraMode = 'third-person';
     this.#paused = false;
     this.#menuOpen = false;
+    this.#dead = false;
     this.#health = PLAYER_MAXIMUM_HEALTH;
     this.#hunger = PLAYER_MAXIMUM_HUNGER;
     this.#armorPoints = 0;
@@ -169,16 +171,18 @@ export class LocalGameSession implements GameSession {
     this.#pitch = clamp(snapshot.pitch, MINIMUM_PITCH, MAXIMUM_PITCH);
     this.#hunger = clamp(snapshot.hunger, 0, PLAYER_MAXIMUM_HUNGER);
     this.#armorPoints = Math.round(clamp(snapshot.armorPoints, 0, 20));
+    this.#dead = false;
     if (snapshot.position !== null) this.#motor.reset(snapshot.position);
     this.#worldState = this.#createWorldState(this.#worldState.tick);
   }
 
   public damagePlayer(amount: number, source?: VectorState): number {
+    if (this.#dead) return 0;
     const before = this.#health;
     this.#applyDamage(amount, false, true);
     const damageDealt = before - this.#health;
     if (damageDealt > 0 && this.#health > 0) this.#applyKnockback(source);
-    if (this.#health <= 0) this.#respawn();
+    if (this.#health <= 0) this.#markDead();
     this.#worldState = this.#createWorldState(this.#worldState.tick);
     return damageDealt;
   }
@@ -195,7 +199,7 @@ export class LocalGameSession implements GameSession {
   }
 
   public feedPlayer(points: number): number {
-    if (!Number.isFinite(points) || points <= 0) return 0;
+    if (!Number.isFinite(points) || points <= 0 || this.#dead) return 0;
     const before = this.#hunger;
     this.#hunger = Math.min(
       PLAYER_MAXIMUM_HUNGER,
@@ -211,24 +215,56 @@ export class LocalGameSession implements GameSession {
     this.#worldState = this.#createWorldState(this.#worldState.tick);
   }
 
+  /** Completes a death transition only after the caller has prepared spawn terrain. */
+  public respawnPlayer(): boolean {
+    if (!this.#dead) return false;
+    this.#motor.reset();
+    this.#health = PLAYER_MAXIMUM_HEALTH;
+    this.#hunger = PLAYER_MAXIMUM_HUNGER;
+    this.#armorPoints = 0;
+    this.#maximumFallSpeed = 0;
+    this.#airSupply = PLAYER_MAXIMUM_AIR_SUPPLY;
+    this.#submerged = false;
+    this.#hurtCooldown = 0;
+    this.#drowningElapsed = 0;
+    this.#lavaElapsed = 0;
+    this.#suffocationElapsed = 0;
+    this.#naturalRegenElapsed = 0;
+    this.#starvationElapsed = 0;
+    this.#dead = false;
+    this.#pendingCommand = null;
+    this.#heldCommand = createNeutralPlayerInput(this.#worldState.tick);
+    this.#worldState = this.#createWorldState(this.#worldState.tick);
+    return true;
+  }
+
+  public get isDead(): boolean {
+    return this.#dead;
+  }
+
   public getSurvivalSnapshot(): SurvivalSnapshot {
     const motorState = this.#motor.getState();
     return {
       version: 2,
-      health: this.#health,
+      health: this.#dead ? PLAYER_MAXIMUM_HEALTH : this.#health,
       dayTime: this.#dayTime,
       deathCount: this.#deathCount,
-      position: { ...motorState.position },
+      position: this.#dead ? null : { ...motorState.position },
       yaw: this.#yaw,
       pitch: this.#pitch,
-      hunger: this.#hunger,
-      armorPoints: this.#armorPoints,
+      hunger: this.#dead ? PLAYER_MAXIMUM_HUNGER : this.#hunger,
+      armorPoints: this.#dead ? 0 : this.#armorPoints,
     };
   }
 
   public step(stepSeconds: number): void {
     const command = this.#consumeCommand();
     this.#damageTaken = 0;
+
+    if (this.#dead) {
+      this.#worldState = this.#createWorldState(this.#worldState.tick + 1);
+      return;
+    }
 
     if (command.togglePause && !this.#menuOpen) this.#paused = !this.#paused;
     if (command.toggleCamera && !this.#menuOpen) {
@@ -290,7 +326,7 @@ export class LocalGameSession implements GameSession {
       this.#dayTime = (this.#dayTime + stepSeconds / DAY_LENGTH_SECONDS) % 1;
     }
 
-    if (this.#health <= 0) this.#respawn();
+    if (this.#health <= 0) this.#markDead();
     this.#worldState = this.#createWorldState(this.#worldState.tick + 1);
   }
 
@@ -400,7 +436,7 @@ export class LocalGameSession implements GameSession {
     bypassCooldown: boolean,
     armorApplies: boolean,
   ): void {
-    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!Number.isFinite(amount) || amount <= 0 || this.#dead) return;
     if (!bypassCooldown && this.#hurtCooldown > 0) return;
     const armorReduction = armorApplies
       ? Math.min(this.#armorPoints, 20) * 0.04
@@ -434,23 +470,16 @@ export class LocalGameSession implements GameSession {
     this.#maximumFallSpeed = 0;
   }
 
-  #respawn(): void {
+  #markDead(): void {
+    if (this.#dead) return;
     const deathPosition = this.#motor.getState().position;
     this.#lastDeathPosition = { ...deathPosition };
-    this.#motor.reset();
-    this.#health = PLAYER_MAXIMUM_HEALTH;
-    this.#hunger = PLAYER_MAXIMUM_HUNGER;
-    this.#armorPoints = 0;
-    this.#maximumFallSpeed = 0;
+    this.#health = 0;
+    this.#dead = true;
     this.#deathCount += 1;
-    this.#airSupply = PLAYER_MAXIMUM_AIR_SUPPLY;
-    this.#submerged = false;
-    this.#hurtCooldown = 0;
-    this.#drowningElapsed = 0;
-    this.#lavaElapsed = 0;
-    this.#suffocationElapsed = 0;
-    this.#naturalRegenElapsed = 0;
-    this.#starvationElapsed = 0;
+    this.#maximumFallSpeed = 0;
+    this.#pendingCommand = null;
+    this.#heldCommand = createNeutralPlayerInput(this.#worldState.tick);
   }
 
   #consumeCommand(): PlayerInputCommand {
@@ -489,7 +518,7 @@ export class LocalGameSession implements GameSession {
       yaw: this.#yaw,
       pitch: this.#pitch,
       cameraMode: this.#cameraMode,
-      paused: this.#paused || this.#menuOpen,
+      paused: this.#paused || this.#menuOpen || this.#dead,
       health: this.#health,
       maximumHealth: PLAYER_MAXIMUM_HEALTH,
       hunger: Math.round(this.#hunger * 10) / 10,
