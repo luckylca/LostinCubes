@@ -476,7 +476,7 @@ export class GameApp {
       placeHeld = false;
       input.setUiOpen(true);
       session.setMenuOpen(true);
-      if (document.pointerLockElement !== null) void document.exitPointerLock();
+      if (document.pointerLockElement !== null) document.exitPointerLock();
       showLoading('你死了', 'death');
       this.#ui.loadingAction.textContent = '重生';
     };
@@ -850,7 +850,7 @@ export class GameApp {
     )} · 饥饿 ${Math.ceil(player.hunger).toString()}/${String(
       player.maximumHunger,
     )} · 护甲 ${String(player.armorPoints)} · ${formatDayTime(dayTime)}`;
-    if (sessionLabel(player.health === 0)) {
+    if (player.health === 0) {
       this.#ui.status.textContent = '你死了 · 点击重生后会先加载出生点区块';
     } else if (inventoryOpen) {
       this.#ui.status.textContent = `界面已打开 · ${survivalLabel} · E 或 Esc 关闭`;
@@ -879,8 +879,4 @@ export class GameApp {
       player.position.z.toFixed(1),
     ].join(', ');
   }
-}
-
-function sessionLabel(dead: boolean): boolean {
-  return dead;
 }
