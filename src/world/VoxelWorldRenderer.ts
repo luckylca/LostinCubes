@@ -93,7 +93,6 @@ export function getBlockEditGeometryChunks(
   return chunks;
 }
 
-/** Sections whose geometry can change when a voxel at worldY changes. */
 export function getBlockEditSectionIndices(worldY: number): readonly number[] {
   if (!Number.isInteger(worldY) || worldY < 0 || worldY >= CHUNK_HEIGHT) {
     return [];
@@ -181,12 +180,6 @@ export class VoxelWorldRenderer {
     await this.prepareNearField(playerX, playerZ);
   }
 
-  /**
-   * Re-centers streaming and resolves only after the destination 3×3 safety
-   * window has completed worker generation and GPU upload. Death/teleport flows
-   * can keep a loading overlay visible while awaiting this instead of moving the
-   * player first and stalling on an unloaded destination.
-   */
   public async prepareNearField(playerX: number, playerZ: number): Promise<void> {
     if (this.#disposed) return;
     const centerChunkX = worldToChunkCoordinate(Math.floor(playerX));
@@ -229,11 +222,11 @@ export class VoxelWorldRenderer {
         ),
       ),
     );
-    if (this.#disposed) return;
     for (let index = 0; index < initialTargets.length; index += 1) {
       const target = initialTargets[index];
-      if (target !== undefined) {
-        this.#applyChunk(target.key, target.revision, responses[index]);
+      const response = responses[index];
+      if (target !== undefined && response !== undefined) {
+        this.#applyChunk(target.key, target.revision, response);
       }
     }
     this.#scheduleMissingChunks();
