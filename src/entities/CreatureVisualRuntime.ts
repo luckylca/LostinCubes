@@ -14,14 +14,16 @@ import type {
 import type { EntityKind } from './EntityRegistry';
 
 type CreatureKind = Exclude<EntityKind, 'arrow' | 'tnt' | 'dropped-item'>;
+type MaterialRole = 'primary' | 'secondary' | 'detail' | 'dark';
 
 interface CreatureModel {
   readonly sourceBody: Mesh;
   readonly root: TransformNode;
-  readonly materials: StandardMaterial[];
-  readonly animatedLimbs: Mesh[];
   readonly previousPosition: Vector3;
-  phase: number;
+  correctionX: number;
+  correctionZ: number;
+  hitElapsed: number;
+  wasHurt: boolean;
 }
 
 interface CreaturePalette {
@@ -31,7 +33,16 @@ interface CreaturePalette {
   readonly dark: Color3;
 }
 
+interface ModelGroups {
+  readonly primary: Mesh[];
+  readonly secondary: Mesh[];
+  readonly detail: Mesh[];
+  readonly dark: Mesh[];
+}
+
 const BODY_PATTERN = /^body-(?<kind>zombie|skeleton|spider|creeper|cow|pig|sheep)-/;
+const HIT_PRESENTATION_SECONDS = 0.24;
+const HIT_LIFT = 0.34;
 
 const PALETTES: Readonly<Record<CreatureKind, CreaturePalette>> = {
   zombie: {
@@ -41,10 +52,10 @@ const PALETTES: Readonly<Record<CreatureKind, CreaturePalette>> = {
     dark: new Color3(0.05, 0.08, 0.055),
   },
   skeleton: {
-    primary: new Color3(0.82, 0.81, 0.72),
-    secondary: new Color3(0.67, 0.66, 0.59),
-    detail: new Color3(0.92, 0.91, 0.82),
-    dark: new Color3(0.07, 0.07, 0.06),
+    primary: new Color3(0.84, 0.83, 0.75),
+    secondary: new Color3(0.64, 0.62, 0.54),
+    detail: new Color3(0.47, 0.28, 0.11),
+    dark: new Color3(0.045, 0.045, 0.04),
   },
   spider: {
     primary: new Color3(0.16, 0.105, 0.08),
@@ -82,259 +93,194 @@ function isCreatureKind(value: string): value is CreatureKind {
   return Object.hasOwn(PALETTES, value);
 }
 
-function material(
+function createMaterial(
   scene: Scene,
   name: string,
   color: Color3,
 ): StandardMaterial {
   const result = new StandardMaterial(name, scene);
   result.diffuseColor = color;
-  result.ambientColor = color.scale(0.72);
-  result.emissiveColor = color.scale(0.12);
+  result.ambientColor = color.scale(0.7);
+  result.emissiveColor = color.scale(0.08);
   result.specularColor = Color3.Black();
+  result.freeze();
   return result;
 }
 
-function part(
+function emptyGroups(): ModelGroups {
+  return { primary: [], secondary: [], detail: [], dark: [] };
+}
+
+function addBox(
   scene: Scene,
-  root: TransformNode,
+  groups: ModelGroups,
+  role: MaterialRole,
   name: string,
   size: readonly [number, number, number],
   position: readonly [number, number, number],
-  partMaterial: StandardMaterial,
-): Mesh {
+  rotation: readonly [number, number, number] = [0, 0, 0],
+): void {
   const mesh = MeshBuilder.CreateBox(
     name,
     { width: size[0], height: size[1], depth: size[2] },
     scene,
   );
-  mesh.parent = root;
   mesh.position.set(position[0], position[1], position[2]);
-  mesh.material = partMaterial;
+  mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
   mesh.isPickable = false;
-  return mesh;
+  groups[role].push(mesh);
 }
 
 function addFace(
   scene: Scene,
-  root: TransformNode,
+  groups: ModelGroups,
   prefix: string,
   y: number,
   z: number,
-  eyeSpacing: number,
-  eyeMaterial: StandardMaterial,
-  mouthMaterial = eyeMaterial,
+  spacing: number,
+  mouthWidth = 0.22,
 ): void {
-  part(
-    scene,
-    root,
-    `${prefix}-eye-l`,
-    [0.12, 0.11, 0.04],
-    [-eyeSpacing, y, z],
-    eyeMaterial,
-  );
-  part(
-    scene,
-    root,
-    `${prefix}-eye-r`,
-    [0.12, 0.11, 0.04],
-    [eyeSpacing, y, z],
-    eyeMaterial,
-  );
-  part(
-    scene,
-    root,
-    `${prefix}-mouth`,
-    [0.22, 0.07, 0.04],
-    [0, y - 0.17, z + 0.002],
-    mouthMaterial,
-  );
+  // Details sit clearly in front of the head plane. The previous model used a
+  // very small offset and could z-fight into a featureless white skeleton head.
+  const faceZ = z + 0.035;
+  addBox(scene, groups, 'dark', `${prefix}-eye-l`, [0.12, 0.12, 0.055], [-spacing, y, faceZ]);
+  addBox(scene, groups, 'dark', `${prefix}-eye-r`, [0.12, 0.12, 0.055], [spacing, y, faceZ]);
+  addBox(scene, groups, 'dark', `${prefix}-mouth`, [mouthWidth, 0.075, 0.055], [0, y - 0.17, faceZ]);
 }
 
-function fourLegs(
+function addFourLegs(
   scene: Scene,
-  root: TransformNode,
-  partMaterial: StandardMaterial,
+  groups: ModelGroups,
   prefix: string,
+  role: MaterialRole,
   x: number,
   z: number,
   y: number,
   height: number,
-): Mesh[] {
-  return [
-    part(scene, root, `${prefix}-leg-fl`, [0.22, height, 0.22], [-x, y, z], partMaterial),
-    part(scene, root, `${prefix}-leg-fr`, [0.22, height, 0.22], [x, y, z], partMaterial),
-    part(scene, root, `${prefix}-leg-bl`, [0.22, height, 0.22], [-x, y, -z], partMaterial),
-    part(scene, root, `${prefix}-leg-br`, [0.22, height, 0.22], [x, y, -z], partMaterial),
-  ];
+): void {
+  addBox(scene, groups, role, `${prefix}-leg-fl`, [0.22, height, 0.22], [-x, y, z]);
+  addBox(scene, groups, role, `${prefix}-leg-fr`, [0.22, height, 0.22], [x, y, z]);
+  addBox(scene, groups, role, `${prefix}-leg-bl`, [0.22, height, 0.22], [-x, y, -z]);
+  addBox(scene, groups, role, `${prefix}-leg-br`, [0.22, height, 0.22], [x, y, -z]);
 }
 
 function buildHumanoid(
   scene: Scene,
-  root: TransformNode,
+  groups: ModelGroups,
   prefix: string,
-  skin: StandardMaterial,
-  torsoMaterial: StandardMaterial,
-  legMaterial: StandardMaterial,
-  eyeMaterial: StandardMaterial,
   skeleton: boolean,
-): Mesh[] {
+): void {
   const limb = skeleton ? 0.14 : 0.22;
   const torsoWidth = skeleton ? 0.4 : 0.54;
   const torsoDepth = skeleton ? 0.22 : 0.3;
-
-  part(scene, root, `${prefix}-head`, [0.5, 0.5, 0.5], [0, 0.7, 0], skin);
-  part(
-    scene,
-    root,
-    `${prefix}-torso`,
-    [torsoWidth, 0.72, torsoDepth],
-    [0, 0.08, 0],
-    torsoMaterial,
-  );
-  addFace(scene, root, prefix, 0.75, 0.272, 0.12, eyeMaterial);
+  addBox(scene, groups, 'primary', `${prefix}-head`, [0.5, 0.5, 0.5], [0, 0.7, 0]);
+  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-torso`, [torsoWidth, 0.72, torsoDepth], [0, 0.08, 0]);
+  addFace(scene, groups, prefix, 0.75, 0.25, 0.12, skeleton ? 0.26 : 0.22);
   if (skeleton) {
-    part(scene, root, `${prefix}-nose`, [0.08, 0.1, 0.04], [0, 0.65, 0.274], eyeMaterial);
+    addBox(scene, groups, 'dark', `${prefix}-nose`, [0.075, 0.1, 0.055], [0, 0.65, 0.29]);
   }
-
-  return [
-    part(scene, root, `${prefix}-arm-l`, [limb, 0.72, limb], [-0.39, 0.05, 0], torsoMaterial),
-    part(scene, root, `${prefix}-arm-r`, [limb, 0.72, limb], [0.39, 0.05, 0], torsoMaterial),
-    part(scene, root, `${prefix}-leg-l`, [limb + 0.02, 0.72, limb + 0.02], [-0.14, -0.62, 0], legMaterial),
-    part(scene, root, `${prefix}-leg-r`, [limb + 0.02, 0.72, limb + 0.02], [0.14, -0.62, 0], legMaterial),
-  ];
+  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-arm-l`, [limb, 0.72, limb], [-0.39, 0.05, 0]);
+  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-arm-r`, [limb, 0.72, limb], [0.39, 0.05, 0]);
+  addBox(scene, groups, skeleton ? 'secondary' : 'detail', `${prefix}-leg-l`, [limb + 0.02, 0.72, limb + 0.02], [-0.14, -0.62, 0]);
+  addBox(scene, groups, skeleton ? 'secondary' : 'detail', `${prefix}-leg-r`, [limb + 0.02, 0.72, limb + 0.02], [0.14, -0.62, 0]);
 }
 
-function addSkeletonBow(
-  scene: Scene,
-  root: TransformNode,
-  prefix: string,
-  materials: StandardMaterial[],
-): void {
-  const wood = material(scene, `${prefix}-bow-material`, new Color3(0.48, 0.28, 0.1));
-  const string = material(scene, `${prefix}-bow-string-material`, new Color3(0.82, 0.78, 0.62));
-  const iron = material(scene, `${prefix}-arrow-head-material`, new Color3(0.68, 0.7, 0.69));
-  materials.push(wood, string, iron);
-
-  const upper = part(scene, root, `${prefix}-bow-upper`, [0.08, 0.55, 0.08], [0.53, 0.3, 0.18], wood);
-  upper.rotation.z = -0.28;
-  const lower = part(scene, root, `${prefix}-bow-lower`, [0.08, 0.55, 0.08], [0.53, -0.19, 0.18], wood);
-  lower.rotation.z = 0.28;
-  part(scene, root, `${prefix}-bow-grip`, [0.1, 0.18, 0.1], [0.46, 0.05, 0.18], wood);
-  part(scene, root, `${prefix}-bow-string`, [0.025, 1.02, 0.025], [0.64, 0.05, 0.18], string);
-  part(scene, root, `${prefix}-held-arrow-shaft`, [0.035, 0.035, 0.72], [0.2, 0.08, 0.38], wood);
-  const head = part(scene, root, `${prefix}-held-arrow-head`, [0.11, 0.11, 0.13], [0.2, 0.08, 0.77], iron);
-  head.rotation.z = Math.PI / 4;
+function buildSkeletonBow(scene: Scene, groups: ModelGroups, prefix: string): void {
+  addBox(scene, groups, 'detail', `${prefix}-bow-upper`, [0.08, 0.55, 0.08], [0.53, 0.3, 0.18], [0, 0, -0.28]);
+  addBox(scene, groups, 'detail', `${prefix}-bow-lower`, [0.08, 0.55, 0.08], [0.53, -0.19, 0.18], [0, 0, 0.28]);
+  addBox(scene, groups, 'detail', `${prefix}-bow-grip`, [0.1, 0.18, 0.1], [0.46, 0.05, 0.18]);
+  addBox(scene, groups, 'dark', `${prefix}-bow-string`, [0.024, 1.02, 0.024], [0.64, 0.05, 0.18]);
+  addBox(scene, groups, 'detail', `${prefix}-held-arrow-shaft`, [0.035, 0.035, 0.72], [0.2, 0.08, 0.38]);
+  addBox(scene, groups, 'secondary', `${prefix}-held-arrow-head`, [0.11, 0.11, 0.13], [0.2, 0.08, 0.77], [0, 0, Math.PI / 4]);
 }
 
-function buildModel(
-  scene: Scene,
-  root: TransformNode,
-  kind: CreatureKind,
-  materials: StandardMaterial[],
-  suffix: string,
-): Mesh[] {
-  const palette = PALETTES[kind];
+function buildParts(scene: Scene, kind: CreatureKind, suffix: string): ModelGroups {
+  const groups = emptyGroups();
   const prefix = `${kind}-${suffix}`;
-  const primary = material(scene, `${prefix}-primary-material`, palette.primary);
-  const secondary = material(scene, `${prefix}-secondary-material`, palette.secondary);
-  const detail = material(scene, `${prefix}-detail-material`, palette.detail);
-  const dark = material(scene, `${prefix}-dark-material`, palette.dark);
-  materials.push(primary, secondary, detail, dark);
-
   switch (kind) {
     case 'zombie':
-      return buildHumanoid(
-        scene,
-        root,
-        prefix,
-        primary,
-        secondary,
-        detail,
-        dark,
-        false,
-      );
-    case 'skeleton': {
-      const limbs = buildHumanoid(
-        scene,
-        root,
-        prefix,
-        primary,
-        primary,
-        secondary,
-        dark,
-        true,
-      );
-      addSkeletonBow(scene, root, prefix, materials);
-      return limbs;
-    }
+      buildHumanoid(scene, groups, prefix, false);
+      break;
+    case 'skeleton':
+      buildHumanoid(scene, groups, prefix, true);
+      buildSkeletonBow(scene, groups, prefix);
+      break;
     case 'creeper':
-      part(scene, root, `${prefix}-head`, [0.6, 0.6, 0.6], [0, 0.65, 0.03], primary);
-      part(scene, root, `${prefix}-torso`, [0.5, 0.82, 0.36], [0, 0.05, 0], secondary);
-      addFace(scene, root, prefix, 0.7, 0.35, 0.13, dark);
-      return fourLegs(scene, root, primary, prefix, 0.17, 0.16, -0.52, 0.44);
-    case 'spider': {
-      part(scene, root, `${prefix}-head`, [0.58, 0.4, 0.52], [0, 0.02, 0.46], secondary);
-      part(scene, root, `${prefix}-torso`, [0.84, 0.48, 0.76], [0, 0.02, -0.18], primary);
+      addBox(scene, groups, 'primary', `${prefix}-head`, [0.6, 0.6, 0.6], [0, 0.65, 0.03]);
+      addBox(scene, groups, 'secondary', `${prefix}-torso`, [0.5, 0.82, 0.36], [0, 0.05, 0]);
+      addFace(scene, groups, prefix, 0.7, 0.33, 0.13, 0.25);
+      addFourLegs(scene, groups, prefix, 'primary', 0.17, 0.16, -0.52, 0.44);
+      break;
+    case 'spider':
+      addBox(scene, groups, 'secondary', `${prefix}-head`, [0.58, 0.4, 0.52], [0, 0.02, 0.46]);
+      addBox(scene, groups, 'primary', `${prefix}-torso`, [0.84, 0.48, 0.76], [0, 0.02, -0.18]);
       for (const x of [-0.18, -0.06, 0.06, 0.18]) {
-        part(scene, root, `${prefix}-eye-${String(x)}`, [0.075, 0.07, 0.035], [x, 0.08, 0.735], detail);
+        addBox(scene, groups, 'detail', `${prefix}-eye-${String(x)}`, [0.075, 0.07, 0.04], [x, 0.08, 0.745]);
       }
-      const legs: Mesh[] = [];
       for (const side of [-1, 1] as const) {
         for (let index = 0; index < 4; index += 1) {
-          const leg = part(
+          addBox(
             scene,
-            root,
+            groups,
+            'dark',
             `${prefix}-leg-${String(side)}-${String(index)}`,
             [0.7, 0.1, 0.1],
             [side * 0.67, -0.05, 0.34 - index * 0.24],
-            dark,
+            [0, side * (0.18 + index * 0.05), side * -0.18],
           );
-          leg.rotation.y = side * (0.18 + index * 0.05);
-          leg.rotation.z = side * -0.18;
-          legs.push(leg);
         }
       }
-      return legs;
-    }
-    case 'pig': {
-      part(scene, root, `${prefix}-torso`, [0.92, 0.66, 1.08], [0, 0.13, -0.08], primary);
-      part(scene, root, `${prefix}-head`, [0.64, 0.6, 0.62], [0, 0.22, 0.67], secondary);
-      part(scene, root, `${prefix}-snout`, [0.4, 0.22, 0.15], [0, 0.12, 1.01], detail);
-      addFace(scene, root, prefix, 0.32, 0.996, 0.18, dark);
-      part(scene, root, `${prefix}-ear-l`, [0.16, 0.18, 0.12], [-0.22, 0.56, 0.72], primary);
-      part(scene, root, `${prefix}-ear-r`, [0.16, 0.18, 0.12], [0.22, 0.56, 0.72], primary);
-      return fourLegs(scene, root, secondary, prefix, 0.3, 0.32, -0.4, 0.56);
-    }
-    case 'cow': {
-      part(scene, root, `${prefix}-torso`, [0.98, 0.74, 1.2], [0, 0.18, -0.08], primary);
-      part(scene, root, `${prefix}-head`, [0.64, 0.62, 0.6], [0, 0.3, 0.74], secondary);
-      part(scene, root, `${prefix}-muzzle`, [0.46, 0.24, 0.16], [0, 0.17, 1.05], detail);
-      addFace(scene, root, prefix, 0.4, 1.05, 0.18, dark);
-      const horn = material(scene, `${prefix}-horn-material`, new Color3(0.86, 0.82, 0.68));
-      materials.push(horn);
-      part(scene, root, `${prefix}-horn-l`, [0.1, 0.18, 0.1], [-0.27, 0.67, 0.74], horn).rotation.z = -0.35;
-      part(scene, root, `${prefix}-horn-r`, [0.1, 0.18, 0.1], [0.27, 0.67, 0.74], horn).rotation.z = 0.35;
-      return fourLegs(scene, root, secondary, prefix, 0.33, 0.38, -0.42, 0.62);
-    }
+      break;
+    case 'pig':
+      addBox(scene, groups, 'primary', `${prefix}-torso`, [0.92, 0.66, 1.08], [0, 0.13, -0.08]);
+      addBox(scene, groups, 'secondary', `${prefix}-head`, [0.64, 0.6, 0.62], [0, 0.22, 0.67]);
+      addBox(scene, groups, 'detail', `${prefix}-snout`, [0.4, 0.22, 0.15], [0, 0.12, 1.01]);
+      addFace(scene, groups, prefix, 0.32, 0.98, 0.18);
+      addFourLegs(scene, groups, prefix, 'secondary', 0.3, 0.32, -0.4, 0.56);
+      break;
+    case 'cow':
+      addBox(scene, groups, 'primary', `${prefix}-torso`, [0.98, 0.74, 1.2], [0, 0.18, -0.08]);
+      addBox(scene, groups, 'secondary', `${prefix}-head`, [0.64, 0.62, 0.6], [0, 0.3, 0.74]);
+      addBox(scene, groups, 'detail', `${prefix}-muzzle`, [0.46, 0.24, 0.16], [0, 0.17, 1.05]);
+      addFace(scene, groups, prefix, 0.4, 1.02, 0.18);
+      addBox(scene, groups, 'detail', `${prefix}-horn-l`, [0.1, 0.18, 0.1], [-0.27, 0.67, 0.74], [0, 0, -0.35]);
+      addBox(scene, groups, 'detail', `${prefix}-horn-r`, [0.1, 0.18, 0.1], [0.27, 0.67, 0.74], [0, 0, 0.35]);
+      addFourLegs(scene, groups, prefix, 'secondary', 0.33, 0.38, -0.42, 0.62);
+      break;
     case 'sheep':
-      part(scene, root, `${prefix}-torso`, [1.04, 0.84, 1.16], [0, 0.2, -0.08], primary);
-      part(scene, root, `${prefix}-head`, [0.52, 0.56, 0.52], [0, 0.22, 0.7], secondary);
-      addFace(scene, root, prefix, 0.3, 0.976, 0.15, dark);
-      return fourLegs(scene, root, secondary, prefix, 0.3, 0.34, -0.43, 0.58);
+      addBox(scene, groups, 'primary', `${prefix}-torso`, [1.04, 0.84, 1.16], [0, 0.2, -0.08]);
+      addBox(scene, groups, 'secondary', `${prefix}-head`, [0.52, 0.56, 0.52], [0, 0.22, 0.7]);
+      addFace(scene, groups, prefix, 0.3, 0.95, 0.15);
+      addFourLegs(scene, groups, prefix, 'secondary', 0.3, 0.34, -0.43, 0.58);
+      break;
   }
+  return groups;
 }
 
-/**
- * Converts the simple collision body owned by ClassicEntityManager into a
- * synchronous blocky multipart creature. Presentation never depends on an
- * external image finishing its decode, so a mob cannot become a black or
- * head-and-feet-only placeholder while assets are loading.
- */
+function mergeGroup(
+  root: TransformNode,
+  parts: Mesh[],
+  name: string,
+  material: StandardMaterial,
+): void {
+  if (parts.length === 0) return;
+  const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, false);
+  if (merged === null) return;
+  merged.name = name;
+  merged.parent = root;
+  merged.material = material;
+  merged.isPickable = false;
+  merged.freezeWorldMatrix();
+  // Parent motion invalidates a frozen child world matrix, so unfreeze after the
+  // initial merge. Geometry/material state remains shared and immutable.
+  merged.unfreezeWorldMatrix();
+}
+
 export class CreatureVisualRuntime {
   readonly #scene: Scene;
   readonly #pending = new Set<Mesh>();
   readonly #models = new Map<Mesh, CreatureModel>();
+  readonly #materials = new Map<string, StandardMaterial>();
   readonly #meshObserver: Observer<AbstractMesh>;
   readonly #frameObserver: Observer<Scene>;
 
@@ -345,6 +291,8 @@ export class CreatureVisualRuntime {
       this.#flushPending();
       this.#updateModels();
     });
+    // Existing persistent entities need one startup scan. New entities are
+    // event-driven afterwards; we never rescan scene.meshes every render frame.
     for (const mesh of scene.meshes) this.#queue(mesh);
   }
 
@@ -352,8 +300,10 @@ export class CreatureVisualRuntime {
     this.#scene.onNewMeshAddedObservable.remove(this.#meshObserver);
     this.#scene.onBeforeRenderObservable.remove(this.#frameObserver);
     this.#pending.clear();
-    for (const model of this.#models.values()) this.#disposeModel(model);
+    for (const model of this.#models.values()) model.root.dispose(false, false);
     this.#models.clear();
+    for (const sharedMaterial of this.#materials.values()) sharedMaterial.dispose(false, false);
+    this.#materials.clear();
   }
 
   #queue(abstractMesh: AbstractMesh): void {
@@ -365,9 +315,20 @@ export class CreatureVisualRuntime {
     this.#pending.add(abstractMesh);
   }
 
-  #flushPending(): void {
-    for (const mesh of this.#scene.meshes) this.#queue(mesh);
+  #material(kind: CreatureKind, role: MaterialRole): StandardMaterial {
+    const key = `${kind}:${role}`;
+    const existing = this.#materials.get(key);
+    if (existing !== undefined) return existing;
+    const created = createMaterial(
+      this.#scene,
+      `creature-${key}`,
+      PALETTES[kind][role],
+    );
+    this.#materials.set(key, created);
+    return created;
+  }
 
+  #flushPending(): void {
     for (const body of [...this.#pending]) {
       if (body.isDisposed()) {
         this.#pending.delete(body);
@@ -385,23 +346,20 @@ export class CreatureVisualRuntime {
       try {
         const root = new TransformNode(`upgraded-${body.name}`, this.#scene);
         root.parent = parent;
-        const materials: StandardMaterial[] = [];
-        const animatedLimbs = buildModel(
-          this.#scene,
-          root,
-          kind,
-          materials,
-          String(body.uniqueId),
-        );
-        const model: CreatureModel = {
+        const groups = buildParts(this.#scene, kind, String(body.uniqueId));
+        mergeGroup(root, groups.primary, `${body.name}-primary`, this.#material(kind, 'primary'));
+        mergeGroup(root, groups.secondary, `${body.name}-secondary`, this.#material(kind, 'secondary'));
+        mergeGroup(root, groups.detail, `${body.name}-detail`, this.#material(kind, 'detail'));
+        mergeGroup(root, groups.dark, `${body.name}-dark`, this.#material(kind, 'dark'));
+        this.#models.set(body, {
           sourceBody: body,
           root,
-          materials,
-          animatedLimbs,
           previousPosition: parent.getAbsolutePosition().clone(),
-          phase: 0,
-        };
-        this.#models.set(body, model);
+          correctionX: 0,
+          correctionZ: 0,
+          hitElapsed: HIT_PRESENTATION_SECONDS,
+          wasHurt: false,
+        });
         body.isVisible = false;
         const entityId = body.name.slice('body-'.length);
         const legacyEye = this.#scene.getMeshByName(`eye-${entityId}`);
@@ -416,9 +374,10 @@ export class CreatureVisualRuntime {
   }
 
   #updateModels(): void {
+    const seconds = Math.min(this.#scene.getEngine().getDeltaTime() / 1000, 0.05);
     for (const [body, model] of this.#models) {
       if (body.isDisposed()) {
-        this.#disposeModel(model);
+        model.root.dispose(false, false);
         this.#models.delete(body);
         continue;
       }
@@ -428,32 +387,42 @@ export class CreatureVisualRuntime {
       const deltaX = position.x - model.previousPosition.x;
       const deltaZ = position.z - model.previousPosition.z;
       const travel = Math.hypot(deltaX, deltaZ);
-      if (travel > 0.0004) {
-        parent.rotation.y = Math.atan2(deltaX, deltaZ);
-        model.phase += Math.min(travel * 11, 0.55);
+      const hurt = body.material?.name.startsWith('hurt-') === true;
+
+      if (hurt && !model.wasHurt) {
+        // ClassicEntityManager applies gameplay knockback immediately. Keep the
+        // rendered model at its old horizontal position for one frame, then ease
+        // it through a short upward arc so hits read like a physical bounce.
+        if (travel > 0.03) {
+          model.correctionX = -deltaX;
+          model.correctionZ = -deltaZ;
+        }
+        model.hitElapsed = 0;
       }
+      model.wasHurt = hurt;
       model.previousPosition.copyFrom(position);
 
-      const stride = travel > 0.0004 ? Math.sin(model.phase * 4.2) * 0.55 : 0;
-      for (let index = 0; index < model.animatedLimbs.length; index += 1) {
-        const limb = model.animatedLimbs[index];
-        if (limb === undefined) continue;
-        limb.rotation.x = index % 2 === 0 ? stride : -stride;
+      if (model.hitElapsed < HIT_PRESENTATION_SECONDS) {
+        model.hitElapsed = Math.min(
+          model.hitElapsed + seconds,
+          HIT_PRESENTATION_SECONDS,
+        );
+        const progress = model.hitElapsed / HIT_PRESENTATION_SECONDS;
+        const horizontalRemaining = (1 - progress) ** 3;
+        model.root.position.set(
+          model.correctionX * horizontalRemaining,
+          Math.sin(progress * Math.PI) * HIT_LIFT,
+          model.correctionZ * horizontalRemaining,
+        );
+      } else if (
+        model.root.position.x !== 0 ||
+        model.root.position.y !== 0 ||
+        model.root.position.z !== 0
+      ) {
+        model.root.position.set(0, 0, 0);
+        model.correctionX = 0;
+        model.correctionZ = 0;
       }
-
-      const hurt = body.material?.name.startsWith('hurt-') === true;
-      for (const partMaterial of model.materials) {
-        partMaterial.emissiveColor = hurt
-          ? new Color3(0.42, 0.025, 0.018)
-          : partMaterial.diffuseColor.scale(0.12);
-      }
-    }
-  }
-
-  #disposeModel(model: CreatureModel): void {
-    model.root.dispose(false, false);
-    for (const partMaterial of model.materials) {
-      partMaterial.dispose(false, false);
     }
   }
 }
