@@ -3,6 +3,8 @@
 }
 
 .player-equipment-panel {
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
   padding: .8rem;
   border: 1px solid rgb(225 255 231 / 12%);
@@ -43,23 +45,74 @@
 .equipment-slot-label { font-size:.66rem; }
 .equipment-icon { width:1.55rem;height:1.55rem; }
 .equipment-help { margin:.55rem 0 0;color:#879487;font-size:.64rem;line-height:1.4; }
-.recipe-drawer { margin:0 1.2rem 1.2rem;border:1px solid rgb(225 255 231 / 12%);border-radius:.55rem;background:rgb(7 16 10 / 54%);overflow:hidden; }
-.recipe-drawer-toggle { display:block;width:100%;padding:.72rem .85rem;border:0;color:#dcecdf;background:transparent;text-align:left;cursor:pointer;font:inherit;font-size:.78rem;font-weight:700;letter-spacing:.06em; }
-.recipe-drawer-toggle::after { content:'＋';float:right;color:#9fbaa3; }
-.recipe-drawer-toggle[aria-expanded='true']::after { content:'－'; }
-.recipe-drawer-content[hidden] { display:none; }
-.recipe-drawer-content { padding:0 .85rem .85rem; }
-.recipe-drawer .crafting-book { padding:0; }
-.recipe-drawer .crafting-book > h3 { display:none; }
-.recipe-drawer .recipe-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+
+/* Keep InventoryView's original crafting-book and recipe-list nodes in place.
+   The left column simply collapses their contents below the player preview. */
+.inventory-layout > .crafting-book {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: start;
+  min-width: 0;
+  margin: .55rem 0 0;
+  padding: .72rem .85rem;
+  border: 1px solid rgb(225 255 231 / 12%);
+  border-radius: .55rem;
+  background: rgb(7 16 10 / 54%);
+}
+.inventory-layout > .inventory-content {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
+}
+.crafting-book > .recipe-drawer-toggle {
+  display: block;
+  width: 100%;
+  min-height: 2.15rem;
+  padding: .25rem 0;
+  border: 0;
+  color: #dcecdf;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+.crafting-book > .recipe-drawer-toggle::after {
+  content: '＋';
+  float: right;
+  color: #9fbaa3;
+}
+.crafting-book > .recipe-drawer-toggle[aria-expanded='true']::after {
+  content: '－';
+}
+.crafting-book.is-collapsed > :not(.recipe-drawer-toggle) {
+  display: none !important;
+}
+.crafting-book:not(.is-collapsed) > .recipe-list {
+  margin-top: .55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 
 @media (max-width:850px) {
   .inventory-layout { grid-template-columns:1fr; }
-  .player-equipment-panel { display:grid;grid-template-columns:9rem 1fr;align-items:center; }
+  .player-equipment-panel {
+    grid-column: 1;
+    grid-row: auto;
+    display:grid;
+    grid-template-columns:9rem 1fr;
+    align-items:center;
+  }
+  .inventory-layout > .crafting-book,
+  .inventory-layout > .inventory-content {
+    grid-column: 1;
+    grid-row: auto;
+  }
   .player-equipment-panel h3,.equipment-help { grid-column:1/-1; }
   .inventory-avatar { margin:.2rem auto;transform:scale(.78) rotateY(-8deg);transform-origin:center; }
 }
 @media (max-width:560px) {
   .player-equipment-panel { grid-template-columns:1fr; }
-  .recipe-drawer .recipe-list { grid-template-columns:1fr; }
+  .crafting-book:not(.is-collapsed) > .recipe-list { grid-template-columns:1fr; }
 }
