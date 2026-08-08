@@ -77,6 +77,9 @@ export function installInventoryPresentationRuntime(): void {
   const panel = createEquipmentPanel(root);
   tuckRecipeBook(root);
   const observer = new MutationObserver(() => syncEquipment(root, panel));
-  observer.observe(root, { subtree: true, childList: true, attributes: true });
+  // InventoryView replaces slot children whenever its revision changes. Watching
+  // child nodes is enough; observing the classes we set ourselves can create a
+  // MutationObserver feedback loop on some browsers.
+  observer.observe(root, { subtree: true, childList: true });
   syncEquipment(root, panel);
 }
