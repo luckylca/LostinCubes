@@ -6,6 +6,7 @@ const QUALITY_KEY = 'lost-in-cubes:render-quality';
 const HIDE_LOADING_KEY = 'lost-in-cubes:hide-runtime-loading';
 let installed = false;
 let resumeRequested = false;
+let pauseMenuOpen = false;
 let root: HTMLElement | null = null;
 
 function storageGet(key: string): string | null {
@@ -41,7 +42,7 @@ function createMenu(): HTMLElement {
     '<label><span>区块等待提示</span><input type="checkbox" data-runtime-loading /></label>',
     '<small>性能优先只降低 3D 内部渲染分辨率，不改变世界模拟、区块数量和 UI 清晰度。</small>',
     '</details>',
-    '<button type="button" class="pause-secondary" data-pause-exit>保存并返回世界列表</button>',
+    '<button type="button" class="pause-secondary" data-pause-exit>返回世界列表</button>',
     '<p class="pause-hint">Esc 继续 · E 打开背包</p>',
     '</div>',
   ].join('');
@@ -77,6 +78,7 @@ function createMenu(): HTMLElement {
   section
     .querySelector<HTMLButtonElement>('[data-pause-resume]')
     ?.addEventListener('click', () => {
+      if (!pauseMenuOpen) return;
       resumeRequested = true;
       const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');
       if (canvas !== null && typeof canvas.requestPointerLock === 'function') {
@@ -94,10 +96,10 @@ function createMenu(): HTMLElement {
   return section;
 }
 
-function renderPause(paused: boolean): void {
+function renderPause(open: boolean): void {
   const menu = createMenu();
-  menu.hidden = !paused;
-  document.body.classList.toggle('pause-menu-open', paused);
+  menu.hidden = !open;
+  document.body.classList.toggle('pause-menu-open', open);
 }
 
 export function installPauseMenuRuntime(): void {
@@ -105,16 +107,31 @@ export function installPauseMenuRuntime(): void {
   installed = true;
   createMenu();
 
-  // Both wrappers intentionally preserve the receiver of the original method.
+  // The command pulse is the source of truth for the Esc menu. PlayerState's
+  // `paused` flag intentionally also becomes true for inventory/crafting/furnace
+  // menus, so using that flag alone makes the Esc overlay cover the E inventory.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const originalPoll = InputManager.prototype.poll;
   InputManager.prototype.poll = function pauseAwarePoll(
     issuedAtTick: number,
   ): PlayerInputCommand {
     const command = originalPoll.call(this, issuedAtTick);
-    if (!resumeRequested) return command;
+    const inventoryOpen =
+      document.querySelector<HTMLCanvasElement>('#game-canvas')?.dataset
+        .inventoryOpen === 'true';
+    const withResume = resumeRequested
+      ? { ...command, togglePause: true }
+      : command;
     resumeRequested = false;
-    return { ...command, togglePause: true };
+
+    if (withResume.togglePause && !inventoryOpen) {
+      pauseMenuOpen = !pauseMenuOpen;
+      renderPause(pauseMenuOpen);
+    }
+
+    if (!pauseMenuOpen) return withResume;
+    // Do not allow E to open a second full-screen UI behind the pause menu.
+    return { ...withResume, toggleInventory: false };
   };
 
   // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -123,6 +140,9 @@ export function installPauseMenuRuntime(): void {
     stepSeconds: number,
   ): void {
     originalStep.call(this, stepSeconds);
-    renderPause(!this.isDead && this.getWorldState().player.paused);
+    const shouldShow =
+      pauseMenuOpen && !this.isDead && this.getWorldState().player.paused;
+    if (!shouldShow && this.isDead) pauseMenuOpen = false;
+    renderPause(shouldShow);
   };
 }
