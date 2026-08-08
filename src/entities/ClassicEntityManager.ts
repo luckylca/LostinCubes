@@ -666,7 +666,7 @@ export class ClassicEntityManager {
     let attackCooldown = Number(entity.state.attackCooldown ?? 0);
     let fuse = Number(entity.state.fuse ?? 0);
     let burnProgress = Number(entity.state.burnProgress ?? 0);
-    let knockbackSeconds = Math.max(
+    const knockbackSeconds = Math.max(
       Number(entity.state.knockbackSeconds ?? 0) - seconds,
       0,
     );
@@ -843,9 +843,6 @@ export class ClassicEntityManager {
     const heightDelta = nextY - entity.position.y;
     if (heightDelta > CREATURE_MAXIMUM_STEP_HEIGHT) return entity.position;
 
-    // On an upward step, raise the body before advancing horizontally. The old
-    // code moved X/Z into the solid step and teleported Y by one block in the
-    // same frame, which looked like clipping followed by a sudden pop upward.
     if (heightDelta > 0.06) {
       const rise = Math.min(
         heightDelta,
