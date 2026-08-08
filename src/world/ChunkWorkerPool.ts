@@ -12,9 +12,8 @@ export interface ChunkBuildOptions {
   readonly jobKey: string;
   readonly priority: number;
   /**
-   * `hard` keeps the legacy keyed replacement behavior and terminates an
-   * in-flight worker. `latest` preserves the running job/worker but discards
-   * older queued work with the same key, leaving only current + latest.
+   * `hard` keeps legacy replacement for ordinary chunk generation. `latest`
+   * preserves the running worker and only replaces older queued work.
    */
   readonly replacement?: 'hard' | 'latest';
 }
@@ -58,7 +57,7 @@ function compareBuilds(left: QueuedBuild, right: QueuedBuild): number {
   return left.priority - right.priority || left.sequence - right.sequence;
 }
 
-/** Bounded worker pool with keyed replacement, priority, preemption, and hard cancellation. */
+/** Bounded worker pool with keyed replacement, priority, and edit-job coalescing. */
 export class ChunkWorkerPool {
   readonly #slots: WorkerSlot[] = [];
   readonly #queue: QueuedBuild[] = [];
@@ -114,7 +113,10 @@ export class ChunkWorkerPool {
       return Promise.reject(new RangeError('priority must be finite.'));
     }
 
-    if (options.replacement === 'latest') {
+    // Geometry-only jobs deliberately use current + latest semantics. Killing
+    // the current worker here would throw away the worker-local procedural
+    // terrain cache on every rapid mining edit and force a cold rebuild again.
+    if (options.replacement === 'latest' || input.mode === 'geometry-only') {
       this.#cancelQueued(options.jobKey);
     } else {
       this.cancel(options.jobKey);
@@ -151,12 +153,19 @@ export class ChunkWorkerPool {
 
   public cancel(jobKey: string): number {
     let cancelled = this.#cancelQueued(jobKey);
+    let runningCancelled = 0;
     const cancellation = new ChunkBuildCancelledError(jobKey);
 
     for (let index = 0; index < this.#slots.length; index += 1) {
       const slot = this.#slots[index];
       if (slot?.current?.jobKey !== jobKey) continue;
       const current = slot.current;
+
+      // Player edit workers keep a useful immutable terrain cache in module
+      // scope. Let an already-running geometry job finish; revisions make its
+      // result harmless if stale, while the newest queued job follows it.
+      if (current.request.mode === 'geometry-only') continue;
+
       slot.current = null;
       current.reject(cancellation);
       slot.worker.terminate();
@@ -165,9 +174,11 @@ export class ChunkWorkerPool {
       } catch (error: unknown) {
         this.#activateFallback(error);
       }
-      cancelled += 1;
+      runningCancelled += 1;
     }
 
+    this.#cancelledCount += runningCancelled;
+    cancelled += runningCancelled;
     if (cancelled > 0) this.#pump();
     return cancelled;
   }
