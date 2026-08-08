@@ -57,6 +57,8 @@ const SPAWN_X = 0;
 const SPAWN_Z = 3.5;
 const SAVE_INTERVAL_SECONDS = 2;
 const FURNACE_REFRESH_SECONDS = 0.12;
+const WALK_STREAMING_LOOKAHEAD = 1.65;
+const SPRINT_STREAMING_LOOKAHEAD = 2.45;
 
 type CameraMode = PlayerState['cameraMode'];
 
@@ -112,6 +114,32 @@ function getInventoryArmorPoints(inventory: PlayerInventory): number {
       total + (inventory.countItem(item) > 0 ? getArmorPoints(item) : 0),
     0,
   );
+}
+
+function movementProbe(
+  player: PlayerState,
+  moveX: number,
+  moveZ: number,
+  sprint: boolean,
+): PlayerState['position'] {
+  const length = Math.hypot(moveX, moveZ);
+  if (length <= 0.001) return player.position;
+  const normalizedX = moveX / Math.max(length, 1);
+  const normalizedZ = moveZ / Math.max(length, 1);
+  const forwardX = Math.sin(player.yaw);
+  const forwardZ = Math.cos(player.yaw);
+  const rightX = Math.cos(player.yaw);
+  const rightZ = -Math.sin(player.yaw);
+  const distance = sprint ? SPRINT_STREAMING_LOOKAHEAD : WALK_STREAMING_LOOKAHEAD;
+  return {
+    x:
+      player.position.x +
+      (rightX * normalizedX + forwardX * normalizedZ) * distance,
+    y: player.position.y,
+    z:
+      player.position.z +
+      (rightZ * normalizedX + forwardZ * normalizedZ) * distance,
+  };
 }
 
 export class GameApp {
@@ -271,15 +299,20 @@ export class GameApp {
         const beforeHealth = session.getWorldState().player.health;
         session.damagePlayer(amount, source);
         if (session.getWorldState().player.health !== beforeHealth) {
+          audio.playMonsterAttack();
           audio.playPlayerHurt();
         }
       },
       onDrop: (item, count, x, y, z) => {
         spawnStack({ item, count, durability: null }, x, y, z);
       },
-      onEnemyHit: (_damage, killed) => audio.playAttack(true, killed),
+      onEnemyHit: (_damage, killed) => {
+        audio.playAttack(true, killed);
+        if (!killed) audio.playMonsterHurt();
+      },
       onBlockChanged: (worldX, worldY, worldZ) =>
         worldRenderer.invalidateBlock(worldX, worldY, worldZ),
+      onMonsterAmbient: () => audio.playMonsterAmbient(),
     });
 
     const interaction = new VoxelInteractionController(scene, worldData, {
@@ -374,6 +407,7 @@ export class GameApp {
     const handleDeath = (worldState: Readonly<WorldState>): void => {
       if (worldState.player.deathCount <= observedDeathCount) return;
       observedDeathCount = worldState.player.deathCount;
+      audio.playPlayerDeath();
       const position = worldState.lastDeathPosition ?? worldState.player.position;
       for (const stack of inventory.drainAllItems()) {
         spawnStack(stack, position.x, position.y, position.z);
@@ -489,9 +523,6 @@ export class GameApp {
               firedBow = true;
               syncInventory();
             } else if (!isBowItem(selectedItem)) {
-              // Entity hit testing must happen before deciding to mine the block
-              // behind the creature. The old `!interaction.hasTarget` guard made
-              // almost every mob standing in front of terrain unattackable.
               const result = enemies.attack(worldState.player, selectedItem);
               meleeHit = result.hit;
               if (!result.hit && !interaction.hasTarget) audio.playAttack(false);
@@ -544,7 +575,30 @@ export class GameApp {
           placeHeld = false;
         }
         syncInventory();
-        session.submitCommand(command);
+
+        let submittedCommand = command;
+        if (
+          !inventoryView.isOpen &&
+          Math.hypot(command.moveX, command.moveZ) > 0.001
+        ) {
+          const probe = movementProbe(
+            worldState.player,
+            command.moveX,
+            command.moveZ,
+            command.sprint,
+          );
+          const terrainReady = worldRenderer.ensureNearFieldReady(probe.x, probe.z);
+          const creatureClear = enemies.canPlayerOccupy(probe);
+          if (!terrainReady || !creatureClear) {
+            submittedCommand = {
+              ...command,
+              moveX: 0,
+              moveZ: 0,
+              sprint: false,
+            };
+          }
+        }
+        session.submitCommand(submittedCommand);
       },
       fixedUpdate: (stepSeconds) => {
         session.setArmorPoints(getInventoryArmorPoints(inventory));
@@ -696,9 +750,11 @@ export class GameApp {
       world.desiredChunks,
     )}`;
     const queueLabel =
-      world.pendingChunks > 0
-        ? ` · 队列 ${String(world.pendingChunks)}`
-        : '';
+      world.criticalPendingChunks > 0
+        ? ` · 近场 ${String(world.criticalPendingChunks)} 待加载`
+        : world.pendingChunks > 0
+          ? ` · 队列 ${String(world.pendingChunks)}`
+          : '';
     const dropLabel =
       activeDrops > 0 ? ` · 掉落 ${String(activeDrops)}` : '';
     const enemyLabel =
