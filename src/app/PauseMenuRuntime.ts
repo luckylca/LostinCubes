@@ -105,6 +105,8 @@ export function installPauseMenuRuntime(): void {
   installed = true;
   createMenu();
 
+  // Both wrappers intentionally preserve the receiver of the original method.
+  // eslint-disable-next-line @typescript-eslint/unbound-method
   const originalPoll = InputManager.prototype.poll;
   InputManager.prototype.poll = function pauseAwarePoll(
     issuedAtTick: number,
@@ -115,6 +117,7 @@ export function installPauseMenuRuntime(): void {
     return { ...command, togglePause: true };
   };
 
+  // eslint-disable-next-line @typescript-eslint/unbound-method
   const originalStep = LocalGameSession.prototype.step;
   LocalGameSession.prototype.step = function pauseAwareStep(
     stepSeconds: number,
