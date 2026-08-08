@@ -17,6 +17,7 @@ const PLAYER_COMBAT_COOLDOWN_SECONDS = 0.5;
 const CREATURE_AMBIENT_INTERVAL_SECONDS = 4.2;
 const ENTITY_SIMULATION_STEP_SECONDS = 1 / 30;
 const BODY_PATTERN = /^body-(?<kind>zombie|skeleton|spider|creeper|cow|pig|sheep)-/;
+const BATCHED_BODY_SUFFIX = /-(?:primary|secondary|detail|dark)$/;
 const CREATURE_COLLISION: Readonly<Record<string, readonly [radius: number, halfHeight: number]>> = {
   zombie: [0.38, 0.9],
   skeleton: [0.34, 0.9],
@@ -53,6 +54,10 @@ function browserStorage(): Storage | null {
   }
 }
 
+function isSourceCreatureBody(mesh: Mesh): boolean {
+  return BODY_PATTERN.test(mesh.name) && !BATCHED_BODY_SUFFIX.test(mesh.name);
+}
+
 export class NightStalkerManager {
   readonly #scene: Scene;
   readonly #entities: ClassicEntityManager;
@@ -63,6 +68,7 @@ export class NightStalkerManager {
   #combatCooldown = 0;
   #ambientElapsed = 0;
   #entityAccumulator = 0;
+  #lastObservedSceneMeshCount = 0;
 
   public constructor(
     scene: Scene,
@@ -88,6 +94,7 @@ export class NightStalkerManager {
         onBlockChanged: callbacks.onBlockChanged,
       },
     );
+    this.#lastObservedSceneMeshCount = scene.meshes.length;
   }
 
   public update(player: PlayerState, dayTime: number, stepSeconds: number): void {
@@ -103,11 +110,6 @@ export class NightStalkerManager {
       this.#ambientElapsed = 0;
     }
 
-    // Expensive creature AI/terrain/LOS work runs at most 30 times per second,
-    // but we never discard wall-clock time. At 60 FPS two 1/60 updates are
-    // accumulated into one ~1/30 simulation call. If the browser hitches or a
-    // test advances by 100 ms, ClassicEntityManager receives that full elapsed
-    // time in one call instead of doing several catch-up passes or losing it.
     this.#entityAccumulator += stepSeconds;
     if (this.#entityAccumulator + Number.EPSILON < ENTITY_SIMULATION_STEP_SECONDS) {
       return;
@@ -115,6 +117,7 @@ export class NightStalkerManager {
     const entityStepSeconds = this.#entityAccumulator;
     this.#entityAccumulator = 0;
     this.#entities.update(player, dayTime, entityStepSeconds);
+    this.#refreshCreatureRegistrationsIfNeeded();
   }
 
   public attack(player: PlayerState, heldItem: ItemType | null): PlayerAttackResult {
@@ -138,6 +141,7 @@ export class NightStalkerManager {
     playerRadius = 0.34,
     playerHalfHeight = 0.9,
   ): boolean {
+    this.#refreshCreatureRegistrationsIfNeeded();
     for (const mesh of this.#collisionBodies) {
       if (mesh.isDisposed()) {
         this.#collisionBodies.delete(mesh);
@@ -190,7 +194,26 @@ export class NightStalkerManager {
 
   #registerCollisionBody(abstractMesh: AbstractMesh): void {
     if (!(abstractMesh instanceof Mesh)) return;
-    if (!BODY_PATTERN.test(abstractMesh.name)) return;
+    if (!isSourceCreatureBody(abstractMesh)) return;
     this.#collisionBodies.add(abstractMesh);
+  }
+
+  #refreshCreatureRegistrationsIfNeeded(): void {
+    const currentMeshCount = this.#scene.meshes.length;
+    if (currentMeshCount === this.#lastObservedSceneMeshCount) return;
+    this.#lastObservedSceneMeshCount = currentMeshCount;
+
+    // Babylon can publish a Mesh during MeshBuilder construction before all
+    // higher-level setup is complete. The observable remains the fast path; a
+    // scene-size change is the cheap signal for this one-pass self-heal. This is
+    // not a per-frame scene scan: it only runs after meshes were added/removed.
+    for (const mesh of this.#scene.meshes) {
+      if (!isSourceCreatureBody(mesh) || this.#collisionBodies.has(mesh)) continue;
+      this.#collisionBodies.add(mesh);
+      // Re-announce only bodies missed by the original event. CreatureVisualRuntime
+      // listens to the same observable, so it can queue the body without polling
+      // the entire scene every render frame.
+      this.#scene.onNewMeshAddedObservable.notifyObservers(mesh);
+    }
   }
 }
