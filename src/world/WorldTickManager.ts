@@ -269,8 +269,9 @@ export class WorldTickManager {
     const maximumLevel = maximumFluidLevel(fluid);
 
     // A flowing cell survives only while a source/faster-flowing neighbor can
-    // feed it. Removing the source therefore produces an outward recession wave
-    // instead of leaving every propagated cell as a permanent source.
+    // feed it. Downstream cells with an equal/higher level must never feed back
+    // upstream, otherwise a chain of propagated water can sustain itself after
+    // the real source disappears.
     if (trackedLevel !== undefined) {
       let incomingLevel = Number.POSITIVE_INFINITY;
       if (
@@ -287,6 +288,7 @@ export class WorldTickManager {
         }
         const neighborKey = coordinateKey(neighborX, worldY, neighborZ);
         const neighborLevel = this.#fluidLevels.get(neighborKey) ?? 0;
+        if (neighborLevel >= level) continue;
         incomingLevel = Math.min(incomingLevel, neighborLevel + 1);
       }
 
