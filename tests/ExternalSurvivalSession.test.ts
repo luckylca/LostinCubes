@@ -33,10 +33,9 @@ describe('external survival session actions', () => {
     expect(session.getWorldState().player.health).toBe(PLAYER_MAXIMUM_HEALTH);
   });
 
-  it('returns lethal damage dealt, records the death point, and respawns', async () => {
-    const session = new LocalGameSession('world-a', {
-      spawnPosition: { x: 3, y: 7, z: -2 },
-    });
+  it('returns lethal damage dealt, records death, then respawns explicitly', async () => {
+    const spawnPosition = { x: 3, y: 7, z: -2 };
+    const session = new LocalGameSession('world-a', { spawnPosition });
     await session.start();
     session.restoreSurvival({
       ...BASE_SURVIVAL,
@@ -47,10 +46,18 @@ describe('external survival session actions', () => {
     const deathPosition = session.getWorldState().player.position;
 
     expect(session.damagePlayer(99)).toBe(7);
-    const state = session.getWorldState();
-    expect(state.player.health).toBe(PLAYER_MAXIMUM_HEALTH);
-    expect(state.player.deathCount).toBe(5);
-    expect(state.lastDeathPosition).toEqual(deathPosition);
-    expect(state.player.position).toEqual(deathPosition);
+    const deadState = session.getWorldState();
+    expect(deadState.player.health).toBe(0);
+    expect(deadState.player.paused).toBe(true);
+    expect(deadState.player.deathCount).toBe(5);
+    expect(deadState.lastDeathPosition).toEqual(deathPosition);
+    expect(deadState.player.position).toEqual(deathPosition);
+
+    expect(session.respawnPlayer()).toBe(true);
+    const respawned = session.getWorldState();
+    expect(respawned.player.health).toBe(PLAYER_MAXIMUM_HEALTH);
+    expect(respawned.player.deathCount).toBe(5);
+    expect(respawned.player.position).toEqual(spawnPosition);
+    expect(respawned.lastDeathPosition).toEqual(deathPosition);
   });
 });
