@@ -5,7 +5,8 @@ const ARMOR = [
   ['feet', 'item-iron-boots', '靴子'],
 ] as const;
 
-let installed = false;
+let armed = false;
+let initialized = false;
 
 function hasItem(root: HTMLElement, className: string): HTMLElement | null {
   return root.querySelector<HTMLElement>(
@@ -18,7 +19,9 @@ function syncEquipment(root: HTMLElement, panel: HTMLElement): void {
   if (avatar === null) return;
   for (const [role, className] of ARMOR) {
     const source = hasItem(root, className);
-    const slot = panel.querySelector<HTMLElement>(`[data-equipment-role="${role}"]`);
+    const slot = panel.querySelector<HTMLElement>(
+      `[data-equipment-role="${role}"]`,
+    );
     const equipped = source !== null;
     avatar.classList.toggle(`wearing-${role}`, equipped);
     if (slot === null) continue;
@@ -30,7 +33,12 @@ function syncEquipment(root: HTMLElement, panel: HTMLElement): void {
   }
 }
 
-function createEquipmentPanel(root: HTMLElement): HTMLElement {
+function createEquipmentPanel(root: HTMLElement): HTMLElement | null {
+  const layout = root.querySelector<HTMLElement>('.inventory-layout');
+  if (layout === null) return null;
+  const existing = root.querySelector<HTMLElement>('.player-equipment-panel');
+  if (existing !== null) return existing;
+
   const panel = document.createElement('section');
   panel.className = 'player-equipment-panel';
   panel.setAttribute('aria-label', '人物与装备');
@@ -51,7 +59,7 @@ function createEquipmentPanel(root: HTMLElement): HTMLElement {
     '</div>',
     '<p class="equipment-help">当前护甲会映射到对应装备位并显示在人物身上。</p>',
   ].join('');
-  root.querySelector<HTMLElement>('.inventory-layout')?.prepend(panel);
+  layout.prepend(panel);
   return panel;
 }
 
@@ -59,6 +67,9 @@ function tuckRecipeBook(root: HTMLElement): void {
   const book = root.querySelector<HTMLElement>('.crafting-book');
   if (book === null) return;
   if (book.closest('.recipe-drawer') !== null) return;
+  const inventoryPanel = root.querySelector<HTMLElement>('.inventory-panel');
+  if (inventoryPanel === null) return;
+
   const drawer = document.createElement('details');
   drawer.className = 'recipe-drawer';
   const summary = document.createElement('summary');
@@ -66,17 +77,39 @@ function tuckRecipeBook(root: HTMLElement): void {
   drawer.append(summary);
   book.replaceWith(drawer);
   drawer.append(book);
-  root.querySelector<HTMLElement>('.inventory-panel')?.append(drawer);
+  inventoryPanel.append(drawer);
 }
 
-export function installInventoryPresentationRuntime(): void {
-  if (installed) return;
-  installed = true;
+function tryInitialize(): boolean {
+  if (initialized) return true;
   const root = document.querySelector<HTMLElement>('#inventory-screen');
-  if (root === null) return;
+  if (root === null) return false;
   const panel = createEquipmentPanel(root);
+  if (panel === null) return false;
+
   tuckRecipeBook(root);
   const observer = new MutationObserver(() => syncEquipment(root, panel));
   observer.observe(root, { subtree: true, childList: true });
   syncEquipment(root, panel);
+  initialized = true;
+  return true;
+}
+
+export function installInventoryPresentationRuntime(): void {
+  if (armed) return;
+  armed = true;
+  if (tryInitialize()) return;
+
+  // GameApp owns the inventory markup and can mount it after the entry module
+  // has already installed runtime extensions. Observe only until the required
+  // DOM exists, then disconnect permanently; this is startup wiring, not a
+  // long-lived document-wide observer.
+  const mountObserver = new MutationObserver(() => {
+    if (!tryInitialize()) return;
+    mountObserver.disconnect();
+  });
+  mountObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
 }
