@@ -5,9 +5,13 @@ import {
   StandardMaterial,
   Texture,
   TransformNode,
+} from '@babylonjs/core';
+import type {
+  AbstractMesh,
+  Observer,
+  Scene,
   Vector3,
 } from '@babylonjs/core';
-import type { AbstractMesh, Observer, Scene } from '@babylonjs/core';
 import type { EntityKind } from './EntityRegistry';
 
 type CreatureKind = Exclude<EntityKind, 'arrow' | 'tnt' | 'dropped-item'>;
@@ -286,8 +290,6 @@ export class CreatureVisualRuntime {
         if (legacyEye !== null) legacyEye.isVisible = false;
         this.#pending.delete(body);
       } catch (error: unknown) {
-        // Keep the original body visible as a fail-safe. A transient material
-        // or asset failure must never produce an invisible enemy again.
         body.isVisible = true;
         console.error(`Failed to build creature model for ${body.name}.`, error);
         this.#pending.delete(body);
