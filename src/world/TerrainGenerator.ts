@@ -89,6 +89,16 @@ function sampleValueNoise(
   return interpolate(near, far, blendZ);
 }
 
+function sampleRidgedNoise(
+  worldX: number,
+  worldZ: number,
+  scale: number,
+  seed: number,
+): number {
+  const value = sampleValueNoise(worldX, worldZ, scale, seed);
+  return 1 - Math.abs(value * 2 - 1);
+}
+
 function sampleValueNoise3d(
   worldX: number,
   worldY: number,
@@ -132,43 +142,137 @@ export class TerrainGenerator {
     if (Math.hypot(worldX, worldZ - 3.5) < SPAWN_CLEAR_RADIUS + 6) {
       return BiomeType.Plains;
     }
+
+    // Climate fields are deliberately much broader than individual chunks so
+    // travelling through the world feels like crossing real regions instead of
+    // watching the same terrain recolor every few dozen blocks.
     const temperature = sampleValueNoise(
       worldX,
       worldZ,
-      104,
+      220,
       this.#seed ^ 0x27d4eb2d,
     );
     const moisture = sampleValueNoise(
       worldX,
       worldZ,
-      88,
+      190,
       this.#seed ^ 0x165667b1,
     );
-    if (temperature < 0.34) return BiomeType.SnowyTundra;
-    if (temperature > 0.62 && moisture < 0.48) return BiomeType.Desert;
-    if (moisture > 0.55) return BiomeType.Forest;
+    const continentality = sampleValueNoise(
+      worldX,
+      worldZ,
+      260,
+      this.#seed ^ 0x9e3779b9,
+    );
+    const uplift = sampleValueNoise(
+      worldX,
+      worldZ,
+      132,
+      this.#seed ^ 0x7f4a7c15,
+    );
+
+    if (uplift > 0.72 && continentality > 0.43) {
+      return temperature < 0.4
+        ? BiomeType.SnowyMountains
+        : BiomeType.Mountains;
+    }
+    if (temperature < 0.3) return BiomeType.SnowyTundra;
+    if (temperature > 0.62 && moisture < 0.44) return BiomeType.Desert;
+    if (
+      moisture > 0.68 &&
+      temperature > 0.34 &&
+      temperature < 0.72 &&
+      continentality < 0.58
+    ) {
+      return BiomeType.Swamp;
+    }
+    if (moisture > 0.53) return BiomeType.Forest;
     return BiomeType.Plains;
   }
 
   public sampleSurfaceHeight(worldX: number, worldZ: number): number {
-    const biome = getBiomeDefinition(this.sampleBiome(worldX, worldZ));
-    const continent = sampleValueNoise(worldX, worldZ, 64, this.#seed);
+    const biomeType = this.sampleBiome(worldX, worldZ);
+    const biome = getBiomeDefinition(biomeType);
+    const continent = sampleValueNoise(
+      worldX,
+      worldZ,
+      168,
+      this.#seed ^ 0x6d2b79f5,
+    );
     const hills = sampleValueNoise(
       worldX,
       worldZ,
-      24,
+      48,
       this.#seed ^ 0x9e3779b9,
     );
     const detail = sampleValueNoise(
       worldX,
       worldZ,
-      9,
+      14,
       this.#seed ^ 0x85ebca6b,
     );
-    const continentalOffset = (continent - 0.5) * 8;
-    const localRelief =
-      (hills - 0.5) * biome.heightVariation * 1.6 + (detail - 0.5) * 2;
-    let height = Math.floor(biome.baseHeight + continentalOffset + localRelief);
+    const ridge = sampleRidgedNoise(
+      worldX,
+      worldZ,
+      34,
+      this.#seed ^ 0xc2b2ae35,
+    );
+
+    let rawHeight: number;
+    switch (biomeType) {
+      case BiomeType.Swamp:
+        // Swamps intentionally hug sea level. Small depressions become shallow
+        // pools while raised islands stay walkable and tree-covered.
+        rawHeight =
+          SEA_LEVEL - 0.35 +
+          (continent - 0.5) * 2.2 +
+          (detail - 0.5) * 1.7;
+        break;
+      case BiomeType.Mountains:
+      case BiomeType.SnowyMountains: {
+        const peak = ridge * ridge;
+        rawHeight =
+          biome.baseHeight - 3 +
+          (continent - 0.5) * 4.5 +
+          peak * biome.heightVariation +
+          (hills - 0.5) * 4 +
+          (detail - 0.5) * 2.2;
+        break;
+      }
+      case BiomeType.Desert:
+        // Layered medium/small noise produces broad dune fields rather than the
+        // same grassland relief with sand substituted for grass.
+        rawHeight =
+          biome.baseHeight +
+          (continent - 0.5) * 3 +
+          (hills - 0.5) * biome.heightVariation +
+          (detail - 0.5) * 3.1;
+        break;
+      case BiomeType.Plains:
+        rawHeight =
+          biome.baseHeight +
+          (continent - 0.5) * 3 +
+          (hills - 0.5) * 1.8 +
+          (detail - 0.5) * 0.9;
+        break;
+      case BiomeType.SnowyTundra:
+        rawHeight =
+          biome.baseHeight +
+          (continent - 0.5) * 3.5 +
+          (hills - 0.5) * 2.2 +
+          (detail - 0.5) * 1.1;
+        break;
+      case BiomeType.Forest:
+      default:
+        rawHeight =
+          biome.baseHeight +
+          (continent - 0.5) * 4.5 +
+          (hills - 0.5) * biome.heightVariation +
+          (detail - 0.5) * 1.8;
+        break;
+    }
+
+    let height = Math.floor(rawHeight);
     if (Math.hypot(worldX, worldZ - 3.5) < SPAWN_CLEAR_RADIUS + 3) {
       height = Math.max(height, SEA_LEVEL + 1);
     }
@@ -293,7 +397,7 @@ export class TerrainGenerator {
     const submerged = surfaceHeight < SEA_LEVEL;
     if (worldY === surfaceHeight) {
       if (submerged) return this.#sampleRiverbedBlock(worldX, worldZ);
-      if (surfaceHeight <= SEA_LEVEL + 1 && biome !== BiomeType.SnowyTundra) {
+      if (surfaceHeight <= SEA_LEVEL + 1 && !definition.freezesSurface) {
         return BlockType.Sand;
       }
       return definition.surfaceBlock;
