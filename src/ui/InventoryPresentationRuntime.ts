@@ -1,3 +1,4 @@
+import type { CraftingStation } from '../crafting/CraftingRecipes';
 import { InventoryView } from './InventoryView';
 
 const ARMOR = [
@@ -132,7 +133,9 @@ export function installInventoryPresentationRuntime(): void {
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const originalRender = InventoryView.prototype.render;
 
-  InventoryView.prototype.open = function presentedOpen(station = 'inventory'): void {
+  InventoryView.prototype.open = function presentedOpen(
+    station: CraftingStation,
+  ): void {
     ensurePresentation();
     originalOpen.call(this, station);
     syncPresentation();
