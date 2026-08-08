@@ -35,6 +35,10 @@ export interface ChunkBuildSuccess {
   readonly chunkZ: number;
   readonly meshData: ChunkMeshData;
   readonly buildMilliseconds: number;
+  /** Present for geometry-only builds so repeated-edit caching is testable. */
+  readonly geometryBaseCacheHit?: boolean;
+  /** Number of procedural terrain cells sampled while preparing edit geometry. */
+  readonly proceduralTerrainSamples?: number;
 }
 
 export interface ChunkBuildFailure {
