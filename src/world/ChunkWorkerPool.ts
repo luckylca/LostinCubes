@@ -52,7 +52,7 @@ function compareBuilds(left: QueuedBuild, right: QueuedBuild): number {
   return left.priority - right.priority || left.sequence - right.sequence;
 }
 
-/** Bounded worker pool with keyed replacement, priority, and hard cancellation. */
+/** Bounded worker pool with keyed replacement, priority, preemption, and hard cancellation. */
 export class ChunkWorkerPool {
   readonly #slots: WorkerSlot[] = [];
   readonly #queue: QueuedBuild[] = [];
@@ -134,6 +134,7 @@ export class ChunkWorkerPool {
 
       this.#queue.push(build);
       this.#queue.sort(compareBuilds);
+      this.#preemptFor(build);
       this.#pump();
     });
   }
@@ -253,6 +254,47 @@ export class ChunkWorkerPool {
       );
     });
     return slot;
+  }
+
+  /**
+   * A freshly edited block must not wait behind several seconds of terrain
+   * streaming. If every worker is occupied and a newly queued job has a better
+   * priority than an in-flight background build, restart the worst worker and
+   * put its interrupted build back in the queue. The interrupted promise stays
+   * alive and resumes later; only true cancellations reject callers.
+   */
+  #preemptFor(build: QueuedBuild): void {
+    if (this.#fallback || this.#slots.some((slot) => slot.current === null)) {
+      return;
+    }
+
+    let victimIndex = -1;
+    let victimPriority = build.priority;
+    for (let index = 0; index < this.#slots.length; index += 1) {
+      const current = this.#slots[index]?.current;
+      if (current === null || current === undefined) continue;
+      if (current.priority <= victimPriority) continue;
+      victimPriority = current.priority;
+      victimIndex = index;
+    }
+    if (victimIndex < 0) return;
+
+    const victim = this.#slots[victimIndex];
+    const interrupted = victim?.current;
+    if (victim === undefined || interrupted === null || interrupted === undefined) {
+      return;
+    }
+
+    victim.current = null;
+    victim.worker.terminate();
+    this.#queue.push(interrupted);
+    this.#queue.sort(compareBuilds);
+
+    try {
+      this.#slots[victimIndex] = this.#createSlot();
+    } catch (error: unknown) {
+      this.#activateFallback(error);
+    }
   }
 
   #enqueueFallback(build: QueuedBuild): void {

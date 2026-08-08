@@ -3,7 +3,6 @@ import {
   Mesh,
   MeshBuilder,
   StandardMaterial,
-  Texture,
   TransformNode,
 } from '@babylonjs/core';
 import type {
@@ -19,52 +18,83 @@ type CreatureKind = Exclude<EntityKind, 'arrow' | 'tnt' | 'dropped-item'>;
 interface CreatureModel {
   readonly sourceBody: Mesh;
   readonly root: TransformNode;
-  readonly material: StandardMaterial;
-  readonly accents: StandardMaterial[];
-  readonly legs: Mesh[];
+  readonly materials: StandardMaterial[];
+  readonly animatedLimbs: Mesh[];
   readonly previousPosition: Vector3;
   phase: number;
 }
 
+interface CreaturePalette {
+  readonly primary: Color3;
+  readonly secondary: Color3;
+  readonly detail: Color3;
+  readonly dark: Color3;
+}
+
 const BODY_PATTERN = /^body-(?<kind>zombie|skeleton|spider|creeper|cow|pig|sheep)-/;
 
-const TEXTURE_URLS: Readonly<Record<CreatureKind, string>> = {
-  zombie: new URL('../assets/entities/zombie.svg', import.meta.url).href,
-  skeleton: new URL('../assets/entities/skeleton.svg', import.meta.url).href,
-  spider: new URL('../assets/entities/spider.svg', import.meta.url).href,
-  creeper: new URL('../assets/entities/creeper.svg', import.meta.url).href,
-  cow: new URL('../assets/entities/cow.svg', import.meta.url).href,
-  pig: new URL('../assets/entities/pig.svg', import.meta.url).href,
-  sheep: new URL('../assets/entities/sheep.svg', import.meta.url).href,
+const PALETTES: Readonly<Record<CreatureKind, CreaturePalette>> = {
+  zombie: {
+    primary: new Color3(0.27, 0.52, 0.3),
+    secondary: new Color3(0.12, 0.43, 0.43),
+    detail: new Color3(0.18, 0.27, 0.43),
+    dark: new Color3(0.05, 0.08, 0.055),
+  },
+  skeleton: {
+    primary: new Color3(0.82, 0.81, 0.72),
+    secondary: new Color3(0.67, 0.66, 0.59),
+    detail: new Color3(0.92, 0.91, 0.82),
+    dark: new Color3(0.07, 0.07, 0.06),
+  },
+  spider: {
+    primary: new Color3(0.16, 0.105, 0.08),
+    secondary: new Color3(0.23, 0.14, 0.1),
+    detail: new Color3(0.72, 0.055, 0.025),
+    dark: new Color3(0.045, 0.025, 0.02),
+  },
+  creeper: {
+    primary: new Color3(0.27, 0.66, 0.3),
+    secondary: new Color3(0.18, 0.51, 0.22),
+    detail: new Color3(0.39, 0.76, 0.36),
+    dark: new Color3(0.025, 0.065, 0.03),
+  },
+  cow: {
+    primary: new Color3(0.36, 0.2, 0.12),
+    secondary: new Color3(0.14, 0.085, 0.055),
+    detail: new Color3(0.65, 0.46, 0.34),
+    dark: new Color3(0.035, 0.025, 0.02),
+  },
+  pig: {
+    primary: new Color3(0.78, 0.43, 0.47),
+    secondary: new Color3(0.9, 0.57, 0.59),
+    detail: new Color3(0.61, 0.27, 0.31),
+    dark: new Color3(0.11, 0.055, 0.065),
+  },
+  sheep: {
+    primary: new Color3(0.9, 0.89, 0.83),
+    secondary: new Color3(0.28, 0.26, 0.22),
+    detail: new Color3(0.72, 0.7, 0.64),
+    dark: new Color3(0.055, 0.05, 0.045),
+  },
 };
 
 function isCreatureKind(value: string): value is CreatureKind {
-  return Object.hasOwn(TEXTURE_URLS, value);
+  return Object.hasOwn(PALETTES, value);
 }
 
-function texturedMaterial(
-  scene: Scene,
-  name: string,
-  texture: Texture,
-): StandardMaterial {
-  const material = new StandardMaterial(name, scene);
-  material.diffuseTexture = texture;
-  material.diffuseColor = Color3.White();
-  material.ambientColor = new Color3(0.56, 0.56, 0.56);
-  material.specularColor = Color3.Black();
-  return material;
-}
-
-function plainMaterial(
+function material(
   scene: Scene,
   name: string,
   color: Color3,
 ): StandardMaterial {
-  const material = new StandardMaterial(name, scene);
-  material.diffuseColor = color;
-  material.ambientColor = color.scale(0.5);
-  material.specularColor = Color3.Black();
-  return material;
+  const result = new StandardMaterial(name, scene);
+  result.diffuseColor = color;
+  result.ambientColor = color.scale(0.72);
+  // A small emissive floor prevents mobs from turning pitch black when the
+  // world light is low or a browser/driver evaluates ambient light differently.
+  result.emissiveColor = color.scale(0.12);
+  result.specularColor = Color3.Black();
+  return result;
 }
 
 function part(
@@ -73,7 +103,7 @@ function part(
   name: string,
   size: readonly [number, number, number],
   position: readonly [number, number, number],
-  material: StandardMaterial,
+  partMaterial: StandardMaterial,
 ): Mesh {
   const mesh = MeshBuilder.CreateBox(
     name,
@@ -82,15 +112,42 @@ function part(
   );
   mesh.parent = root;
   mesh.position.set(position[0], position[1], position[2]);
-  mesh.material = material;
+  mesh.material = partMaterial;
   mesh.isPickable = false;
   return mesh;
+}
+
+function addFace(
+  scene: Scene,
+  root: TransformNode,
+  prefix: string,
+  y: number,
+  z: number,
+  eyeSpacing: number,
+  eyeMaterial: StandardMaterial,
+): void {
+  part(
+    scene,
+    root,
+    `${prefix}-eye-l`,
+    [0.11, 0.09, 0.035],
+    [-eyeSpacing, y, z],
+    eyeMaterial,
+  );
+  part(
+    scene,
+    root,
+    `${prefix}-eye-r`,
+    [0.11, 0.09, 0.035],
+    [eyeSpacing, y, z],
+    eyeMaterial,
+  );
 }
 
 function fourLegs(
   scene: Scene,
   root: TransformNode,
-  material: StandardMaterial,
+  partMaterial: StandardMaterial,
   prefix: string,
   x: number,
   z: number,
@@ -98,30 +155,45 @@ function fourLegs(
   height: number,
 ): Mesh[] {
   return [
-    part(scene, root, `${prefix}-leg-fl`, [0.22, height, 0.22], [-x, y, z], material),
-    part(scene, root, `${prefix}-leg-fr`, [0.22, height, 0.22], [x, y, z], material),
-    part(scene, root, `${prefix}-leg-bl`, [0.22, height, 0.22], [-x, y, -z], material),
-    part(scene, root, `${prefix}-leg-br`, [0.22, height, 0.22], [x, y, -z], material),
+    part(scene, root, `${prefix}-leg-fl`, [0.22, height, 0.22], [-x, y, z], partMaterial),
+    part(scene, root, `${prefix}-leg-fr`, [0.22, height, 0.22], [x, y, z], partMaterial),
+    part(scene, root, `${prefix}-leg-bl`, [0.22, height, 0.22], [-x, y, -z], partMaterial),
+    part(scene, root, `${prefix}-leg-br`, [0.22, height, 0.22], [x, y, -z], partMaterial),
   ];
 }
 
-function humanoid(
+function buildHumanoid(
   scene: Scene,
   root: TransformNode,
-  material: StandardMaterial,
   prefix: string,
+  skin: StandardMaterial,
+  torsoMaterial: StandardMaterial,
+  legMaterial: StandardMaterial,
+  eyeMaterial: StandardMaterial,
   skeleton: boolean,
 ): Mesh[] {
-  const limb = skeleton ? 0.13 : 0.22;
-  const torso = skeleton ? 0.38 : 0.52;
-  const depth = skeleton ? 0.2 : 0.28;
-  part(scene, root, `${prefix}-head`, [0.5, 0.5, 0.5], [0, 0.66, 0], material);
-  part(scene, root, `${prefix}-body`, [torso, 0.68, depth], [0, 0.09, 0], material);
+  const limb = skeleton ? 0.14 : 0.22;
+  const torsoWidth = skeleton ? 0.4 : 0.54;
+  const torsoDepth = skeleton ? 0.22 : 0.3;
+
+  part(scene, root, `${prefix}-head`, [0.5, 0.5, 0.5], [0, 0.7, 0], skin);
+  // Keep a real torso mesh. The previous visual path could leave only the
+  // animated extremities visible if its asynchronous skin failed to render.
+  part(
+    scene,
+    root,
+    `${prefix}-torso`,
+    [torsoWidth, 0.72, torsoDepth],
+    [0, 0.08, 0],
+    torsoMaterial,
+  );
+  addFace(scene, root, prefix, 0.74, 0.267, 0.12, eyeMaterial);
+
   return [
-    part(scene, root, `${prefix}-arm-l`, [limb, 0.72, limb], [-0.38, 0.08, 0], material),
-    part(scene, root, `${prefix}-arm-r`, [limb, 0.72, limb], [0.38, 0.08, 0], material),
-    part(scene, root, `${prefix}-leg-l`, [limb + 0.02, 0.72, limb + 0.02], [-0.14, -0.6, 0], material),
-    part(scene, root, `${prefix}-leg-r`, [limb + 0.02, 0.72, limb + 0.02], [0.14, -0.6, 0], material),
+    part(scene, root, `${prefix}-arm-l`, [limb, 0.72, limb], [-0.39, 0.05, 0], torsoMaterial),
+    part(scene, root, `${prefix}-arm-r`, [limb, 0.72, limb], [0.39, 0.05, 0], torsoMaterial),
+    part(scene, root, `${prefix}-leg-l`, [limb + 0.02, 0.72, limb + 0.02], [-0.14, -0.62, 0], legMaterial),
+    part(scene, root, `${prefix}-leg-r`, [limb + 0.02, 0.72, limb + 0.02], [0.14, -0.62, 0], legMaterial),
   ];
 }
 
@@ -129,23 +201,52 @@ function buildModel(
   scene: Scene,
   root: TransformNode,
   kind: CreatureKind,
-  material: StandardMaterial,
-  accents: StandardMaterial[],
+  materials: StandardMaterial[],
   suffix: string,
 ): Mesh[] {
+  const palette = PALETTES[kind];
   const prefix = `${kind}-${suffix}`;
+  const primary = material(scene, `${prefix}-primary-material`, palette.primary);
+  const secondary = material(scene, `${prefix}-secondary-material`, palette.secondary);
+  const detail = material(scene, `${prefix}-detail-material`, palette.detail);
+  const dark = material(scene, `${prefix}-dark-material`, palette.dark);
+  materials.push(primary, secondary, detail, dark);
+
   switch (kind) {
     case 'zombie':
-      return humanoid(scene, root, material, prefix, false);
+      return buildHumanoid(
+        scene,
+        root,
+        prefix,
+        primary,
+        secondary,
+        detail,
+        dark,
+        false,
+      );
     case 'skeleton':
-      return humanoid(scene, root, material, prefix, true);
+      return buildHumanoid(
+        scene,
+        root,
+        prefix,
+        primary,
+        primary,
+        secondary,
+        dark,
+        true,
+      );
     case 'creeper':
-      part(scene, root, `${prefix}-head`, [0.58, 0.58, 0.58], [0, 0.62, 0.04], material);
-      part(scene, root, `${prefix}-body`, [0.48, 0.78, 0.34], [0, 0.05, 0], material);
-      return fourLegs(scene, root, material, prefix, 0.17, 0.16, -0.5, 0.42);
+      part(scene, root, `${prefix}-head`, [0.6, 0.6, 0.6], [0, 0.65, 0.03], primary);
+      part(scene, root, `${prefix}-torso`, [0.5, 0.82, 0.36], [0, 0.05, 0], secondary);
+      addFace(scene, root, prefix, 0.69, 0.345, 0.13, dark);
+      part(scene, root, `${prefix}-mouth`, [0.18, 0.2, 0.035], [0, 0.51, 0.345], dark);
+      return fourLegs(scene, root, primary, prefix, 0.17, 0.16, -0.52, 0.44);
     case 'spider': {
-      part(scene, root, `${prefix}-head`, [0.58, 0.4, 0.5], [0, 0.02, 0.46], material);
-      part(scene, root, `${prefix}-body`, [0.8, 0.46, 0.72], [0, 0.02, -0.18], material);
+      part(scene, root, `${prefix}-head`, [0.58, 0.4, 0.52], [0, 0.02, 0.46], secondary);
+      part(scene, root, `${prefix}-torso`, [0.84, 0.48, 0.76], [0, 0.02, -0.18], primary);
+      for (const x of [-0.18, -0.06, 0.06, 0.18]) {
+        part(scene, root, `${prefix}-eye-${String(x)}`, [0.075, 0.07, 0.035], [x, 0.08, 0.735], detail);
+      }
       const legs: Mesh[] = [];
       for (const side of [-1, 1] as const) {
         for (let index = 0; index < 4; index += 1) {
@@ -153,9 +254,9 @@ function buildModel(
             scene,
             root,
             `${prefix}-leg-${String(side)}-${String(index)}`,
-            [0.68, 0.1, 0.1],
-            [side * 0.66, -0.04, 0.34 - index * 0.24],
-            material,
+            [0.7, 0.1, 0.1],
+            [side * 0.67, -0.05, 0.34 - index * 0.24],
+            dark,
           );
           leg.rotation.y = side * (0.18 + index * 0.05);
           leg.rotation.z = side * -0.18;
@@ -165,49 +266,43 @@ function buildModel(
       return legs;
     }
     case 'pig': {
-      part(scene, root, `${prefix}-body`, [0.9, 0.64, 1.08], [0, 0.12, -0.08], material);
-      part(scene, root, `${prefix}-head`, [0.62, 0.58, 0.62], [0, 0.2, 0.67], material);
-      const snout = plainMaterial(scene, `${prefix}-snout-material`, new Color3(0.86, 0.52, 0.55));
-      accents.push(snout);
-      part(scene, root, `${prefix}-snout`, [0.38, 0.22, 0.14], [0, 0.12, 1.01], snout);
-      part(scene, root, `${prefix}-ear-l`, [0.16, 0.18, 0.12], [-0.22, 0.55, 0.72], material);
-      part(scene, root, `${prefix}-ear-r`, [0.16, 0.18, 0.12], [0.22, 0.55, 0.72], material);
-      return fourLegs(scene, root, material, prefix, 0.3, 0.32, -0.4, 0.56);
+      part(scene, root, `${prefix}-torso`, [0.92, 0.66, 1.08], [0, 0.13, -0.08], primary);
+      part(scene, root, `${prefix}-head`, [0.64, 0.6, 0.62], [0, 0.22, 0.67], secondary);
+      part(scene, root, `${prefix}-snout`, [0.4, 0.22, 0.15], [0, 0.12, 1.01], detail);
+      addFace(scene, root, prefix, 0.31, 0.992, 0.18, dark);
+      part(scene, root, `${prefix}-ear-l`, [0.16, 0.18, 0.12], [-0.22, 0.56, 0.72], primary);
+      part(scene, root, `${prefix}-ear-r`, [0.16, 0.18, 0.12], [0.22, 0.56, 0.72], primary);
+      return fourLegs(scene, root, secondary, prefix, 0.3, 0.32, -0.4, 0.56);
     }
     case 'cow': {
-      part(scene, root, `${prefix}-body`, [0.98, 0.74, 1.2], [0, 0.18, -0.08], material);
-      part(scene, root, `${prefix}-head`, [0.62, 0.62, 0.58], [0, 0.3, 0.74], material);
-      const muzzle = plainMaterial(scene, `${prefix}-muzzle-material`, new Color3(0.62, 0.44, 0.32));
-      const horn = plainMaterial(scene, `${prefix}-horn-material`, new Color3(0.86, 0.82, 0.68));
-      accents.push(muzzle, horn);
-      part(scene, root, `${prefix}-muzzle`, [0.46, 0.24, 0.16], [0, 0.17, 1.05], muzzle);
+      part(scene, root, `${prefix}-torso`, [0.98, 0.74, 1.2], [0, 0.18, -0.08], primary);
+      part(scene, root, `${prefix}-head`, [0.64, 0.62, 0.6], [0, 0.3, 0.74], secondary);
+      part(scene, root, `${prefix}-muzzle`, [0.46, 0.24, 0.16], [0, 0.17, 1.05], detail);
+      addFace(scene, root, prefix, 0.39, 1.045, 0.18, dark);
+      const horn = material(scene, `${prefix}-horn-material`, new Color3(0.86, 0.82, 0.68));
+      materials.push(horn);
       part(scene, root, `${prefix}-horn-l`, [0.1, 0.18, 0.1], [-0.27, 0.67, 0.74], horn).rotation.z = -0.35;
       part(scene, root, `${prefix}-horn-r`, [0.1, 0.18, 0.1], [0.27, 0.67, 0.74], horn).rotation.z = 0.35;
-      return fourLegs(scene, root, material, prefix, 0.33, 0.38, -0.42, 0.62);
+      return fourLegs(scene, root, secondary, prefix, 0.33, 0.38, -0.42, 0.62);
     }
-    case 'sheep': {
-      const face = plainMaterial(scene, `${prefix}-face-material`, new Color3(0.27, 0.25, 0.22));
-      accents.push(face);
-      part(scene, root, `${prefix}-wool`, [1.02, 0.82, 1.16], [0, 0.2, -0.08], material);
-      part(scene, root, `${prefix}-head`, [0.5, 0.54, 0.52], [0, 0.22, 0.7], face);
-      return fourLegs(scene, root, face, prefix, 0.3, 0.34, -0.43, 0.58);
-    }
+    case 'sheep':
+      part(scene, root, `${prefix}-torso`, [1.04, 0.84, 1.16], [0, 0.2, -0.08], primary);
+      part(scene, root, `${prefix}-head`, [0.52, 0.56, 0.52], [0, 0.22, 0.7], secondary);
+      addFace(scene, root, prefix, 0.29, 0.972, 0.15, dark);
+      return fourLegs(scene, root, secondary, prefix, 0.3, 0.34, -0.43, 0.58);
   }
 }
 
 /**
- * Deferred creature visual adapter.
- *
- * Babylon can announce a mesh before ClassicEntityManager has assigned its
- * entity TransformNode parent. Bodies are therefore discovered both through
- * onNewMeshAdded and a cheap per-frame fallback scan. The legacy body stays
- * visible until the multipart replacement was built successfully.
+ * Converts the simple collision body owned by ClassicEntityManager into a
+ * synchronous blocky multipart creature. Presentation never depends on an
+ * external image finishing its decode, so a mob cannot become a black or
+ * head-and-feet-only placeholder while assets are loading.
  */
 export class CreatureVisualRuntime {
   readonly #scene: Scene;
   readonly #pending = new Set<Mesh>();
   readonly #models = new Map<Mesh, CreatureModel>();
-  readonly #textures = new Map<CreatureKind, Texture>();
   readonly #meshObserver: Observer<AbstractMesh>;
   readonly #frameObserver: Observer<Scene>;
 
@@ -227,8 +322,6 @@ export class CreatureVisualRuntime {
     this.#pending.clear();
     for (const model of this.#models.values()) this.#disposeModel(model);
     this.#models.clear();
-    for (const texture of this.#textures.values()) texture.dispose();
-    this.#textures.clear();
   }
 
   #queue(abstractMesh: AbstractMesh): void {
@@ -260,26 +353,19 @@ export class CreatureVisualRuntime {
       try {
         const root = new TransformNode(`upgraded-${body.name}`, this.#scene);
         root.parent = parent;
-        const material = texturedMaterial(
-          this.#scene,
-          `upgraded-${kind}-${String(body.uniqueId)}`,
-          this.#texture(kind),
-        );
-        const accents: StandardMaterial[] = [];
-        const legs = buildModel(
+        const materials: StandardMaterial[] = [];
+        const animatedLimbs = buildModel(
           this.#scene,
           root,
           kind,
-          material,
-          accents,
+          materials,
           String(body.uniqueId),
         );
         const model: CreatureModel = {
           sourceBody: body,
           root,
-          material,
-          accents,
-          legs,
+          materials,
+          animatedLimbs,
           previousPosition: parent.getAbsolutePosition().clone(),
           phase: 0,
         };
@@ -295,22 +381,6 @@ export class CreatureVisualRuntime {
         this.#pending.delete(body);
       }
     }
-  }
-
-  #texture(kind: CreatureKind): Texture {
-    const existing = this.#textures.get(kind);
-    if (existing !== undefined) return existing;
-    const texture = new Texture(
-      TEXTURE_URLS[kind],
-      this.#scene,
-      false,
-      false,
-      Texture.NEAREST_NEAREST,
-    );
-    texture.wrapU = Texture.WRAP_ADDRESSMODE;
-    texture.wrapV = Texture.WRAP_ADDRESSMODE;
-    this.#textures.set(kind, texture);
-    return texture;
   }
 
   #updateModels(): void {
@@ -333,27 +403,25 @@ export class CreatureVisualRuntime {
       model.previousPosition.copyFrom(position);
 
       const stride = travel > 0.0004 ? Math.sin(model.phase * 4.2) * 0.55 : 0;
-      for (let index = 0; index < model.legs.length; index += 1) {
-        const leg = model.legs[index];
-        if (leg === undefined) continue;
-        leg.rotation.x = index % 2 === 0 ? stride : -stride;
+      for (let index = 0; index < model.animatedLimbs.length; index += 1) {
+        const limb = model.animatedLimbs[index];
+        if (limb === undefined) continue;
+        limb.rotation.x = index % 2 === 0 ? stride : -stride;
       }
 
       const hurt = body.material?.name.startsWith('hurt-') === true;
-      model.material.emissiveColor = hurt
-        ? new Color3(0.42, 0.025, 0.018)
-        : Color3.Black();
-      for (const accent of model.accents) {
-        accent.emissiveColor = hurt
-          ? new Color3(0.32, 0.018, 0.012)
-          : Color3.Black();
+      for (const partMaterial of model.materials) {
+        partMaterial.emissiveColor = hurt
+          ? new Color3(0.42, 0.025, 0.018)
+          : partMaterial.diffuseColor.scale(0.12);
       }
     }
   }
 
   #disposeModel(model: CreatureModel): void {
     model.root.dispose(false, false);
-    model.material.dispose(false, false);
-    for (const accent of model.accents) accent.dispose(false, false);
+    for (const partMaterial of model.materials) {
+      partMaterial.dispose(false, false);
+    }
   }
 }
