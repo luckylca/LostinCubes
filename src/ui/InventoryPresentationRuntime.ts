@@ -45,20 +45,20 @@ function createEquipmentPanel(root: HTMLElement): HTMLElement {
     '</div>',
     '<div class="equipment-slots">',
     ...ARMOR.map(
-      ([role, _className, label]) =>
+      ([role, , label]) =>
         `<div class="equipment-slot" data-equipment-role="${role}" title="${label}"><span class="equipment-slot-label">${label}</span><span class="equipment-icon inventory-item item-empty"></span></div>`,
     ),
     '</div>',
     '<p class="equipment-help">当前护甲会映射到对应装备位并显示在人物身上。</p>',
   ].join('');
-  const layout = root.querySelector<HTMLElement>('.inventory-layout');
-  layout?.prepend(panel);
+  root.querySelector<HTMLElement>('.inventory-layout')?.prepend(panel);
   return panel;
 }
 
 function tuckRecipeBook(root: HTMLElement): void {
   const book = root.querySelector<HTMLElement>('.crafting-book');
-  if (book === null || book.closest('.recipe-drawer') !== null) return;
+  if (book === null) return;
+  if (book.closest('.recipe-drawer') !== null) return;
   const drawer = document.createElement('details');
   drawer.className = 'recipe-drawer';
   const summary = document.createElement('summary');
@@ -77,9 +77,6 @@ export function installInventoryPresentationRuntime(): void {
   const panel = createEquipmentPanel(root);
   tuckRecipeBook(root);
   const observer = new MutationObserver(() => syncEquipment(root, panel));
-  // InventoryView replaces slot children whenever its revision changes. Watching
-  // child nodes is enough; observing the classes we set ourselves can create a
-  // MutationObserver feedback loop on some browsers.
   observer.observe(root, { subtree: true, childList: true });
   syncEquipment(root, panel);
 }
