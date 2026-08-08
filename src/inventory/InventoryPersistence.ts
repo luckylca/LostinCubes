@@ -1,7 +1,4 @@
-import {
-  applyExplicitTestLoadout,
-  browserSearch,
-} from '../debug/TestLoadout';
+import { applyExplicitTestLoadout } from '../debug/TestLoadout';
 import { resolveRuntimeWorldId } from '../world/ActiveWorldRuntime';
 import { PlayerInventory } from './PlayerInventory';
 
@@ -14,14 +11,13 @@ function createInventoryKey(worldSeed: string): string {
   return `lost-in-cubes:inventory:${resolveRuntimeWorldId(worldSeed)}`;
 }
 
-// This release is an explicitly requested playtest build. It intentionally
-// injects the Batch 3 test inventory even on the normal URL. Flip this back to
-// false on the next release unless that turn explicitly asks for testing.
-const CURRENT_PLAYTEST_LOADOUT_ENABLED = true;
-
-function withPlaytestLoadout(inventory: PlayerInventory): PlayerInventory {
-  const search = CURRENT_PLAYTEST_LOADOUT_ENABLED ? '?test=1' : browserSearch();
-  applyExplicitTestLoadout(inventory, search);
+/**
+ * v0.3.2 is an explicitly requested playtest release, so the Batch 3 loadout
+ * is filled on the normal game URL as well. Remove this wrapper on the next
+ * non-playtest release instead of leaving a hidden permanent debug mode.
+ */
+function withCurrentPlaytestLoadout(inventory: PlayerInventory): PlayerInventory {
+  applyExplicitTestLoadout(inventory, '?test=1');
   return inventory;
 }
 
@@ -30,20 +26,20 @@ export function loadPlayerInventory(
   storage: InventoryStorage | null,
 ): PlayerInventory {
   if (storage === null) {
-    return withPlaytestLoadout(new PlayerInventory());
+    return withCurrentPlaytestLoadout(new PlayerInventory());
   }
 
   try {
     const serialized = storage.getItem(createInventoryKey(worldSeed));
     if (serialized === null) {
-      return withPlaytestLoadout(new PlayerInventory());
+      return withCurrentPlaytestLoadout(new PlayerInventory());
     }
-    return withPlaytestLoadout(
+    return withCurrentPlaytestLoadout(
       new PlayerInventory(JSON.parse(serialized) as unknown),
     );
   } catch (error: unknown) {
     console.warn('Inventory save could not be restored; using defaults.', error);
-    return withPlaytestLoadout(new PlayerInventory());
+    return withCurrentPlaytestLoadout(new PlayerInventory());
   }
 }
 
