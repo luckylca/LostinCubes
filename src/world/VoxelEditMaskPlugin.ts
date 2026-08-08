@@ -140,7 +140,7 @@ export class VoxelEditMaskPlugin extends MaterialPluginBase {
   }
 
   public override getUniforms(): {
-    ubo: Array<{ name: string; size: number; type: string }>;
+    ubo: { name: string; size: number; type: string }[];
   } {
     return {
       ubo: Array.from(
@@ -156,7 +156,7 @@ export class VoxelEditMaskPlugin extends MaterialPluginBase {
 
   public override getCustomCode(
     shaderType: string,
-  ): { [pointName: string]: string } | null {
+  ): Record<string, string> | null {
     if (shaderType !== 'fragment') return null;
     return {
       CUSTOM_FRAGMENT_MAIN_BEGIN: buildDiscardCode(),
