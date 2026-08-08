@@ -7,11 +7,19 @@ export interface TestLoadoutEntry {
 }
 
 /**
- * Test mode is intentionally opt-in. Normal gameplay never receives these
- * items. A future test build can either use ?test=1 or replace this list with
- * exactly the objects requested for that test.
+ * Items covered by the current Batch 3 visual/gameplay playtest. Keep this
+ * explicit so a normal non-test release can disable forced injection again
+ * without changing inventory semantics.
  */
 export const DEFAULT_TEST_LOADOUT: readonly TestLoadoutEntry[] = [
+  { item: ItemType.String, count: 64 },
+  { item: ItemType.Bone, count: 64 },
+  { item: ItemType.Gunpowder, count: 64 },
+  { item: ItemType.Feather, count: 64 },
+  { item: ItemType.Leather, count: 32 },
+  { item: ItemType.Wool, count: 32 },
+  { item: ItemType.RawPorkchop, count: 16 },
+  { item: ItemType.RawBeef, count: 16 },
   { item: ItemType.Bow, count: 1 },
   { item: ItemType.Arrow, count: 64 },
   { item: ItemType.Tnt, count: 32 },
@@ -20,8 +28,6 @@ export const DEFAULT_TEST_LOADOUT: readonly TestLoadoutEntry[] = [
   { item: ItemType.IronLeggings, count: 1 },
   { item: ItemType.IronBoots, count: 1 },
   { item: ItemType.IronAxe, count: 1 },
-  { item: ItemType.RawPorkchop, count: 16 },
-  { item: ItemType.RawBeef, count: 16 },
 ];
 
 export function isExplicitTestMode(search: string): boolean {
