@@ -99,7 +99,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await expect(canvas).toHaveAttribute('data-inventory-open', 'false');
   await expect(page.locator('#hud-status')).toContainText('生命 13/20');
   await expect(page.locator('#hud-view')).toContainText('苹果');
-  await expect(page.locator('#hud-view')).toContainText('重生 2');
+  await expect(page.locator('#hud-view')).toContainText('死亡 2');
 
   const startingDayTime = Number(await canvas.getAttribute('data-day-time'));
   expect(startingDayTime).toBeGreaterThanOrEqual(0.42);
