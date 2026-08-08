@@ -1,0 +1,71 @@
+.inventory-item {
+  --icon-main: #8a8f8c;
+  --icon-dark: color-mix(in srgb, var(--icon-main), #000 32%);
+  --icon-light: color-mix(in srgb, var(--icon-main), #fff 24%);
+}
+
+/* Block icons keep a small voxel face, but use original procedural patterns. */
+.item-grass { background: linear-gradient(#5e9b42 0 27%, transparent 29%), linear-gradient(135deg, #775137, #563923); }
+.item-dirt { background: radial-gradient(circle at 28% 32%, #8f6948 0 8%, transparent 10%), radial-gradient(circle at 70% 62%, #4f3525 0 9%, transparent 11%), #765137; }
+.item-stone { background: linear-gradient(135deg, transparent 52%, rgb(255 255 255 / 10%) 54% 62%, transparent 64%), #777d7a; }
+.item-cobblestone { background: linear-gradient(35deg, transparent 42%, #555b58 44% 49%, transparent 51%), linear-gradient(145deg, transparent 57%, #989d99 59% 63%, transparent 65%), #707572; }
+.item-rune { background: radial-gradient(circle, #87efb6 0 11%, transparent 13%), linear-gradient(45deg, transparent 43%, #2b9a68 45% 53%, transparent 55%), #27493b; }
+.item-coal-ore { background: radial-gradient(circle at 30% 32%, #202423 0 13%, transparent 15%), radial-gradient(circle at 70% 67%, #151817 0 12%, transparent 14%), #777b79; }
+.item-iron-ore { background: radial-gradient(circle at 30% 33%, #a86d4e 0 12%, transparent 14%), radial-gradient(circle at 70% 66%, #c28a68 0 12%, transparent 14%), #797d7b; }
+.item-furnace { background: radial-gradient(ellipse at 50% 72%, #111 0 21%, #d76a26 23% 27%, transparent 29%), linear-gradient(#777 0 17%, #515653 18% 100%); }
+.item-torch { border: 0; box-shadow: none; background: linear-gradient(90deg, transparent 41%, #93602d 43% 57%, transparent 59%); }
+.item-torch::before { content: ""; position: absolute; width: .78rem; height: .78rem; left: .48rem; top: -.05rem; background: radial-gradient(circle at 48% 65%, #fff1a5 0 18%, #ffb52f 20% 48%, #d84b20 50% 68%, transparent 70%); transform: rotate(45deg); }
+.item-sand { background: radial-gradient(circle at 25% 30%, #f2dda0 0 6%, transparent 8%), radial-gradient(circle at 72% 68%, #bca96c 0 6%, transparent 8%), #d6c47f; }
+.item-gravel { background: radial-gradient(circle at 28% 28%, #777 0 13%, transparent 15%), radial-gradient(circle at 67% 66%, #b1aba7 0 15%, transparent 17%), #8d8885; }
+.item-clay { background: linear-gradient(135deg, transparent 48%, rgb(255 255 255 / 16%) 50% 57%, transparent 59%), #8297a2; }
+.item-snow { background: linear-gradient(135deg, #fff, #cfe6ef); }
+.item-ladder { border: 0; box-shadow: none; background: repeating-linear-gradient(0deg, transparent 0 .3rem, #9a662f .31rem .42rem), linear-gradient(90deg, transparent 10%, #865629 11% 22%, transparent 23% 77%, #865629 78% 89%, transparent 90%); }
+.item-oak-sapling { border: 0; box-shadow: none; background: linear-gradient(90deg, transparent 45%, #76502a 46% 54%, transparent 55%); }
+.item-oak-sapling::before { content:""; position:absolute; inset:.1rem .18rem .62rem; background:#4f9940; clip-path: polygon(50% 0,68% 25%,100% 28%,76% 52%,88% 85%,55% 70%,28% 100%,30% 65%,0 50%,30% 37%); }
+.item-tall-grass,.item-dandelion { border:0;box-shadow:none;background:linear-gradient(70deg,transparent 46%,#4a8d35 47% 53%,transparent 54%); }
+.item-tall-grass::before { content:"";position:absolute;inset:.2rem;background:#5caa42;clip-path:polygon(46% 100%,43% 54%,3% 28%,42% 38%,33% 0,53% 35%,91% 12%,59% 48%,95% 62%,57% 60%,55% 100%); }
+.item-dandelion::before { content:"";position:absolute;left:.38rem;top:.08rem;width:1rem;height:.75rem;background:#f2cf35;clip-path:polygon(50% 0,63% 28%,96% 15%,78% 48%,100% 66%,66% 70%,54% 100%,40% 72%,4% 84%,22% 52%,0 35%,36% 31%); }
+.item-tnt { background: linear-gradient(0deg,#b1211d 0 33%,#ece4ce 34% 66%,#b1211d 67%); }
+.item-tnt::after { content:"T";position:absolute;inset:0;display:grid;place-items:center;color:#2a201c;font:bold .8rem monospace; }
+
+/* Materials and food get recognisable silhouettes rather than color cubes. */
+.item-coal,.item-raw-iron,.item-iron-ingot,.item-apple,.item-string,.item-bone,.item-gunpowder,.item-feather,.item-leather,.item-wool,.item-raw-porkchop,.item-raw-beef,.item-arrow,.item-bow,.item-iron-helmet,.item-iron-chestplate,.item-iron-leggings,.item-iron-boots,
+.item-iron-shovel,.item-iron-pickaxe,.item-iron-axe {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.item-coal::before { content:"";position:absolute;inset:.25rem;background:linear-gradient(135deg,#3c4140,#0d1010);clip-path:polygon(25% 2%,78% 12%,100% 48%,76% 91%,24% 100%,0 64%,7% 25%);box-shadow:inset -.2rem -.2rem rgb(0 0 0 / 25%); }
+.item-raw-iron::before { content:"";position:absolute;inset:.22rem;background:linear-gradient(135deg,#d39a73,#775543);clip-path:polygon(20% 8%,76% 0,100% 32%,85% 86%,38% 100%,0 70%,5% 25%); }
+.item-iron-ingot::before { content:"";position:absolute;left:.15rem;right:.15rem;top:.45rem;height:.88rem;background:linear-gradient(145deg,#f1f3f2,#9ca5a2);clip-path:polygon(14% 0,86% 0,100% 35%,86% 100%,14% 100%,0 35%); }
+.item-apple::before { content:"";position:absolute;left:.28rem;top:.42rem;width:1.25rem;height:1.16rem;border-radius:50% 46% 54% 50%;background:radial-gradient(circle at 30% 25%,#f3695d 0 13%,transparent 15%),#bd302c;transform:rotate(-7deg); }
+.item-apple::after { content:"";position:absolute;left:.88rem;top:.08rem;width:.58rem;height:.55rem;background:#579344;clip-path:ellipse(45% 28% at 50% 50%);transform:rotate(-32deg); }
+.item-string::before { content:"";position:absolute;inset:.22rem;border:.14rem solid #d7d5c9;border-radius:50% 42% 52% 46%;transform:rotate(31deg); }
+.item-string::after { content:"";position:absolute;left:.76rem;top:.22rem;width:.14rem;height:1.35rem;background:#d7d5c9;transform:rotate(-35deg); }
+.item-bone::before { content:"";position:absolute;left:.72rem;top:.08rem;width:.3rem;height:1.6rem;border-radius:.15rem;background:#e9e2c9;transform:rotate(39deg);box-shadow:-.2rem -.08rem 0 -.06rem #e9e2c9,.2rem .08rem 0 -.06rem #e9e2c9; }
+.item-gunpowder::before { content:"";position:absolute;left:.22rem;right:.22rem;bottom:.2rem;height:1.1rem;background:radial-gradient(circle at 35% 45%,#727873 0 7%,transparent 9%),radial-gradient(circle at 65% 62%,#151817 0 9%,transparent 11%),linear-gradient(#59605b,#1d211f);clip-path:polygon(50% 0,100% 82%,85% 100%,14% 100%,0 82%); }
+.item-feather::before { content:"";position:absolute;left:.45rem;top:.04rem;width:.9rem;height:1.55rem;background:linear-gradient(135deg,#fff,#aeb8b5);clip-path:polygon(55% 0,100% 20%,73% 43%,98% 46%,64% 63%,82% 73%,48% 78%,25% 100%,32% 69%,2% 54%,39% 49%,8% 31%,47% 34%);transform:rotate(20deg); }
+.item-leather::before { content:"";position:absolute;inset:.17rem;background:#8d4a24;clip-path:polygon(18% 0,40% 15%,61% 3%,82% 15%,100% 42%,82% 63%,91% 100%,56% 86%,34% 100%,9% 83%,17% 57%,0 35%); }
+.item-wool::before { content:"";position:absolute;inset:.22rem;border-radius:.35rem;background:radial-gradient(circle at 30% 30%,#fff 0 28%,transparent 30%),radial-gradient(circle at 70% 35%,#eee 0 30%,transparent 32%),radial-gradient(circle at 48% 72%,#f8f7f1 0 37%,transparent 39%); }
+.item-raw-porkchop::before,.item-raw-beef::before { content:"";position:absolute;inset:.22rem;background:#d27478;clip-path:polygon(17% 11%,64% 0,100% 32%,84% 83%,48% 100%,5% 73%,0 38%); }
+.item-raw-beef::before { background:#a73d37; }
+
+/* Weapons */
+.item-arrow { transform:rotate(-42deg); }
+.item-arrow::before { content:"";position:absolute;left:.82rem;top:.1rem;width:.12rem;height:1.5rem;background:#95673a; }
+.item-arrow::after { content:"";position:absolute;left:.59rem;top:-.03rem;width:.58rem;height:.56rem;background:#c7ceca;clip-path:polygon(50% 0,100% 100%,50% 72%,0 100%); }
+.item-bow::before { content:"";position:absolute;inset:.08rem .38rem;border:.15rem solid #9a672f;border-left-color:transparent;border-radius:50%;transform:rotate(9deg); }
+.item-bow::after { content:"";position:absolute;left:.88rem;top:.18rem;width:.07rem;height:1.42rem;background:#e0ddd0;transform:rotate(-5deg);transform-origin:center; }
+
+/* Tools share a wooden handle and distinct forged head. */
+.item-iron-shovel,.item-iron-pickaxe,.item-iron-axe { rotate:-38deg; }
+.item-iron-shovel::before,.item-iron-pickaxe::before,.item-iron-axe::before { content:"";position:absolute;top:.15rem;left:.76rem;width:.22rem;height:1.45rem;border-radius:.08rem;background:#8b5a32; }
+.item-iron-pickaxe::after { content:"";position:absolute;top:.02rem;left:.08rem;width:1.55rem;height:.34rem;border-radius:55% 55% .08rem .08rem;background:linear-gradient(#e7ecea,#9ca5a2); }
+.item-iron-shovel::after { content:"";position:absolute;right:.05rem;bottom:0;width:.78rem;height:.67rem;border-radius:.14rem .14rem .34rem .34rem;background:linear-gradient(135deg,#edf0ef,#9ca5a2); }
+.item-iron-axe::after { content:"";position:absolute;top:.07rem;left:.68rem;width:.84rem;height:.64rem;border-radius:.1rem .35rem .12rem .1rem;background:linear-gradient(135deg,#edf0ef,#9ca5a2); }
+
+/* Armor silhouettes */
+.item-iron-helmet::before { content:"";position:absolute;left:.28rem;top:.28rem;width:1.2rem;height:1.08rem;background:linear-gradient(135deg,#eef1f0,#9aa3a0);clip-path:polygon(18% 0,82% 0,100% 30%,92% 90%,70% 90%,68% 55%,32% 55%,30% 90%,8% 90%,0 30%); }
+.item-iron-chestplate::before { content:"";position:absolute;inset:.2rem;background:linear-gradient(135deg,#edf1ef,#929c99);clip-path:polygon(18% 0,38% 14%,62% 14%,82% 0,100% 25%,82% 43%,75% 100%,25% 100%,18% 43%,0 25%); }
+.item-iron-leggings::before { content:"";position:absolute;inset:.2rem;background:linear-gradient(135deg,#e9edeb,#929b98);clip-path:polygon(10% 0,90% 0,82% 100%,55% 100%,50% 47%,45% 100%,18% 100%); }
+.item-iron-boots::before { content:"";position:absolute;left:.2rem;bottom:.24rem;width:.65rem;height:1.12rem;background:linear-gradient(135deg,#e9edeb,#8e9996);clip-path:polygon(18% 0,85% 0,76% 67%,100% 78%,100% 100%,0 100%);box-shadow:.82rem 0 0 #aab2b0; }
