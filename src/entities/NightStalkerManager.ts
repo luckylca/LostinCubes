@@ -1,5 +1,5 @@
-import { TransformNode } from '@babylonjs/core';
-import type { Scene } from '@babylonjs/core';
+import { Mesh, TransformNode } from '@babylonjs/core';
+import type { AbstractMesh, Observer, Scene } from '@babylonjs/core';
 import type { PlayerState, VectorState } from '../game/session/GameSession';
 import type { ItemType } from '../inventory/ItemDefinitions';
 import type { PlayerVector } from '../player/KinematicPlayerMotor';
@@ -15,6 +15,8 @@ installBlockRegistryBlastAlias();
 
 const PLAYER_COMBAT_COOLDOWN_SECONDS = 0.5;
 const CREATURE_AMBIENT_INTERVAL_SECONDS = 4.2;
+const ENTITY_SIMULATION_STEP_SECONDS = 1 / 30;
+const MAXIMUM_ENTITY_STEPS_PER_FRAME = 2;
 const BODY_PATTERN = /^body-(?<kind>zombie|skeleton|spider|creeper|cow|pig|sheep)-/;
 const CREATURE_COLLISION: Readonly<Record<string, readonly [radius: number, halfHeight: number]>> = {
   zombie: [0.38, 0.9],
@@ -57,8 +59,11 @@ export class NightStalkerManager {
   readonly #entities: ClassicEntityManager;
   readonly #visuals: CreatureVisualRuntime;
   readonly #onMonsterAmbient: (() => void) | undefined;
+  readonly #collisionBodies = new Set<Mesh>();
+  readonly #meshObserver: Observer<AbstractMesh>;
   #combatCooldown = 0;
   #ambientElapsed = 0;
+  #entityAccumulator = 0;
 
   public constructor(
     scene: Scene,
@@ -67,6 +72,10 @@ export class NightStalkerManager {
   ) {
     this.#scene = scene;
     this.#onMonsterAmbient = callbacks.onMonsterAmbient;
+    this.#meshObserver = scene.onNewMeshAddedObservable.add((mesh) => {
+      this.#registerCollisionBody(mesh);
+    });
+    for (const mesh of scene.meshes) this.#registerCollisionBody(mesh);
     this.#visuals = new CreatureVisualRuntime(scene);
     this.#entities = new ClassicEntityManager(
       scene,
@@ -83,25 +92,34 @@ export class NightStalkerManager {
   }
 
   public update(player: PlayerState, dayTime: number, stepSeconds: number): void {
-    if (Number.isFinite(stepSeconds) && stepSeconds > 0) {
-      this.#combatCooldown = Math.max(this.#combatCooldown - stepSeconds, 0);
-      if (this.hostileCount > 0 && !player.paused) {
-        this.#ambientElapsed += stepSeconds;
-        if (this.#ambientElapsed >= CREATURE_AMBIENT_INTERVAL_SECONDS) {
-          this.#ambientElapsed %= CREATURE_AMBIENT_INTERVAL_SECONDS;
-          this.#onMonsterAmbient?.();
-        }
-      } else {
-        this.#ambientElapsed = 0;
+    if (!Number.isFinite(stepSeconds) || stepSeconds <= 0) return;
+    this.#combatCooldown = Math.max(this.#combatCooldown - stepSeconds, 0);
+    if (this.hostileCount > 0 && !player.paused) {
+      this.#ambientElapsed += stepSeconds;
+      if (this.#ambientElapsed >= CREATURE_AMBIENT_INTERVAL_SECONDS) {
+        this.#ambientElapsed %= CREATURE_AMBIENT_INTERVAL_SECONDS;
+        this.#onMonsterAmbient?.();
       }
+    } else {
+      this.#ambientElapsed = 0;
     }
-    this.#entities.update(player, dayTime, stepSeconds);
+
+    this.#entityAccumulator = Math.min(
+      this.#entityAccumulator + stepSeconds,
+      ENTITY_SIMULATION_STEP_SECONDS * MAXIMUM_ENTITY_STEPS_PER_FRAME,
+    );
+    let steps = 0;
+    while (
+      this.#entityAccumulator >= ENTITY_SIMULATION_STEP_SECONDS &&
+      steps < MAXIMUM_ENTITY_STEPS_PER_FRAME
+    ) {
+      this.#entities.update(player, dayTime, ENTITY_SIMULATION_STEP_SECONDS);
+      this.#entityAccumulator -= ENTITY_SIMULATION_STEP_SECONDS;
+      steps += 1;
+    }
   }
 
-  public attack(
-    player: PlayerState,
-    heldItem: ItemType | null,
-  ): PlayerAttackResult {
+  public attack(player: PlayerState, heldItem: ItemType | null): PlayerAttackResult {
     if (this.#combatCooldown > 0) {
       return { hit: false, killed: false, damage: 0 };
     }
@@ -122,17 +140,15 @@ export class NightStalkerManager {
     playerRadius = 0.34,
     playerHalfHeight = 0.9,
   ): boolean {
-    for (const mesh of this.#scene.meshes) {
+    for (const mesh of this.#collisionBodies) {
+      if (mesh.isDisposed()) {
+        this.#collisionBodies.delete(mesh);
+        continue;
+      }
       const match = BODY_PATTERN.exec(mesh.name);
       const kind = match?.groups?.kind;
       const parent = mesh.parent;
-      if (
-        kind === undefined ||
-        !(parent instanceof TransformNode) ||
-        mesh.isDisposed()
-      ) {
-        continue;
-      }
+      if (kind === undefined || !(parent instanceof TransformNode)) continue;
       const collision = CREATURE_COLLISION[kind];
       if (collision === undefined) continue;
       const root = parent.getAbsolutePosition();
@@ -141,9 +157,7 @@ export class NightStalkerManager {
         position.z - root.z,
       );
       if (horizontalDistance >= playerRadius + collision[0]) continue;
-      if (Math.abs(position.y - root.y) >= playerHalfHeight + collision[1]) {
-        continue;
-      }
+      if (Math.abs(position.y - root.y) >= playerHalfHeight + collision[1]) continue;
       return false;
     }
     return true;
@@ -170,7 +184,15 @@ export class NightStalkerManager {
   }
 
   public dispose(): void {
+    this.#scene.onNewMeshAddedObservable.remove(this.#meshObserver);
+    this.#collisionBodies.clear();
     this.#visuals.dispose();
     this.#entities.dispose();
+  }
+
+  #registerCollisionBody(abstractMesh: AbstractMesh): void {
+    if (!(abstractMesh instanceof Mesh)) return;
+    if (!BODY_PATTERN.test(abstractMesh.name)) return;
+    this.#collisionBodies.add(abstractMesh);
   }
 }
