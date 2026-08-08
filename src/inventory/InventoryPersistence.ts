@@ -12,12 +12,14 @@ function createInventoryKey(worldSeed: string): string {
 }
 
 /**
- * v0.3.2 is an explicitly requested playtest release, so the Batch 3 loadout
- * is filled on the normal game URL as well. Remove this wrapper on the next
- * non-playtest release instead of leaving a hidden permanent debug mode.
+ * v0.3.2 is an explicitly requested browser playtest release, so the Batch 3
+ * loadout is filled on the normal game URL. Storage-only/server-side callers
+ * remain pure, which keeps persistence semantics independent of the playtest.
  */
 function withCurrentPlaytestLoadout(inventory: PlayerInventory): PlayerInventory {
-  applyExplicitTestLoadout(inventory, '?test=1');
+  if (typeof window !== 'undefined') {
+    applyExplicitTestLoadout(inventory, '?test=1');
+  }
   return inventory;
 }
 
