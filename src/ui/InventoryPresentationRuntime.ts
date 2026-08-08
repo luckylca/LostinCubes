@@ -111,8 +111,9 @@ function ensurePresentation(): void {
 
 function syncPresentation(): void {
   const root = getRoot();
-  const panel = root?.querySelector<HTMLElement>('.player-equipment-panel');
-  if (root === null || panel === null) return;
+  if (root === null) return;
+  const panel = root.querySelector<HTMLElement>('.player-equipment-panel');
+  if (panel === null) return;
   syncEquipment(root, panel);
 }
 
