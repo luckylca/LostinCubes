@@ -31,17 +31,23 @@ function mixColor(night: Color3, day: Color3, amount: number): Color3 {
 function readQuality(): RenderQuality {
   try {
     const value = window.localStorage.getItem(QUALITY_KEY);
-    if (value === 'balanced' || value === 'performance') return value;
+    if (
+      value === 'high' ||
+      value === 'balanced' ||
+      value === 'performance'
+    ) {
+      return value;
+    }
   } catch {
-    // Keep high quality when storage is unavailable.
+    // Fall through to the balanced default when storage is unavailable.
   }
-  return 'high';
+  return 'balanced';
 }
 
 function qualityFactor(value: string): number {
   if (value === 'performance') return 1.6;
-  if (value === 'balanced') return 1.25;
-  return 1;
+  if (value === 'high') return 1;
+  return 1.25;
 }
 
 export class BabylonEngine {
@@ -60,7 +66,8 @@ export class BabylonEngine {
     this.#nativeHardwareScaling = this.engine.getHardwareScalingLevel();
     this.#applyQuality(readQuality());
     this.#qualityHandler = (event: Event): void => {
-      const detail = event instanceof CustomEvent ? String(event.detail) : 'high';
+      const detail =
+        event instanceof CustomEvent ? String(event.detail) : 'balanced';
       this.#applyQuality(detail);
     };
     window.addEventListener('lostincubes:render-quality', this.#qualityHandler);
