@@ -73,9 +73,8 @@ function ensureEquipmentPanel(root: HTMLElement): HTMLElement | null {
 
 function ensureRecipeDrawer(root: HTMLElement): void {
   const book = root.querySelector<HTMLElement>('.crafting-book');
-  if (book === null || book.querySelector('.recipe-drawer-toggle') !== null) {
-    return;
-  }
+  if (book?.querySelector('.recipe-drawer-toggle') !== null) return;
+
   const recipeList = book.querySelector<HTMLElement>('[data-crafting-recipes]');
   if (recipeList === null) return;
 
