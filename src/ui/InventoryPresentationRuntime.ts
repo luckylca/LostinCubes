@@ -48,10 +48,15 @@ export function installInventoryPresentationRuntime(): void {
   if (root === null) return;
 
   const drawer = root.querySelector<HTMLDetailsElement>('.recipe-drawer');
-  if (drawer === null) return;
+  const summary = drawer?.querySelector<HTMLElement>('.recipe-drawer-toggle');
+  if (drawer === null || summary === null || summary === undefined) return;
 
   let furnaceWasOpen = false;
   let openBeforeFurnace = drawer.open;
+
+  const mirrorExpandedState = (): void => {
+    summary.setAttribute('aria-expanded', String(drawer.open));
+  };
 
   const syncDrawer = (): void => {
     const furnaceOpen = root.dataset.station === 'furnace';
@@ -63,7 +68,10 @@ export function installInventoryPresentationRuntime(): void {
     }
     furnaceWasOpen = furnaceOpen;
     drawer.classList.toggle('is-furnace', furnaceOpen);
+    mirrorExpandedState();
   };
+
+  drawer.addEventListener('toggle', mirrorExpandedState);
 
   const sync = (): void => {
     syncEquipment(root);
@@ -72,7 +80,7 @@ export function installInventoryPresentationRuntime(): void {
 
   const storage = root.querySelector<HTMLElement>('[data-inventory-storage]');
   const hotbar = root.querySelector<HTMLElement>('[data-inventory-hotbar]');
-  const slotObserver = new MutationObserver(syncEquipment.bind(null, root));
+  const slotObserver = new MutationObserver(() => syncEquipment(root));
   if (storage !== null) slotObserver.observe(storage, { childList: true });
   if (hotbar !== null) slotObserver.observe(hotbar, { childList: true });
 
