@@ -65,6 +65,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await enterDefaultWorld(page);
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
+  await expect(page.locator('#pause-screen')).toBeHidden();
   const guide = page.locator('#survival-guide');
   await expect(guide).toBeVisible();
   await expect(guide).not.toHaveAttribute('open', '');
@@ -112,6 +113,8 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   const inventory = page.locator('#inventory-screen');
   await expect(inventory).toBeVisible();
   await expect(canvas).toHaveAttribute('data-inventory-open', 'true');
+  await expect(page.locator('.player-equipment-panel')).toBeVisible();
+  await expect(page.locator('.equipment-slot')).toHaveCount(4);
   await expect(page.locator('[data-inventory-title]')).toContainText('2×2');
   await expect(
     page.locator('[data-inventory-storage] .inventory-slot'),
@@ -122,6 +125,11 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(
     4,
   );
+  const recipeDrawer = page.locator('.recipe-drawer');
+  await expect(recipeDrawer).toBeVisible();
+  await expect(recipeDrawer).not.toHaveAttribute('open', '');
+  await recipeDrawer.locator('summary').click();
+  await expect(recipeDrawer).toHaveAttribute('open', '');
   await expect(page.locator('.recipe-card')).toHaveCount(4);
   await expect(page.locator('.recipe-card[data-recipe-id="torches"]')).toContainText(
     '火把 ×4',
