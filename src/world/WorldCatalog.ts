@@ -75,13 +75,16 @@ function parseCatalog(storage: Storage | null): WorldMetadata[] {
   if (storage === null) return [defaultWorld()];
   try {
     const raw = storage.getItem(CATALOG_KEY);
+    // Preserve the legacy starter world only for players who have never had a
+    // catalog. An explicitly saved empty catalog means the user deleted every
+    // world and must stay empty instead of silently recreating an undeletable
+    // default world on the next page load.
     if (raw === null) return [defaultWorld()];
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== 'object' || parsed === null) return [defaultWorld()];
     const payload = parsed as Record<string, unknown>;
     if (!Array.isArray(payload.worlds)) return [defaultWorld()];
-    const worlds = payload.worlds.filter(isWorldMetadata).slice(0, MAXIMUM_WORLDS);
-    return worlds.length === 0 ? [defaultWorld()] : worlds;
+    return payload.worlds.filter(isWorldMetadata).slice(0, MAXIMUM_WORLDS);
   } catch (error: unknown) {
     console.warn('World catalog could not be restored.', error);
     return [defaultWorld()];
@@ -150,12 +153,20 @@ export class WorldCatalog {
   }
 
   public delete(id: string): boolean {
-    if (this.#worlds.length <= 1) return false;
     const next = this.#worlds.filter((world) => world.id !== id);
     if (next.length === this.#worlds.length) return false;
     this.#worlds = next;
     if (this.getActiveId() === id) {
-      this.setActive(next[0]?.id ?? DEFAULT_WORLD_ID);
+      const nextActive = next[0];
+      try {
+        if (nextActive === undefined) {
+          this.#storage?.removeItem(ACTIVE_WORLD_KEY);
+        } else {
+          this.#storage?.setItem(ACTIVE_WORLD_KEY, nextActive.id);
+        }
+      } catch (error: unknown) {
+        console.warn('Active world could not be updated after deletion.', error);
+      }
     }
     this.#persist();
     return true;
@@ -196,7 +207,7 @@ export class WorldCatalog {
     } catch {
       // Fall through to the first catalog entry.
     }
-    return this.#worlds[0]?.id ?? DEFAULT_WORLD_ID;
+    return this.#worlds[0]?.id ?? '';
   }
 
   public get maximumWorlds(): number {

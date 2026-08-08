@@ -1,4 +1,9 @@
-import { NullEngine, Scene, StandardMaterial } from '@babylonjs/core';
+import {
+  NullEngine,
+  Scene,
+  StandardMaterial,
+  TransformNode,
+} from '@babylonjs/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { rayEntityAabbDistance } from '../src/entities/ClassicEntityManager';
 import { NightStalkerManager } from '../src/entities/NightStalkerManager';
@@ -71,6 +76,23 @@ describe('NightStalkerManager unified facade', () => {
     manager.dispose();
   });
 
+  it('cycles cow pig and sheep independently from hostile spawn cadence', () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const manager = new NightStalkerManager(scene, createFlatWorld(), {
+      onPlayerDamage: () => undefined,
+      onDrop: () => undefined,
+    });
+
+    advance(manager, createPlayer(), 0.5, 4.8);
+
+    expect(scene.meshes.some((mesh) => mesh.name.startsWith('body-cow-'))).toBe(true);
+    expect(scene.meshes.some((mesh) => mesh.name.startsWith('body-pig-'))).toBe(true);
+    expect(scene.meshes.some((mesh) => mesh.name.startsWith('body-sheep-'))).toBe(true);
+    manager.dispose();
+  });
+
   it('replaces the legacy collider with a complete lit multipart body', () => {
     const engine = new NullEngine();
     engines.push(engine);
@@ -112,6 +134,46 @@ describe('NightStalkerManager unified facade', () => {
     manager.dispose();
   });
 
+  it('gives skeletons a visible held bow, bowstring, arrow and face details', () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const manager = new NightStalkerManager(scene, createFlatWorld(), {
+      onPlayerDamage: () => undefined,
+      onDrop: () => undefined,
+    });
+
+    advance(manager, createPlayer(), 0.9, 1.7);
+    scene.onBeforeRenderObservable.notifyObservers(scene);
+
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') && mesh.name.includes('-bow-upper'),
+      ),
+    ).toBe(true);
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') && mesh.name.includes('-bow-string'),
+      ),
+    ).toBe(true);
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') &&
+          mesh.name.includes('-held-arrow-shaft'),
+      ),
+    ).toBe(true);
+    expect(
+      scene.meshes.some(
+        (mesh) =>
+          mesh.name.includes('skeleton-') && mesh.name.includes('-mouth'),
+      ),
+    ).toBe(true);
+    manager.dispose();
+  });
+
   it('places the low spider root near the ground instead of player foot height', () => {
     const engine = new NullEngine();
     engines.push(engine);
@@ -150,6 +212,44 @@ describe('NightStalkerManager unified facade', () => {
         3.25,
       ),
     ).toBeNull();
+  });
+
+  it('enforces a real combat cooldown for repeated bow attacks', () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const manager = new NightStalkerManager(scene, createFlatWorld(), {
+      onPlayerDamage: () => undefined,
+      onDrop: () => undefined,
+    });
+    const player = createPlayer();
+
+    expect(manager.shootArrow(player, ItemType.Bow)).toBe(true);
+    expect(manager.shootArrow(player, ItemType.Bow)).toBe(false);
+    advance(manager, player, 0.5, 0.55);
+    expect(manager.shootArrow(player, ItemType.Bow)).toBe(true);
+    manager.dispose();
+  });
+
+  it('blocks player occupancy inside a living creature body', () => {
+    const engine = new NullEngine();
+    engines.push(engine);
+    const scene = new Scene(engine);
+    const manager = new NightStalkerManager(scene, createFlatWorld(), {
+      onPlayerDamage: () => undefined,
+      onDrop: () => undefined,
+    });
+
+    advance(manager, createPlayer(), 0.5, 1.6);
+    const cowBody = scene.meshes.find((mesh) => mesh.name.startsWith('body-cow-'));
+    const parent = cowBody?.parent;
+    expect(parent).toBeInstanceOf(TransformNode);
+    if (parent instanceof TransformNode) {
+      const root = parent.getAbsolutePosition();
+      expect(manager.canPlayerOccupy({ x: root.x, y: root.y, z: root.z })).toBe(false);
+      expect(manager.canPlayerOccupy({ x: root.x + 4, y: root.y, z: root.z })).toBe(true);
+    }
+    manager.dispose();
   });
 
   it('uses the same registry for arrows and primed TNT', () => {

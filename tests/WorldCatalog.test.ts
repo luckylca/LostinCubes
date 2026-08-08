@@ -51,7 +51,7 @@ describe('WorldCatalog', () => {
     expect(new WorldCatalog(storage).getActive().id).toBe(created.id);
   });
 
-  it('renames and deletes worlds without changing their seed identity', () => {
+  it('renames worlds without changing their seed identity', () => {
     const storage = new MemoryStorage();
     const catalog = new WorldCatalog(storage);
     const created = catalog.create('测试世界', 'fixed-seed', 2_000);
@@ -61,8 +61,23 @@ describe('WorldCatalog', () => {
     const renamed = catalog.rename(created.id, '新的名字');
     expect(renamed?.name).toBe('新的名字');
     expect(renamed?.seed).toBe('fixed-seed');
+  });
+
+  it('allows every world to be deleted and preserves an intentionally empty catalog', () => {
+    const storage = new MemoryStorage();
+    const catalog = new WorldCatalog(storage);
+    const created = catalog.create('测试世界', 'fixed-seed', 2_000);
+    expect(created).not.toBeNull();
+    if (created === null) return;
+
     expect(catalog.delete(created.id)).toBe(true);
-    expect(catalog.list().some((world) => world.id === created.id)).toBe(false);
-    expect(catalog.delete('world-fragment-01')).toBe(false);
+    expect(catalog.delete('world-fragment-01')).toBe(true);
+    expect(catalog.list()).toHaveLength(0);
+    expect(catalog.getActiveId()).toBe('');
+
+    const restored = new WorldCatalog(storage);
+    expect(restored.list()).toHaveLength(0);
+    const replacement = restored.create('重新开始', 'fresh-seed', 3_000);
+    expect(replacement?.seed).toBe('fresh-seed');
   });
 });

@@ -90,8 +90,6 @@ function material(
   const result = new StandardMaterial(name, scene);
   result.diffuseColor = color;
   result.ambientColor = color.scale(0.72);
-  // A small emissive floor prevents mobs from turning pitch black when the
-  // world light is low or a browser/driver evaluates ambient light differently.
   result.emissiveColor = color.scale(0.12);
   result.specularColor = Color3.Black();
   return result;
@@ -125,12 +123,13 @@ function addFace(
   z: number,
   eyeSpacing: number,
   eyeMaterial: StandardMaterial,
+  mouthMaterial = eyeMaterial,
 ): void {
   part(
     scene,
     root,
     `${prefix}-eye-l`,
-    [0.11, 0.09, 0.035],
+    [0.12, 0.11, 0.04],
     [-eyeSpacing, y, z],
     eyeMaterial,
   );
@@ -138,9 +137,17 @@ function addFace(
     scene,
     root,
     `${prefix}-eye-r`,
-    [0.11, 0.09, 0.035],
+    [0.12, 0.11, 0.04],
     [eyeSpacing, y, z],
     eyeMaterial,
+  );
+  part(
+    scene,
+    root,
+    `${prefix}-mouth`,
+    [0.22, 0.07, 0.04],
+    [0, y - 0.17, z + 0.002],
+    mouthMaterial,
   );
 }
 
@@ -177,8 +184,6 @@ function buildHumanoid(
   const torsoDepth = skeleton ? 0.22 : 0.3;
 
   part(scene, root, `${prefix}-head`, [0.5, 0.5, 0.5], [0, 0.7, 0], skin);
-  // Keep a real torso mesh. The previous visual path could leave only the
-  // animated extremities visible if its asynchronous skin failed to render.
   part(
     scene,
     root,
@@ -187,7 +192,10 @@ function buildHumanoid(
     [0, 0.08, 0],
     torsoMaterial,
   );
-  addFace(scene, root, prefix, 0.74, 0.267, 0.12, eyeMaterial);
+  addFace(scene, root, prefix, 0.75, 0.272, 0.12, eyeMaterial);
+  if (skeleton) {
+    part(scene, root, `${prefix}-nose`, [0.08, 0.1, 0.04], [0, 0.65, 0.274], eyeMaterial);
+  }
 
   return [
     part(scene, root, `${prefix}-arm-l`, [limb, 0.72, limb], [-0.39, 0.05, 0], torsoMaterial),
@@ -195,6 +203,28 @@ function buildHumanoid(
     part(scene, root, `${prefix}-leg-l`, [limb + 0.02, 0.72, limb + 0.02], [-0.14, -0.62, 0], legMaterial),
     part(scene, root, `${prefix}-leg-r`, [limb + 0.02, 0.72, limb + 0.02], [0.14, -0.62, 0], legMaterial),
   ];
+}
+
+function addSkeletonBow(
+  scene: Scene,
+  root: TransformNode,
+  prefix: string,
+  materials: StandardMaterial[],
+): void {
+  const wood = material(scene, `${prefix}-bow-material`, new Color3(0.48, 0.28, 0.1));
+  const string = material(scene, `${prefix}-bow-string-material`, new Color3(0.82, 0.78, 0.62));
+  const iron = material(scene, `${prefix}-arrow-head-material`, new Color3(0.68, 0.7, 0.69));
+  materials.push(wood, string, iron);
+
+  const upper = part(scene, root, `${prefix}-bow-upper`, [0.08, 0.55, 0.08], [0.53, 0.3, 0.18], wood);
+  upper.rotation.z = -0.28;
+  const lower = part(scene, root, `${prefix}-bow-lower`, [0.08, 0.55, 0.08], [0.53, -0.19, 0.18], wood);
+  lower.rotation.z = 0.28;
+  part(scene, root, `${prefix}-bow-grip`, [0.1, 0.18, 0.1], [0.46, 0.05, 0.18], wood);
+  part(scene, root, `${prefix}-bow-string`, [0.025, 1.02, 0.025], [0.64, 0.05, 0.18], string);
+  part(scene, root, `${prefix}-held-arrow-shaft`, [0.035, 0.035, 0.72], [0.2, 0.08, 0.38], wood);
+  const head = part(scene, root, `${prefix}-held-arrow-head`, [0.11, 0.11, 0.13], [0.2, 0.08, 0.77], iron);
+  head.rotation.z = Math.PI / 4;
 }
 
 function buildModel(
@@ -224,8 +254,8 @@ function buildModel(
         dark,
         false,
       );
-    case 'skeleton':
-      return buildHumanoid(
+    case 'skeleton': {
+      const limbs = buildHumanoid(
         scene,
         root,
         prefix,
@@ -235,11 +265,13 @@ function buildModel(
         dark,
         true,
       );
+      addSkeletonBow(scene, root, prefix, materials);
+      return limbs;
+    }
     case 'creeper':
       part(scene, root, `${prefix}-head`, [0.6, 0.6, 0.6], [0, 0.65, 0.03], primary);
       part(scene, root, `${prefix}-torso`, [0.5, 0.82, 0.36], [0, 0.05, 0], secondary);
-      addFace(scene, root, prefix, 0.69, 0.345, 0.13, dark);
-      part(scene, root, `${prefix}-mouth`, [0.18, 0.2, 0.035], [0, 0.51, 0.345], dark);
+      addFace(scene, root, prefix, 0.7, 0.35, 0.13, dark);
       return fourLegs(scene, root, primary, prefix, 0.17, 0.16, -0.52, 0.44);
     case 'spider': {
       part(scene, root, `${prefix}-head`, [0.58, 0.4, 0.52], [0, 0.02, 0.46], secondary);
@@ -269,7 +301,7 @@ function buildModel(
       part(scene, root, `${prefix}-torso`, [0.92, 0.66, 1.08], [0, 0.13, -0.08], primary);
       part(scene, root, `${prefix}-head`, [0.64, 0.6, 0.62], [0, 0.22, 0.67], secondary);
       part(scene, root, `${prefix}-snout`, [0.4, 0.22, 0.15], [0, 0.12, 1.01], detail);
-      addFace(scene, root, prefix, 0.31, 0.992, 0.18, dark);
+      addFace(scene, root, prefix, 0.32, 0.996, 0.18, dark);
       part(scene, root, `${prefix}-ear-l`, [0.16, 0.18, 0.12], [-0.22, 0.56, 0.72], primary);
       part(scene, root, `${prefix}-ear-r`, [0.16, 0.18, 0.12], [0.22, 0.56, 0.72], primary);
       return fourLegs(scene, root, secondary, prefix, 0.3, 0.32, -0.4, 0.56);
@@ -278,7 +310,7 @@ function buildModel(
       part(scene, root, `${prefix}-torso`, [0.98, 0.74, 1.2], [0, 0.18, -0.08], primary);
       part(scene, root, `${prefix}-head`, [0.64, 0.62, 0.6], [0, 0.3, 0.74], secondary);
       part(scene, root, `${prefix}-muzzle`, [0.46, 0.24, 0.16], [0, 0.17, 1.05], detail);
-      addFace(scene, root, prefix, 0.39, 1.045, 0.18, dark);
+      addFace(scene, root, prefix, 0.4, 1.05, 0.18, dark);
       const horn = material(scene, `${prefix}-horn-material`, new Color3(0.86, 0.82, 0.68));
       materials.push(horn);
       part(scene, root, `${prefix}-horn-l`, [0.1, 0.18, 0.1], [-0.27, 0.67, 0.74], horn).rotation.z = -0.35;
@@ -288,7 +320,7 @@ function buildModel(
     case 'sheep':
       part(scene, root, `${prefix}-torso`, [1.04, 0.84, 1.16], [0, 0.2, -0.08], primary);
       part(scene, root, `${prefix}-head`, [0.52, 0.56, 0.52], [0, 0.22, 0.7], secondary);
-      addFace(scene, root, prefix, 0.29, 0.972, 0.15, dark);
+      addFace(scene, root, prefix, 0.3, 0.976, 0.15, dark);
       return fourLegs(scene, root, secondary, prefix, 0.3, 0.34, -0.43, 0.58);
   }
 }
