@@ -143,14 +143,20 @@ describe('TerrainGenerator', () => {
     );
   });
 
-  it('produces all four biomes and fills low terrain to sea level', () => {
+  it('produces seven broad biomes with genuinely different relief profiles', () => {
     const terrain = new TerrainGenerator('biome-ocean-test');
     const biomes = new Set<string>();
+    const heights = new Map<string, number[]>();
     let waterColumns = 0;
-    for (let worldX = -512; worldX <= 512; worldX += 16) {
-      for (let worldZ = -512; worldZ <= 512; worldZ += 16) {
-        biomes.add(terrain.sampleBiome(worldX, worldZ));
+
+    for (let worldX = -2048; worldX <= 2048; worldX += 32) {
+      for (let worldZ = -2048; worldZ <= 2048; worldZ += 32) {
+        const biome = terrain.sampleBiome(worldX, worldZ);
         const surface = terrain.sampleSurfaceHeight(worldX, worldZ);
+        biomes.add(biome);
+        const values = heights.get(biome) ?? [];
+        values.push(surface);
+        heights.set(biome, values);
         if (surface < SEA_LEVEL) {
           expect(terrain.sampleBlock(worldX, SEA_LEVEL, worldZ)).toBe(
             BlockType.Water,
@@ -159,14 +165,29 @@ describe('TerrainGenerator', () => {
         }
       }
     }
+
     expect(biomes).toEqual(
       new Set([
         BiomeType.Plains,
         BiomeType.Forest,
         BiomeType.Desert,
+        BiomeType.Swamp,
+        BiomeType.Mountains,
         BiomeType.SnowyTundra,
+        BiomeType.SnowyMountains,
       ]),
     );
+    const mountainHeights = [
+      ...(heights.get(BiomeType.Mountains) ?? []),
+      ...(heights.get(BiomeType.SnowyMountains) ?? []),
+    ];
+    const swampHeights = heights.get(BiomeType.Swamp) ?? [];
+    expect(Math.max(...mountainHeights)).toBeGreaterThanOrEqual(18);
+    expect(Math.max(...mountainHeights) - Math.min(...mountainHeights)).toBeGreaterThanOrEqual(8);
+    expect(
+      swampHeights.reduce((sum, value) => sum + value, 0) /
+        Math.max(swampHeights.length, 1),
+    ).toBeLessThanOrEqual(SEA_LEVEL + 1);
     expect(waterColumns).toBeGreaterThan(0);
   });
 

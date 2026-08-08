@@ -56,6 +56,7 @@ const MAXIMUM_MESH_UPLOADS_PER_FRAME = 2;
 const RECENT_CHUNK_CACHE_LIMIT = 24;
 const BLOCK_EDIT_PRIORITY = -10_000;
 const FORWARD_PREFETCH_MINIMUM_TRAVEL = 0.012;
+const EDIT_RELIGHT_DEBOUNCE_MILLISECONDS = 220;
 
 /**
  * Returns only chunks whose geometry can change when one voxel changes. A
@@ -96,6 +97,8 @@ export class VoxelWorldRenderer {
   readonly #pendingRevisions = new Map<string, number>();
   readonly #completed: CompletedChunk[] = [];
   readonly #afterUpdate = new Map<string, (() => void)[]>();
+  readonly #deferredRelightKeys = new Set<string>();
+  #relightTimer: ReturnType<typeof setTimeout> | null = null;
   #centerChunkX: number | null = null;
   #centerChunkZ: number | null = null;
   #lastPlayerX: number | null = null;
@@ -177,15 +180,14 @@ export class VoxelWorldRenderer {
       .map(([chunkX, chunkZ]) => this.#prepareEditChunk(chunkX, chunkZ));
 
     if (targets.length === 0) {
-      this.#invalidateLightingNeighborhood(centerChunkX, centerChunkZ, true);
+      this.#queueLightingNeighborhood(centerChunkX, centerChunkZ, true);
       return;
     }
 
-    // A dedicated edit worker skips the expensive full light-field rebuild.
-    // Boundary-sharing chunks are built as one transaction and all meshes are
-    // swapped inside the same task, before the browser can paint between them.
-    // This removes both multi-second mining latency and the transient void seam
-    // that occurred when one side of a chunk boundary updated first.
+    // Fast edit geometry stays independent from full relighting. During rapid
+    // mining the same edit worker keeps its terrain cache and only current +
+    // latest geometry work survives. Full 3x3 lighting is coalesced after the
+    // player stops editing briefly instead of competing with every click.
     void Promise.all(targets.map((target) => this.#buildEditChunk(target)))
       .then((responses) => {
         if (this.#disposed) return;
@@ -202,8 +204,8 @@ export class VoxelWorldRenderer {
           }
         }
 
-        // Apply every geometry mesh synchronously in this continuation. The
-        // browser cannot present an intermediate half-updated boundary.
+        // Apply every boundary-sharing mesh in the same continuation so the
+        // browser cannot present a one-sided chunk seam between them.
         for (let index = 0; index < targets.length; index += 1) {
           const target = targets[index];
           const response = responses[index];
@@ -212,15 +214,12 @@ export class VoxelWorldRenderer {
           }
         }
 
-        // Geometry is already correct and visible now. Relighting is deliberately
-        // background work and can replace these temporary full-bright vertices
-        // later without exposing missing faces.
-        this.#invalidateLightingNeighborhood(centerChunkX, centerChunkZ, true);
+        this.#queueLightingNeighborhood(centerChunkX, centerChunkZ, true);
       })
       .catch((error: unknown) => {
         if (error instanceof ChunkBuildCancelledError || this.#disposed) return;
         console.error('Failed to build immediate voxel edit geometry.', error);
-        this.#invalidateLightingNeighborhood(centerChunkX, centerChunkZ, true);
+        this.#queueLightingNeighborhood(centerChunkX, centerChunkZ, true);
       });
   }
 
@@ -245,6 +244,11 @@ export class VoxelWorldRenderer {
   }
 
   public invalidateAll(): void {
+    if (this.#relightTimer !== null) {
+      clearTimeout(this.#relightTimer);
+      this.#relightTimer = null;
+    }
+    this.#deferredRelightKeys.clear();
     this.#disposeRecentChunks();
     for (const key of this.#desiredKeys) {
       const coordinates = this.#parseChunkKey(key);
@@ -284,6 +288,11 @@ export class VoxelWorldRenderer {
   public dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    if (this.#relightTimer !== null) {
+      clearTimeout(this.#relightTimer);
+      this.#relightTimer = null;
+    }
+    this.#deferredRelightKeys.clear();
     unregisterFurnaceLightRuntime(this);
     this.#workers.dispose();
     this.#editWorkers.dispose();
@@ -308,6 +317,37 @@ export class VoxelWorldRenderer {
     }
     this.#lastPlayerX = playerX;
     this.#lastPlayerZ = playerZ;
+  }
+
+  #queueLightingNeighborhood(
+    centerChunkX: number,
+    centerChunkZ: number,
+    includeCenter: boolean,
+  ): void {
+    for (let offsetZ = -1; offsetZ <= 1; offsetZ += 1) {
+      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+        if (!includeCenter && offsetX === 0 && offsetZ === 0) continue;
+        this.#deferredRelightKeys.add(
+          createChunkKey(centerChunkX + offsetX, centerChunkZ + offsetZ),
+        );
+      }
+    }
+
+    if (this.#relightTimer !== null) clearTimeout(this.#relightTimer);
+    this.#relightTimer = setTimeout(() => {
+      this.#relightTimer = null;
+      this.#flushDeferredRelighting();
+    }, EDIT_RELIGHT_DEBOUNCE_MILLISECONDS);
+  }
+
+  #flushDeferredRelighting(): void {
+    if (this.#disposed || this.#deferredRelightKeys.size === 0) return;
+    const keys = [...this.#deferredRelightKeys];
+    this.#deferredRelightKeys.clear();
+    for (const key of keys) {
+      const [chunkX, chunkZ] = this.#parseChunkKey(key);
+      this.#invalidateChunk(chunkX, chunkZ);
+    }
   }
 
   #invalidateLightingNeighborhood(
@@ -339,9 +379,6 @@ export class VoxelWorldRenderer {
       }
     }
 
-    // Prefetch one thin strip in the dominant travel direction instead of
-    // increasing the whole render radius. That gives walking players terrain
-    // ahead sooner without nearly doubling total chunk generation work.
     const travelLength = Math.hypot(this.#travelX, this.#travelZ);
     if (travelLength < FORWARD_PREFETCH_MINIMUM_TRAVEL) return;
     if (Math.abs(this.#travelX) >= Math.abs(this.#travelZ)) {
@@ -451,6 +488,8 @@ export class VoxelWorldRenderer {
     const key = createChunkKey(chunkX, chunkZ);
     this.#discardRecentChunk(key);
     this.#workers.cancel(key);
+    // ChunkWorkerPool keeps an in-flight geometry-only job alive and cancels
+    // only an older queued edit. This preserves worker-local terrain caches.
     this.#editWorkers.cancel(key);
     this.#pendingRevisions.delete(key);
     const revision = this.#getRevision(key) + 1;
@@ -470,7 +509,11 @@ export class VoxelWorldRenderer {
         ),
         mode: 'geometry-only',
       },
-      { jobKey: target.key, priority: BLOCK_EDIT_PRIORITY },
+      {
+        jobKey: target.key,
+        priority: BLOCK_EDIT_PRIORITY,
+        replacement: 'latest',
+      },
     );
   }
 
@@ -573,15 +616,21 @@ export class VoxelWorldRenderer {
   ): void {
     if (this.#getRevision(key) !== revision) return;
 
-    const mesh = new Mesh(`voxel-chunk-${key}`, this.#scene);
-    mesh.position.set(
-      response.chunkX * CHUNK_SIZE,
-      0,
-      response.chunkZ * CHUNK_SIZE,
-    );
-    mesh.useVertexColors = true;
-    mesh.isPickable = true;
-    mesh.metadata = { cameraBlocker: true, chunkKey: key };
+    this.#discardRecentChunk(key);
+    const previous = this.#chunks.get(key);
+    const mesh = previous?.mesh ?? new Mesh(`voxel-chunk-${key}`, this.#scene);
+    if (previous === undefined) {
+      mesh.position.set(
+        response.chunkX * CHUNK_SIZE,
+        0,
+        response.chunkZ * CHUNK_SIZE,
+      );
+      mesh.useVertexColors = true;
+      mesh.isPickable = true;
+      mesh.metadata = { cameraBlocker: true, chunkKey: key };
+    } else {
+      mesh.unfreezeNormals();
+    }
 
     const vertexData = new VertexData();
     vertexData.positions = response.meshData.positions;
@@ -589,7 +638,9 @@ export class VoxelWorldRenderer {
     vertexData.indices = response.meshData.indices;
     vertexData.colors = response.meshData.colors;
     vertexData.uvs = response.meshData.uvs;
-    vertexData.applyToMesh(mesh, false);
+    // Updatable buffers allow repeated edits to reuse the same Babylon mesh
+    // instead of allocating/discarding a complete GPU object for every block.
+    vertexData.applyToMesh(mesh, true);
     this.#materials.applyToMesh(
       mesh,
       response.meshData.materialRanges,
@@ -598,8 +649,6 @@ export class VoxelWorldRenderer {
     mesh.freezeWorldMatrix();
     mesh.freezeNormals();
 
-    this.#discardRecentChunk(key);
-    const previous = this.#chunks.get(key);
     this.#chunks.set(key, {
       mesh,
       revision,
@@ -607,7 +656,6 @@ export class VoxelWorldRenderer {
       sourceFaceCount: response.meshData.sourceFaceCount,
       buildMilliseconds: response.buildMilliseconds,
     });
-    previous?.mesh.dispose(false, false);
 
     const callbacks = this.#afterUpdate.get(key);
     if (callbacks !== undefined) {

@@ -21,6 +21,11 @@ export interface NightStalkerCallbacks {
     z: number,
   ) => void;
   readonly onEnemyHit?: (damage: number, killed: boolean) => void;
+  readonly onBlockChanged?: (
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ) => void;
 }
 
 function browserStorage(): Storage | null {
@@ -35,8 +40,7 @@ function browserStorage(): Storage | null {
  * Compatibility facade kept so GameApp does not need a risky wholesale rewrite.
  * All actual entity identity, AI, projectiles, persistence and spatial queries
  * live in ClassicEntityManager/EntityRegistry. CreatureVisualRuntime upgrades
- * creature presentation after Babylon has attached each body to its entity root,
- * preventing the invisible-mob race caused by onNewMeshAdded firing too early.
+ * creature presentation after Babylon has attached each body to its entity root.
  */
 export class NightStalkerManager {
   readonly #entities: ClassicEntityManager;
@@ -57,6 +61,7 @@ export class NightStalkerManager {
         onPlayerDamage: (amount, source) => callbacks.onPlayerDamage(amount, source),
         onDrop: callbacks.onDrop,
         onEntityHit: callbacks.onEnemyHit,
+        onBlockChanged: callbacks.onBlockChanged,
       },
     );
   }

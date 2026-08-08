@@ -278,6 +278,8 @@ export class GameApp {
         spawnStack({ item, count, durability: null }, x, y, z);
       },
       onEnemyHit: (_damage, killed) => audio.playAttack(true, killed),
+      onBlockChanged: (worldX, worldY, worldZ) =>
+        worldRenderer.invalidateBlock(worldX, worldY, worldZ),
     });
 
     const interaction = new VoxelInteractionController(scene, worldData, {
@@ -474,9 +476,12 @@ export class GameApp {
           const usePressed = command.placeBlock && !placeHeld;
           const selectedItem = inventory.selectedItem;
           let firedBow = false;
-          if (attackPressed && !interaction.hasTarget) {
+          let meleeHit = false;
+
+          if (attackPressed) {
             if (
               isBowItem(selectedItem) &&
+              !interaction.hasTarget &&
               inventory.countItem(ItemType.Arrow) > 0 &&
               enemies.shootArrow(worldState.player, selectedItem) &&
               inventory.consumeItems([{ item: ItemType.Arrow, count: 1 }])
@@ -484,8 +489,12 @@ export class GameApp {
               firedBow = true;
               syncInventory();
             } else if (!isBowItem(selectedItem)) {
+              // Entity hit testing must happen before deciding to mine the block
+              // behind the creature. The old `!interaction.hasTarget` guard made
+              // almost every mob standing in front of terrain unattackable.
               const result = enemies.attack(worldState.player, selectedItem);
-              if (!result.hit) audio.playAttack(false);
+              meleeHit = result.hit;
+              if (!result.hit && !interaction.hasTarget) audio.playAttack(false);
               if (result.hit) {
                 inventory.damageSelectedTool(1);
                 syncInventory();
@@ -528,7 +537,7 @@ export class GameApp {
             }
           }
 
-          breakHeld = firedBow ? false : command.breakBlock;
+          breakHeld = firedBow || meleeHit ? false : command.breakBlock;
           placeHeld = consumedFood || primedTnt ? false : command.placeBlock;
         } else {
           breakHeld = false;

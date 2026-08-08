@@ -21,7 +21,7 @@ describe('fluid interaction rules', () => {
     expect(canReplaceBlockForPlacement(BlockType.Stone)).toBe(false);
   });
 
-  it('lets fluid above fall into a freshly opened voxel', () => {
+  it('lets fluid above fall immediately into a freshly opened voxel', () => {
     const sample = createSampler({
       '0,2,0': BlockType.Water,
       '1,1,0': BlockType.Lava,
@@ -32,13 +32,13 @@ describe('fluid interaction rules', () => {
     );
   });
 
-  it('lets adjacent water refill a mined shoreline voxel', () => {
+  it('leaves horizontal shoreline refill to scheduled flow simulation', () => {
     const sample = createSampler({
       '1,1,0': BlockType.Water,
     });
 
     expect(getFluidReplacementAfterBreak(sample, 0, 1, 0)).toBe(
-      BlockType.Water,
+      BlockType.Air,
     );
   });
 });
