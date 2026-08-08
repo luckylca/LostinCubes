@@ -150,33 +150,10 @@ function addFace(
   spacing: number,
   mouthWidth = 0.22,
 ): void {
-  // Keep details clearly in front of the head plane to avoid z-fighting into
-  // the blank white skull that was visible on some GPUs/camera angles.
   const faceZ = z + 0.035;
-  addBox(
-    scene,
-    groups,
-    'dark',
-    `${prefix}-eye-l`,
-    [0.12, 0.12, 0.055],
-    [-spacing, y, faceZ],
-  );
-  addBox(
-    scene,
-    groups,
-    'dark',
-    `${prefix}-eye-r`,
-    [0.12, 0.12, 0.055],
-    [spacing, y, faceZ],
-  );
-  addBox(
-    scene,
-    groups,
-    'dark',
-    `${prefix}-mouth`,
-    [mouthWidth, 0.075, 0.055],
-    [0, y - 0.17, faceZ],
-  );
+  addBox(scene, groups, 'dark', `${prefix}-eye-l`, [0.12, 0.12, 0.055], [-spacing, y, faceZ]);
+  addBox(scene, groups, 'dark', `${prefix}-eye-r`, [0.12, 0.12, 0.055], [spacing, y, faceZ]);
+  addBox(scene, groups, 'dark', `${prefix}-mouth`, [mouthWidth, 0.075, 0.055], [0, y - 0.17, faceZ]);
 }
 
 function addFourLegs(
@@ -205,64 +182,18 @@ function buildHumanoid(
   const torsoWidth = skeleton ? 0.4 : 0.54;
   const torsoDepth = skeleton ? 0.22 : 0.3;
   addBox(scene, groups, 'primary', `${prefix}-head`, [0.5, 0.5, 0.5], [0, 0.7, 0]);
-  addBox(
-    scene,
-    groups,
-    skeleton ? 'primary' : 'secondary',
-    `${prefix}-torso`,
-    [torsoWidth, 0.72, torsoDepth],
-    [0, 0.08, 0],
-  );
+  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-torso`, [torsoWidth, 0.72, torsoDepth], [0, 0.08, 0]);
   addFace(scene, groups, prefix, 0.75, 0.25, 0.12, skeleton ? 0.26 : 0.22);
   if (skeleton) {
-    addBox(
-      scene,
-      groups,
-      'dark',
-      `${prefix}-nose`,
-      [0.075, 0.1, 0.055],
-      [0, 0.65, 0.29],
-    );
+    addBox(scene, groups, 'dark', `${prefix}-nose`, [0.075, 0.1, 0.055], [0, 0.65, 0.29]);
   }
-  addBox(
-    scene,
-    groups,
-    skeleton ? 'primary' : 'secondary',
-    `${prefix}-arm-l`,
-    [limb, 0.72, limb],
-    [-0.39, 0.05, 0],
-  );
-  addBox(
-    scene,
-    groups,
-    skeleton ? 'primary' : 'secondary',
-    `${prefix}-arm-r`,
-    [limb, 0.72, limb],
-    [0.39, 0.05, 0],
-  );
-  addBox(
-    scene,
-    groups,
-    skeleton ? 'secondary' : 'detail',
-    `${prefix}-leg-l`,
-    [limb + 0.02, 0.72, limb + 0.02],
-    [-0.14, -0.62, 0],
-  );
-  addBox(
-    scene,
-    groups,
-    skeleton ? 'secondary' : 'detail',
-    `${prefix}-leg-r`,
-    [limb + 0.02, 0.72, limb + 0.02],
-    [0.14, -0.62, 0],
-  );
+  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-arm-l`, [limb, 0.72, limb], [-0.39, 0.05, 0]);
+  addBox(scene, groups, skeleton ? 'primary' : 'secondary', `${prefix}-arm-r`, [limb, 0.72, limb], [0.39, 0.05, 0]);
+  addBox(scene, groups, skeleton ? 'secondary' : 'detail', `${prefix}-leg-l`, [limb + 0.02, 0.72, limb + 0.02], [-0.14, -0.62, 0]);
+  addBox(scene, groups, skeleton ? 'secondary' : 'detail', `${prefix}-leg-r`, [limb + 0.02, 0.72, limb + 0.02], [0.14, -0.62, 0]);
 }
 
-function buildSkeletonBow(
-  scene: Scene,
-  groups: ModelGroups,
-  prefix: string,
-): void {
+function buildSkeletonBow(scene: Scene, groups: ModelGroups, prefix: string): void {
   addBox(scene, groups, 'detail', `${prefix}-bow-upper`, [0.08, 0.55, 0.08], [0.53, 0.3, 0.18], [0, 0, -0.28]);
   addBox(scene, groups, 'detail', `${prefix}-bow-lower`, [0.08, 0.55, 0.08], [0.53, -0.19, 0.18], [0, 0, 0.28]);
   addBox(scene, groups, 'detail', `${prefix}-bow-grip`, [0.1, 0.18, 0.1], [0.46, 0.05, 0.18]);
@@ -271,11 +202,7 @@ function buildSkeletonBow(
   addBox(scene, groups, 'secondary', `${prefix}-held-arrow-head`, [0.11, 0.11, 0.13], [0.2, 0.08, 0.77], [0, 0, Math.PI / 4]);
 }
 
-function buildParts(
-  scene: Scene,
-  kind: CreatureKind,
-  suffix: string,
-): ModelGroups {
+function buildParts(scene: Scene, kind: CreatureKind, suffix: string): ModelGroups {
   const groups = emptyGroups();
   const prefix = `${kind}-${suffix}`;
   switch (kind) {
@@ -296,26 +223,11 @@ function buildParts(
       addBox(scene, groups, 'secondary', `${prefix}-head`, [0.58, 0.4, 0.52], [0, 0.02, 0.46]);
       addBox(scene, groups, 'primary', `${prefix}-torso`, [0.84, 0.48, 0.76], [0, 0.02, -0.18]);
       for (const x of [-0.18, -0.06, 0.06, 0.18]) {
-        addBox(
-          scene,
-          groups,
-          'detail',
-          `${prefix}-eye-${String(x)}`,
-          [0.075, 0.07, 0.04],
-          [x, 0.08, 0.745],
-        );
+        addBox(scene, groups, 'detail', `${prefix}-eye-${String(x)}`, [0.075, 0.07, 0.04], [x, 0.08, 0.745]);
       }
       for (const side of [-1, 1] as const) {
         for (let index = 0; index < 4; index += 1) {
-          addBox(
-            scene,
-            groups,
-            'dark',
-            `${prefix}-leg-${String(side)}-${String(index)}`,
-            [0.7, 0.1, 0.1],
-            [side * 0.67, -0.05, 0.34 - index * 0.24],
-            [0, side * (0.18 + index * 0.05), side * -0.18],
-          );
+          addBox(scene, groups, 'dark', `${prefix}-leg-${String(side)}-${String(index)}`, [0.7, 0.1, 0.1], [side * 0.67, -0.05, 0.34 - index * 0.24], [0, side * (0.18 + index * 0.05), side * -0.18]);
         }
       }
       break;
@@ -372,13 +284,9 @@ export class CreatureVisualRuntime {
   public constructor(scene: Scene) {
     this.#scene = scene;
     this.#meshObserver = scene.onNewMeshAddedObservable.add((mesh) => this.#queue(mesh));
-
-    // Build the seven tiny creature templates while the world is already in its
-    // startup/loading phase. Night-time spawns can then clone shared Geometry
-    // and Material state instead of constructing boxes, merging vertices and
-    // uploading a fresh geometry buffer every 0.75 s.
-    for (const kind of CREATURE_KINDS) this.#templates.set(kind, this.#buildTemplate(kind));
-
+    for (const kind of CREATURE_KINDS) {
+      this.#templates.set(kind, this.#buildTemplate(kind));
+    }
     this.#frameObserver = scene.onBeforeRenderObservable.add(() => {
       this.#flushPending();
       this.#updateModels();
@@ -443,7 +351,6 @@ export class CreatureVisualRuntime {
     if (templates === undefined) return;
     for (const [role, template] of templates) {
       const clone = template.clone(`${bodyName}-${role}`, root);
-      if (clone === null) continue;
       clone.position.set(0, 0, 0);
       clone.rotation.set(0, 0, 0);
       clone.scaling.set(1, 1, 1);
@@ -467,7 +374,6 @@ export class CreatureVisualRuntime {
         this.#pending.delete(body);
         continue;
       }
-
       try {
         const root = new TransformNode(`upgraded-${body.name}`, this.#scene);
         root.parent = parent;
@@ -509,7 +415,6 @@ export class CreatureVisualRuntime {
       const deltaZ = position.z - model.previousPosition.z;
       const travel = Math.hypot(deltaX, deltaZ);
       const hurt = body.material?.name.startsWith('hurt-') === true;
-
       if (hurt && !model.wasHurt) {
         if (travel > 0.03) {
           model.correctionX = -deltaX;
@@ -519,7 +424,6 @@ export class CreatureVisualRuntime {
       }
       model.wasHurt = hurt;
       model.previousPosition.copyFrom(position);
-
       if (model.hitElapsed < HIT_PRESENTATION_SECONDS) {
         model.hitElapsed = Math.min(
           model.hitElapsed + seconds,
