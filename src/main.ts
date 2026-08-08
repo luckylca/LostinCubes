@@ -11,8 +11,10 @@ import './build-version.css';
 import './world-selection.css';
 import { bootstrap } from './app/bootstrap';
 import { initializeBuildBadge } from './buildInfo';
+import { installForwardChunkPrefetchRuntime } from './world/ForwardChunkPrefetchRuntime';
 import { installSmoothBlockEditRuntime } from './world/SmoothBlockEditRuntime';
 
 installSmoothBlockEditRuntime();
+installForwardChunkPrefetchRuntime();
 initializeBuildBadge();
 void bootstrap();
