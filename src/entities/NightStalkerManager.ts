@@ -203,16 +203,12 @@ export class NightStalkerManager {
     if (currentMeshCount === this.#lastObservedSceneMeshCount) return;
     this.#lastObservedSceneMeshCount = currentMeshCount;
 
-    // Babylon can publish a Mesh during MeshBuilder construction before all
-    // higher-level setup is complete. The observable remains the fast path; a
-    // scene-size change is the cheap signal for this one-pass self-heal. This is
-    // not a per-frame scene scan: it only runs after meshes were added/removed.
     for (const mesh of this.#scene.meshes) {
-      if (!isSourceCreatureBody(mesh) || this.#collisionBodies.has(mesh)) continue;
+      if (!isSourceCreatureBody(mesh)) continue;
       this.#collisionBodies.add(mesh);
-      // Re-announce only bodies missed by the original event. CreatureVisualRuntime
-      // listens to the same observable, so it can queue the body without polling
-      // the entire scene every render frame.
+      // Re-announcing is idempotent: collision bodies use a Set and the visual
+      // runtime ignores bodies already pending or already upgraded. This covers
+      // Babylon MeshBuilder construction timing without per-frame scene scans.
       this.#scene.onNewMeshAddedObservable.notifyObservers(mesh);
     }
   }
