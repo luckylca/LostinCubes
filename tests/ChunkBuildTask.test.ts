@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockType } from '../src/world/BlockType';
 import { executeChunkBuild } from '../src/world/ChunkBuildTask';
+import { CHUNK_HEIGHT, CHUNK_SIZE } from '../src/world/VoxelChunk';
 
 describe('executeChunkBuild', () => {
   it('returns transferable greedy mesh buffers', () => {
@@ -79,5 +80,41 @@ describe('executeChunkBuild', () => {
     expect(fast.meshData.uvs).toEqual(full.meshData.uvs);
     expect(fast.meshData.quadCount).toBe(full.meshData.quadCount);
     expect(fast.meshData.sourceFaceCount).toBe(full.meshData.sourceFaceCount);
+  });
+
+  it('reuses procedural terrain across repeated edits in one chunk', () => {
+    const seed = 'worker-repeated-edit-cache-test';
+    const cold = executeChunkBuild({
+      type: 'build-chunk',
+      requestId: 20,
+      worldSeed: seed,
+      chunkX: 3,
+      chunkZ: -2,
+      modifications: [[49, 10, -31, BlockType.Air]],
+      mode: 'geometry-only',
+    });
+    const warm = executeChunkBuild({
+      type: 'build-chunk',
+      requestId: 21,
+      worldSeed: seed,
+      chunkX: 3,
+      chunkZ: -2,
+      modifications: [
+        [49, 10, -31, BlockType.Air],
+        [50, 10, -31, BlockType.Air],
+      ],
+      mode: 'geometry-only',
+    });
+
+    const geometryWidth = CHUNK_SIZE + 2;
+    expect(cold.geometryBaseCacheHit).toBe(false);
+    expect(cold.proceduralTerrainSamples).toBe(
+      geometryWidth * geometryWidth * CHUNK_HEIGHT,
+    );
+    expect(warm.geometryBaseCacheHit).toBe(true);
+    expect(warm.proceduralTerrainSamples).toBe(0);
+    console.info(
+      `edit-geometry cold=${cold.buildMilliseconds.toFixed(2)}ms warm=${warm.buildMilliseconds.toFixed(2)}ms`,
+    );
   });
 });
