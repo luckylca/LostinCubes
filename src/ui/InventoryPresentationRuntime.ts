@@ -48,8 +48,9 @@ export function installInventoryPresentationRuntime(): void {
   if (root === null) return;
 
   const drawer = root.querySelector<HTMLDetailsElement>('.recipe-drawer');
-  const summary = drawer?.querySelector<HTMLElement>('.recipe-drawer-toggle');
-  if (drawer === null || summary === null || summary === undefined) return;
+  if (drawer === null) return;
+  const summary = drawer.querySelector<HTMLElement>('.recipe-drawer-toggle');
+  if (summary === null) return;
 
   let furnaceWasOpen = false;
   let openBeforeFurnace = drawer.open;
