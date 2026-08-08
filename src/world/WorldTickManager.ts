@@ -13,10 +13,12 @@ const HORIZONTAL_RADIUS = 12;
 const VERTICAL_RADIUS = 9;
 const LEAF_LOG_RADIUS = 4;
 const SAPLING_GROWTH_CHANCE = 1 / 28;
-const SCHEDULED_TICK_LIMIT_PER_UPDATE = 24;
+const SCHEDULED_TICK_LIMIT_PER_UPDATE = 32;
 const SUPPORT_TICK_DELAY_SECONDS = 0.05;
-const WATER_TICK_DELAY_SECONDS = 0.18;
-const LAVA_TICK_DELAY_SECONDS = 0.36;
+const WATER_TICK_DELAY_SECONDS = 0.14;
+const LAVA_TICK_DELAY_SECONDS = 0.38;
+const WATER_MAXIMUM_FLOW_LEVEL = 7;
+const LAVA_MAXIMUM_FLOW_LEVEL = 3;
 
 const SIX_NEIGHBORS = [
   [-1, 0, 0],
@@ -85,11 +87,21 @@ function fluidDelay(block: BlockTypeValue): number {
     : WATER_TICK_DELAY_SECONDS;
 }
 
+function maximumFluidLevel(block: BlockTypeValue): number {
+  return block === BlockType.Lava
+    ? LAVA_MAXIMUM_FLOW_LEVEL
+    : WATER_MAXIMUM_FLOW_LEVEL;
+}
+
 /** Fixed nearby random ticks plus a bounded deduplicated scheduled-tick queue. */
 export class WorldTickManager {
   readonly #world: RandomTickWorld;
   readonly #onBlockChanged: ((change: WorldTickChange) => void) | undefined;
   readonly #scheduled = new Map<string, ScheduledBlockTick>();
+  // Procedural / pre-existing fluid cells are source level 0. Cells created by
+  // this runtime are tracked as levels 1..7 (water) / 1..3 (lava), allowing
+  // finite spread and recession without adding a new persisted block ID.
+  readonly #fluidLevels = new Map<string, number>();
   #state: number;
   #elapsed = 0;
   #clock = 0;
@@ -183,6 +195,12 @@ export class WorldTickManager {
     return this.#scheduled.size;
   }
 
+  public getFlowLevel(worldX: number, worldY: number, worldZ: number): number {
+    const block = this.#world.sampleBlock(worldX, worldY, worldZ);
+    if (!isFluidBlock(block)) return -1;
+    return this.#fluidLevels.get(coordinateKey(worldX, worldY, worldZ)) ?? 0;
+  }
+
   #rescheduleBlockTick(
     worldX: number,
     worldY: number,
@@ -215,6 +233,7 @@ export class WorldTickManager {
     if (block === BlockType.Water || block === BlockType.Lava) {
       return this.#tickFluid(worldX, worldY, worldZ, block);
     }
+    this.#fluidLevels.delete(coordinateKey(worldX, worldY, worldZ));
     return this.#tickBlock(worldX, worldY, worldZ) ? 1 : 0;
   }
 
@@ -224,6 +243,7 @@ export class WorldTickManager {
     worldZ: number,
     fluid: BlockTypeValue,
   ): number {
+    const key = coordinateKey(worldX, worldY, worldZ);
     const opposite =
       fluid === BlockType.Water ? BlockType.Lava : BlockType.Water;
 
@@ -244,10 +264,53 @@ export class WorldTickManager {
         : 0;
     }
 
+    const trackedLevel = this.#fluidLevels.get(key);
+    let level = trackedLevel ?? 0;
+    const maximumLevel = maximumFluidLevel(fluid);
+
+    // A flowing cell survives only while a source/faster-flowing neighbor can
+    // feed it. Removing the source therefore produces an outward recession wave
+    // instead of leaving every propagated cell as a permanent source.
+    if (trackedLevel !== undefined) {
+      let incomingLevel = Number.POSITIVE_INFINITY;
+      if (
+        worldY + 1 < CHUNK_HEIGHT &&
+        this.#world.sampleBlock(worldX, worldY + 1, worldZ) === fluid
+      ) {
+        incomingLevel = 1;
+      }
+      for (const [offsetX, offsetZ] of HORIZONTAL_NEIGHBORS) {
+        const neighborX = worldX + offsetX;
+        const neighborZ = worldZ + offsetZ;
+        if (this.#world.sampleBlock(neighborX, worldY, neighborZ) !== fluid) {
+          continue;
+        }
+        const neighborKey = coordinateKey(neighborX, worldY, neighborZ);
+        const neighborLevel = this.#fluidLevels.get(neighborKey) ?? 0;
+        incomingLevel = Math.min(incomingLevel, neighborLevel + 1);
+      }
+
+      if (!Number.isFinite(incomingLevel) || incomingLevel > maximumLevel) {
+        return this.#replace(worldX, worldY, worldZ, BlockType.Air) ? 1 : 0;
+      }
+      if (incomingLevel !== level) {
+        level = incomingLevel;
+        this.#fluidLevels.set(key, level);
+      }
+    }
+
     if (worldY > 0) {
       const below = this.#world.sampleBlock(worldX, worldY - 1, worldZ);
       if (getBlockDefinition(below).replaceable && !isFluidBlock(below)) {
-        if (this.#replace(worldX, worldY - 1, worldZ, fluid)) {
+        if (
+          this.#replaceFluid(
+            worldX,
+            worldY - 1,
+            worldZ,
+            fluid,
+            Math.min(level + 1, maximumLevel),
+          )
+        ) {
           this.#rescheduleBlockTick(
             worldX,
             worldY - 1,
@@ -259,19 +322,29 @@ export class WorldTickManager {
       }
     }
 
-    // Spill only over an actual ledge. This gives springs and broken reservoirs
-    // visible cascades without turning every flat cave into an unbounded flood.
+    if (level >= maximumLevel) return 0;
+    const nextLevel = level + 1;
     let changed = 0;
     for (const [offsetX, offsetZ] of HORIZONTAL_NEIGHBORS) {
       const targetX = worldX + offsetX;
       const targetZ = worldZ + offsetZ;
       const target = this.#world.sampleBlock(targetX, worldY, targetZ);
-      if (!getBlockDefinition(target).replaceable || isFluidBlock(target)) continue;
-      const targetBelow = this.#world.sampleBlock(targetX, worldY - 1, targetZ);
-      if (!getBlockDefinition(targetBelow).replaceable || isFluidBlock(targetBelow)) {
+      if (target === fluid) {
+        const targetKey = coordinateKey(targetX, worldY, targetZ);
+        const existingLevel = this.#fluidLevels.get(targetKey);
+        if (existingLevel !== undefined && existingLevel > nextLevel) {
+          this.#fluidLevels.set(targetKey, nextLevel);
+          this.#rescheduleBlockTick(
+            targetX,
+            worldY,
+            targetZ,
+            fluidDelay(fluid),
+          );
+        }
         continue;
       }
-      if (this.#replace(targetX, worldY, targetZ, fluid)) {
+      if (isFluidBlock(target) || !getBlockDefinition(target).replaceable) continue;
+      if (this.#replaceFluid(targetX, worldY, targetZ, fluid, nextLevel)) {
         changed += 1;
         this.#rescheduleBlockTick(
           targetX,
@@ -280,9 +353,31 @@ export class WorldTickManager {
           fluidDelay(fluid),
         );
       }
-      if (changed >= 2) break;
     }
     return changed;
+  }
+
+  #replaceFluid(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    fluid: BlockTypeValue,
+    level: number,
+  ): boolean {
+    const key = coordinateKey(worldX, worldY, worldZ);
+    const previous = this.#world.sampleBlock(worldX, worldY, worldZ);
+    const changed = this.#world.setBlock(worldX, worldY, worldZ, fluid);
+    this.#fluidLevels.set(key, level);
+    if (!changed) return false;
+    this.#onBlockChanged?.({
+      worldX,
+      worldY,
+      worldZ,
+      previous,
+      next: fluid,
+    });
+    this.notifyBlockChanged(worldX, worldY, worldZ);
+    return true;
   }
 
   #tickBlock(worldX: number, worldY: number, worldZ: number): boolean {
@@ -445,8 +540,10 @@ export class WorldTickManager {
     next: BlockTypeValue,
   ): boolean {
     if (worldY < 0 || worldY >= CHUNK_HEIGHT) return false;
+    const key = coordinateKey(worldX, worldY, worldZ);
     const previous = this.#world.sampleBlock(worldX, worldY, worldZ);
     if (!this.#world.setBlock(worldX, worldY, worldZ, next)) return false;
+    if (!isFluidBlock(next)) this.#fluidLevels.delete(key);
     this.#onBlockChanged?.({
       worldX,
       worldY,
