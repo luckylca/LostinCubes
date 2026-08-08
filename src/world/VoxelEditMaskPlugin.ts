@@ -1,15 +1,18 @@
-import {
-  MaterialPluginBase,
-  StandardMaterial,
-} from '@babylonjs/core';
+import { MaterialPluginBase } from '@babylonjs/core';
 import type {
   AbstractEngine,
+  Mesh,
   Scene,
+  StandardMaterial,
   SubMesh,
   UniformBuffer,
 } from '@babylonjs/core';
+import {
+  createChunkKey,
+  worldToChunkCoordinate,
+} from './VoxelChunk';
 
-const MAXIMUM_MASKED_BLOCKS_PER_CHUNK = 8;
+const MAXIMUM_MASKED_BLOCKS_PER_MESH = 8;
 const VOXEL_HALF_EXTENT_WITH_EPSILON = 0.501;
 
 export interface MaskedVoxel {
@@ -18,61 +21,88 @@ export interface MaskedVoxel {
   readonly z: number;
 }
 
+const ACTIVE_REGISTRIES = new WeakMap<Scene, VoxelEditMaskRegistry>();
+
 function voxelKey(x: number, y: number, z: number): string {
   return `${String(x)},${String(y)},${String(z)}`;
 }
 
+function chunkMeshName(worldX: number, worldZ: number): string {
+  return `voxel-chunk-${createChunkKey(
+    worldToChunkCoordinate(worldX),
+    worldToChunkCoordinate(worldZ),
+  )}`;
+}
+
 /**
- * Tracks a very small set of voxels whose logical state already changed but
- * whose streamed chunk mesh has not been replaced yet.
+ * Tracks removed voxels against the exact old chunk mesh currently on screen.
+ * A rebuilt chunk gets a new mesh id and is therefore never affected by stale
+ * masks. Disposal of the old mesh also removes its mask state automatically.
  */
 export class VoxelEditMaskRegistry {
-  readonly #byChunk = new Map<string, Map<string, MaskedVoxel>>();
+  readonly #scene: Scene;
+  readonly #byMesh = new Map<number, Map<string, MaskedVoxel>>();
+  readonly #observedMeshes = new Set<number>();
 
-  public mask(chunkKey: string, x: number, y: number, z: number): void {
-    const masks = this.#byChunk.get(chunkKey) ?? new Map<string, MaskedVoxel>();
-    const key = voxelKey(x, y, z);
+  public constructor(scene: Scene) {
+    this.#scene = scene;
+    ACTIVE_REGISTRIES.set(scene, this);
+  }
+
+  public maskWorldVoxel(worldX: number, worldY: number, worldZ: number): void {
+    const mesh = this.#scene.getMeshByName(
+      chunkMeshName(worldX, worldZ),
+    ) as Mesh | null;
+    if (mesh === null || mesh.isDisposed()) return;
+
+    const masks = this.#byMesh.get(mesh.uniqueId) ?? new Map<string, MaskedVoxel>();
+    const key = voxelKey(worldX, worldY, worldZ);
     masks.delete(key);
-    masks.set(key, { x, y, z });
-    while (masks.size > MAXIMUM_MASKED_BLOCKS_PER_CHUNK) {
+    masks.set(key, { x: worldX, y: worldY, z: worldZ });
+    while (masks.size > MAXIMUM_MASKED_BLOCKS_PER_MESH) {
       const oldest = masks.keys().next().value;
       if (oldest === undefined) break;
       masks.delete(oldest);
     }
-    this.#byChunk.set(chunkKey, masks);
+    this.#byMesh.set(mesh.uniqueId, masks);
+
+    if (!this.#observedMeshes.has(mesh.uniqueId)) {
+      this.#observedMeshes.add(mesh.uniqueId);
+      const meshId = mesh.uniqueId;
+      mesh.onDisposeObservable.addOnce(() => {
+        this.#byMesh.delete(meshId);
+        this.#observedMeshes.delete(meshId);
+      });
+    }
   }
 
-  public unmask(chunkKey: string, x: number, y: number, z: number): void {
-    const masks = this.#byChunk.get(chunkKey);
-    if (masks === undefined) return;
-    masks.delete(voxelKey(x, y, z));
-    if (masks.size === 0) this.#byChunk.delete(chunkKey);
-  }
-
-  public clearChunk(chunkKey: string): void {
-    this.#byChunk.delete(chunkKey);
-  }
-
-  public masksForChunk(chunkKey: string): readonly MaskedVoxel[] {
-    const masks = this.#byChunk.get(chunkKey);
+  public masksForMesh(meshId: number): readonly MaskedVoxel[] {
+    const masks = this.#byMesh.get(meshId);
     return masks === undefined ? [] : [...masks.values()];
   }
 
   public clear(): void {
-    this.#byChunk.clear();
+    this.#byMesh.clear();
+    this.#observedMeshes.clear();
+    if (ACTIVE_REGISTRIES.get(this.#scene) === this) {
+      ACTIVE_REGISTRIES.delete(this.#scene);
+    }
   }
 }
 
-function readChunkKey(subMesh: SubMesh): string | null {
-  const metadata: unknown = subMesh.getMesh().metadata;
-  if (typeof metadata !== 'object' || metadata === null) return null;
-  const candidate = (metadata as Record<string, unknown>).chunkKey;
-  return typeof candidate === 'string' ? candidate : null;
+/** Called immediately after the world accepts a block break. */
+export function maskRemovedVoxelImmediately(
+  scene: Scene,
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+): void {
+  ACTIVE_REGISTRIES.get(scene)?.maskWorldVoxel(worldX, worldY, worldZ);
 }
 
 function buildDiscardCode(): string {
   const clauses: string[] = [];
-  for (let index = 0; index < MAXIMUM_MASKED_BLOCKS_PER_CHUNK; index += 1) {
+  for (let index = 0; index < MAXIMUM_MASKED_BLOCKS_PER_MESH; index += 1) {
     const uniform = `voxelEditMask${String(index)}`;
     clauses.push(`
       if (
@@ -89,11 +119,9 @@ function buildDiscardCode(): string {
 }
 
 /**
- * GPU-side visual eraser for freshly removed blocks.
- *
- * The chunk mesh can stay on screen while its worker rebuild is in flight. The
- * old fragment(s) inside a removed voxel are discarded immediately, then the
- * mask is cleared as soon as the rebuilt chunk mesh is applied.
+ * GPU-side visual eraser for freshly removed blocks. The old streamed mesh can
+ * stay on screen while its worker rebuild runs, but fragments belonging to the
+ * removed voxel disappear on the very next render.
  */
 export class VoxelEditMaskPlugin extends MaterialPluginBase {
   readonly #registry: VoxelEditMaskRegistry;
@@ -116,7 +144,7 @@ export class VoxelEditMaskPlugin extends MaterialPluginBase {
   } {
     return {
       ubo: Array.from(
-        { length: MAXIMUM_MASKED_BLOCKS_PER_CHUNK },
+        { length: MAXIMUM_MASKED_BLOCKS_PER_MESH },
         (_, index) => ({
           name: `voxelEditMask${String(index)}`,
           size: 4,
@@ -141,9 +169,8 @@ export class VoxelEditMaskPlugin extends MaterialPluginBase {
     _engine: AbstractEngine,
     subMesh: SubMesh,
   ): void {
-    const chunkKey = readChunkKey(subMesh);
-    const masks = chunkKey === null ? [] : this.#registry.masksForChunk(chunkKey);
-    for (let index = 0; index < MAXIMUM_MASKED_BLOCKS_PER_CHUNK; index += 1) {
+    const masks = this.#registry.masksForMesh(subMesh.getMesh().uniqueId);
+    for (let index = 0; index < MAXIMUM_MASKED_BLOCKS_PER_MESH; index += 1) {
       const mask = masks[index];
       const name = `voxelEditMask${String(index)}`;
       if (mask === undefined) {
