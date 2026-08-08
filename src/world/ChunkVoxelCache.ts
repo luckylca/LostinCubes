@@ -10,13 +10,13 @@ export type WorldBlockSampler = (
 ) => BlockTypeValue;
 
 /**
- * Materializes the complete bounded volume needed by one chunk build.
+ * Materializes a bounded voxel volume for one chunk build.
  *
- * Lighting and meshing previously called the procedural terrain sampler many
- * times for the same coordinates. The light volume already includes the full
- * 15-block propagation margin, so one compact byte cache can serve sky light,
- * block light, flood propagation, and the final mesh without recomputing
- * terrain noise or tree placement.
+ * Full lighting uses the default 15-block propagation margin. Geometry-only
+ * edit builds can request a one-block margin instead because greedy meshing
+ * only needs the immediately face-sharing neighbors. Keeping the margin
+ * configurable avoids paying for tens of thousands of unrelated procedural
+ * terrain samples when the player only changed one block.
  */
 export class ChunkVoxelCache {
   readonly #source: WorldBlockSampler;
@@ -31,8 +31,11 @@ export class ChunkVoxelCache {
     chunkX: number,
     chunkZ: number,
     source: WorldBlockSampler,
+    margin = LIGHT_PROPAGATION_RADIUS,
   ) {
-    const margin = LIGHT_PROPAGATION_RADIUS;
+    if (!Number.isInteger(margin) || margin < 0) {
+      throw new RangeError('margin must be a non-negative integer.');
+    }
     this.#source = source;
     this.#minimumX = chunkX * CHUNK_SIZE - margin;
     this.#minimumZ = chunkZ * CHUNK_SIZE - margin;
