@@ -72,34 +72,27 @@ function ensureEquipmentPanel(root: HTMLElement): HTMLElement | null {
 }
 
 function ensureRecipeDrawer(root: HTMLElement): void {
-  if (root.querySelector('.recipe-drawer') !== null) return;
   const book = root.querySelector<HTMLElement>('.crafting-book');
-  const inventoryPanel = root.querySelector<HTMLElement>('.inventory-panel');
-  if (book === null || inventoryPanel === null) return;
+  if (book === null || book.querySelector('.recipe-drawer-toggle') !== null) {
+    return;
+  }
 
-  const drawer = document.createElement('section');
-  drawer.className = 'recipe-drawer';
+  const originalHeading = book.querySelector<HTMLElement>(':scope > h3');
+  if (originalHeading !== null) originalHeading.hidden = true;
 
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.className = 'recipe-drawer-toggle';
   toggle.textContent = '配方书';
   toggle.setAttribute('aria-expanded', 'false');
-
-  const content = document.createElement('div');
-  content.className = 'recipe-drawer-content';
-  content.hidden = true;
+  book.classList.add('is-collapsed');
 
   toggle.addEventListener('click', () => {
-    const nextOpen = content.hidden;
-    content.hidden = !nextOpen;
+    const nextOpen = book.classList.contains('is-collapsed');
+    book.classList.toggle('is-collapsed', !nextOpen);
     toggle.setAttribute('aria-expanded', String(nextOpen));
   });
-
-  book.replaceWith(drawer);
-  drawer.append(toggle, content);
-  content.append(book);
-  inventoryPanel.append(drawer);
+  book.prepend(toggle);
 }
 
 function ensurePresentation(): void {
@@ -119,10 +112,9 @@ function syncPresentation(): void {
 }
 
 /**
- * Hooks the inventory's own lifecycle instead of observing its DOM tree.
- * InventoryView already knows exactly when slots are rebuilt; piggybacking on
- * open/render avoids MutationObserver churn and keeps the recipe drawer stable
- * inside the scroll container.
+ * Hooks the inventory's own lifecycle instead of observing or relocating its
+ * DOM. InventoryView keeps stable references to the recipe list, storage and
+ * hotbar nodes, so presentation code only inserts controls beside those nodes.
  */
 export function installInventoryPresentationRuntime(): void {
   if (installed) return;
