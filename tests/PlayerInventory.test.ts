@@ -168,6 +168,45 @@ describe('PlayerInventory', () => {
     expect(inventory.selectedItem).toBeNull();
   });
 
+  it('keeps bow and arrows separate while firing wears the bow', () => {
+    const storage = new MemoryStorage();
+    const slots = emptySlots();
+    slots[HOTBAR_START_INDEX] = {
+      item: ItemType.Bow,
+      count: 1,
+      durability: 2,
+    } as never;
+    slots[HOTBAR_START_INDEX + 1] = {
+      item: ItemType.Arrow,
+      count: 2,
+      durability: null,
+    } as never;
+    const inventory = new PlayerInventory({ selectedSlot: 0, slots });
+
+    expect(inventory.selectedItem).toBe(ItemType.Bow);
+    expect(inventory.selectedStack.durability).toBe(2);
+    expect(inventory.countItem(ItemType.Arrow)).toBe(2);
+
+    expect(
+      inventory.consumeItems([{ item: ItemType.Arrow, count: 1 }]),
+    ).toBe(true);
+    expect(inventory.selectedItem).toBe(ItemType.Bow);
+    expect(inventory.selectedStack.durability).toBe(1);
+    expect(inventory.countItem(ItemType.Arrow)).toBe(1);
+
+    savePlayerInventory('bow-world', inventory, storage);
+    const restored = loadPlayerInventory('bow-world', storage);
+    expect(restored.selectedItem).toBe(ItemType.Bow);
+    expect(restored.selectedStack.durability).toBe(1);
+    expect(restored.countItem(ItemType.Arrow)).toBe(1);
+
+    expect(
+      restored.consumeItems([{ item: ItemType.Arrow, count: 1 }]),
+    ).toBe(true);
+    expect(restored.selectedItem).toBeNull();
+    expect(restored.countItem(ItemType.Arrow)).toBe(0);
+  });
+
   it('consumes selected blocks from the actual hotbar index', () => {
     const inventory = new PlayerInventory();
     inventory.addBlock(BlockType.OakPlanks, 1);
