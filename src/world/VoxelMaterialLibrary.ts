@@ -16,10 +16,6 @@ import {
   BlockTexture,
   getBlockTexturePixels,
 } from './BlockTextureLibrary';
-import {
-  VoxelEditMaskPlugin,
-  VoxelEditMaskRegistry,
-} from './VoxelEditMaskPlugin';
 
 const BLENDED_TEXTURES = new Set<BlockTexture>([
   BlockTexture.Water,
@@ -74,8 +70,6 @@ function createClassicFluidPixels(
 export class VoxelMaterialLibrary {
   readonly #multiMaterial: MultiMaterial;
   readonly #materials: StandardMaterial[] = [];
-  readonly #editMasks: VoxelEditMaskRegistry;
-  readonly #editMaskPlugins: VoxelEditMaskPlugin[] = [];
   readonly #fluidTextures = new Map<BlockTexture, RawTexture>();
   readonly #removeAnimationObserver: () => void;
   #waterElapsed = 0;
@@ -85,7 +79,6 @@ export class VoxelMaterialLibrary {
 
   public constructor(scene: Scene) {
     this.#multiMaterial = new MultiMaterial('voxel-world-materials', scene);
-    this.#editMasks = new VoxelEditMaskRegistry(scene);
 
     for (const textureKind of BLOCK_TEXTURE_KINDS) {
       const source = getBlockTexturePixels(textureKind);
@@ -136,6 +129,9 @@ export class VoxelMaterialLibrary {
 
       const blended = BLENDED_TEXTURES.has(textureKind);
       if (blended) {
+        // Use one stable opacity for the whole pixel texture. Combining the
+        // per-pixel alpha with a second material alpha caused dark layers and
+        // inconsistent ordering where multiple fluid faces overlapped.
         material.useAlphaFromDiffuseTexture = false;
         material.transparencyMode = Material.MATERIAL_ALPHABLEND;
         material.needDepthPrePass = true;
@@ -147,9 +143,6 @@ export class VoxelMaterialLibrary {
         material.alphaCutOff = 0.42;
       }
 
-      this.#editMaskPlugins.push(
-        new VoxelEditMaskPlugin(material, this.#editMasks),
-      );
       if (!blended) material.freeze();
       this.#materials.push(material);
       this.#multiMaterial.subMaterials.push(material);
@@ -188,8 +181,6 @@ export class VoxelMaterialLibrary {
 
   public dispose(): void {
     this.#removeAnimationObserver();
-    this.#editMasks.clear();
-    this.#editMaskPlugins.length = 0;
     this.#fluidTextures.clear();
     this.#multiMaterial.dispose();
     for (const material of this.#materials) {
