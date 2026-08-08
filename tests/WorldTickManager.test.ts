@@ -59,7 +59,9 @@ class SparseTickWorld implements RandomTickWorld {
     worldZ: number,
     block: BlockTypeValue,
   ): void {
-    this.#blocks.set(coordinateKey(worldX, worldY, worldZ), block);
+    const key = coordinateKey(worldX, worldY, worldZ);
+    if (block === BlockType.Air) this.#blocks.delete(key);
+    else this.#blocks.set(key, block);
   }
 
   public sampleBlock(
@@ -87,6 +89,26 @@ class SparseTickWorld implements RandomTickWorld {
     if (block === BlockType.Air) this.#blocks.delete(key);
     else this.#blocks.set(key, block);
     return true;
+  }
+}
+
+function buildFlowChannel(world: SparseTickWorld): void {
+  for (let x = -1; x <= 9; x += 1) {
+    world.prime(x, 3, 0, BlockType.Stone);
+    world.prime(x, 4, -1, BlockType.Stone);
+    world.prime(x, 4, 1, BlockType.Stone);
+  }
+  world.prime(-1, 4, 0, BlockType.Stone);
+}
+
+function advanceTicks(
+  manager: WorldTickManager,
+  seconds: number,
+  step = 0.15,
+): void {
+  const count = Math.ceil(seconds / step);
+  for (let index = 0; index < count; index += 1) {
+    manager.update(0, 4, 0, step);
   }
 }
 
@@ -132,6 +154,41 @@ describe('WorldTickManager', () => {
     expect(manager.scheduledTickCount).toBeGreaterThan(0);
     expect(manager.update(0, 4, 0, 0.06)).toBe(1);
     expect(world.sampleBlock(0, 3, 0)).toBe(BlockType.Water);
+    expect(manager.getFlowLevel(0, 3, 0)).toBe(1);
+  });
+
+  it('spreads water across a flat channel with finite 0..7 flow levels', () => {
+    const world = new SparseTickWorld();
+    buildFlowChannel(world);
+    world.prime(0, 4, 0, BlockType.Water);
+    const manager = new WorldTickManager(world);
+
+    manager.notifyBlockChanged(0, 4, 0);
+    advanceTicks(manager, 2.2);
+
+    for (let x = 0; x <= 7; x += 1) {
+      expect(world.sampleBlock(x, 4, 0)).toBe(BlockType.Water);
+      expect(manager.getFlowLevel(x, 4, 0)).toBe(x);
+    }
+    expect(world.sampleBlock(8, 4, 0)).toBe(BlockType.Air);
+  });
+
+  it('recedes propagated water after its source is removed', () => {
+    const world = new SparseTickWorld();
+    buildFlowChannel(world);
+    world.prime(0, 4, 0, BlockType.Water);
+    const manager = new WorldTickManager(world);
+    manager.notifyBlockChanged(0, 4, 0);
+    advanceTicks(manager, 2.2);
+    expect(world.sampleBlock(6, 4, 0)).toBe(BlockType.Water);
+
+    world.prime(0, 4, 0, BlockType.Air);
+    manager.notifyBlockChanged(0, 4, 0);
+    advanceTicks(manager, 4);
+
+    for (let x = 1; x <= 7; x += 1) {
+      expect(world.sampleBlock(x, 4, 0)).toBe(BlockType.Air);
+    }
   });
 
   it('turns lava into cobblestone when a scheduled tick touches water', () => {
