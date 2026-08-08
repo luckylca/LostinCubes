@@ -45,8 +45,7 @@ const MINIMUM_SPAWN_RADIUS = 8;
 const MAXIMUM_SPAWN_RADIUS = 20;
 const DESPAWN_RADIUS = 46;
 const PLAYER_ATTACK_REACH = 3.25;
-const PLAYER_ATTACK_COOLDOWN_SECONDS = 0.42;
-const SPAM_ATTACK_DAMAGE_SCALE = 0.35;
+const PLAYER_ATTACK_COOLDOWN_SECONDS = 0.5;
 const ATTACK_HITBOX_PADDING = 0.12;
 const ATTACK_OCCLUSION_STEP = 0.12;
 const ARROW_GRAVITY = 7.2;
@@ -64,7 +63,6 @@ interface KindDefinition {
   readonly attackRadius: number;
   readonly attackCooldown: number;
   readonly scale: readonly [number, number, number];
-  /** Offset from the player-style standing point to this model's actual root. */
   readonly standingOffset: number;
   readonly color: Color3;
   readonly eyeColor: Color3;
@@ -102,8 +100,6 @@ const KINDS: Readonly<
     attackRadius: 1.35,
     attackCooldown: 0.85,
     scale: [1.05, 0.56, 0.78],
-    // sampleStandingY includes a 0.9 player-foot offset. The low spider model
-    // only extends ~0.2 below its root, so it previously hovered visibly.
     standingOffset: -0.68,
     color: new Color3(0.16, 0.12, 0.1),
     eyeColor: new Color3(0.74, 0.08, 0.03),
@@ -245,7 +241,6 @@ function creatureDefinition(kind: EntityKind): KindDefinition | null {
     : null;
 }
 
-/** Returns nearest positive ray distance through an axis-aligned box. */
 export function rayEntityAabbDistance(
   origin: EntityVector,
   direction: EntityVector,
@@ -288,6 +283,8 @@ export class ClassicEntityManager {
   readonly #explosions: ExplosionVisual[] = [];
   #hostileSpawnElapsed = 0;
   #passiveSpawnElapsed = 0;
+  #hostileSpawnSequence = 0;
+  #passiveSpawnSequence = 0;
   #sequence = 0;
   #playerAttackCooldown = 0;
 
@@ -379,7 +376,9 @@ export class ClassicEntityManager {
     player: PlayerState,
     heldItem: ItemTypeValue | null,
   ): PlayerAttackResult {
-    if (player.paused) return { hit: false, killed: false, damage: 0 };
+    if (player.paused || this.#playerAttackCooldown > 0) {
+      return { hit: false, killed: false, damage: 0 };
+    }
 
     const eye = getPlayerEyePosition(player);
     const direction = getPlayerViewDirection(player);
@@ -391,8 +390,6 @@ export class ClassicEntityManager {
       if (definition === null) continue;
       const halfX = definition.scale[0] * 0.5 + ATTACK_HITBOX_PADDING;
       const halfZ = definition.scale[2] * 0.5 + ATTACK_HITBOX_PADDING;
-      // Slightly generous vertical bounds match the multipart presentation
-      // instead of testing one point near the entity root.
       const halfY = Math.max(definition.scale[1] * 0.58, 0.36);
       const hitDistance = rayEntityAabbDistance(
         eye,
@@ -417,9 +414,7 @@ export class ClassicEntityManager {
 
     if (target === null) return { hit: false, killed: false, damage: 0 };
 
-    const damageScale =
-      this.#playerAttackCooldown > 0 ? SPAM_ATTACK_DAMAGE_SCALE : 1;
-    const damage = Math.max(1, Math.round(getMeleeDamage(heldItem) * damageScale));
+    const damage = Math.max(1, Math.round(getMeleeDamage(heldItem)));
     this.#playerAttackCooldown = PLAYER_ATTACK_COOLDOWN_SECONDS;
     const killed = this.#damageEntity(
       target.id,
@@ -542,9 +537,9 @@ export class ClassicEntityManager {
   }
 
   #trySpawnHostile(player: PlayerState, dayTime: number): void {
-    const kind = (['zombie', 'skeleton', 'spider', 'creeper'] as const)[
-      this.#sequence % 4
-    ];
+    const cycle = this.#hostileSpawnSequence;
+    this.#hostileSpawnSequence += 1;
+    const kind = (['zombie', 'skeleton', 'spider', 'creeper'] as const)[cycle % 4];
     this.#sequence += 1;
     if (kind === undefined) return;
     const position = this.#spawnCandidate(player, this.#sequence);
@@ -557,7 +552,9 @@ export class ClassicEntityManager {
 
   #trySpawnPassive(player: PlayerState, dayTime: number): void {
     if (!isDay(dayTime)) return;
-    const kind = (['cow', 'pig', 'sheep'] as const)[this.#sequence % 3];
+    const cycle = this.#passiveSpawnSequence;
+    this.#passiveSpawnSequence += 1;
+    const kind = (['cow', 'pig', 'sheep'] as const)[cycle % 3];
     this.#sequence += 1;
     if (kind === undefined) return;
     const position = this.#spawnCandidate(player, this.#sequence * 3);
@@ -943,7 +940,9 @@ export class ClassicEntityManager {
     for (let index = 0; index < 22; index += 1) {
       const angle = index * 2.399963229728653;
       const vertical = ((index * 7) % 11) / 10 * 1.7 - 0.25;
-      const horizontal = Math.sqrt(Math.max(1 - Math.min(vertical * vertical * 0.3, 0.8), 0.2));
+      const horizontal = Math.sqrt(
+        Math.max(1 - Math.min(vertical * vertical * 0.3, 0.8), 0.2),
+      );
       const speed = 2.5 + ((index * 13) % 9) * 0.18;
       const mesh = MeshBuilder.CreateBox(
         `explosion-particle-${String(index)}-${String(this.#sequence)}`,
