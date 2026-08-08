@@ -67,7 +67,6 @@
   width: 100%;
   min-height: 2.15rem;
   padding: .25rem 0;
-  border: 0;
   color: #dcecdf;
   background: transparent;
   text-align: left;
@@ -76,23 +75,19 @@
   font-size: .78rem;
   font-weight: 700;
   letter-spacing: .06em;
+  list-style: none;
 }
+.crafting-book > .recipe-drawer-toggle::-webkit-details-marker { display:none; }
 .crafting-book > .recipe-drawer-toggle::after {
   content: '＋';
   float: right;
   color: #9fbaa3;
 }
-.crafting-book > .recipe-drawer-toggle[aria-expanded='true']::after {
-  content: '－';
-}
-.crafting-book > .recipe-drawer-content[hidden] {
-  display: none !important;
-}
-.crafting-book > .recipe-drawer-content {
-  margin-top: .55rem;
-}
+.crafting-book[open] > .recipe-drawer-toggle::after { content:'－'; }
+.crafting-book.is-furnace > .recipe-drawer-toggle { display:none; }
+.crafting-book > .recipe-drawer-content { margin-top:.55rem; }
 .crafting-book > .recipe-drawer-content > .recipe-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns:repeat(2,minmax(0,1fr));
 }
 
 @media (max-width:850px) {
