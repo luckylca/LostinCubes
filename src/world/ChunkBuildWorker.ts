@@ -14,13 +14,17 @@ const workerScope = globalThis as unknown as WorkerScope;
 workerScope.onmessage = (event): void => {
   try {
     const response = executeChunkBuild(event.data);
-    workerScope.postMessage(response, [
-      response.meshData.positions.buffer as ArrayBuffer,
-      response.meshData.normals.buffer as ArrayBuffer,
-      response.meshData.indices.buffer as ArrayBuffer,
-      response.meshData.colors.buffer as ArrayBuffer,
-      response.meshData.uvs.buffer as ArrayBuffer,
-    ]);
+    const transfer: Transferable[] = [];
+    for (const section of response.sections) {
+      transfer.push(
+        section.meshData.positions.buffer as ArrayBuffer,
+        section.meshData.normals.buffer as ArrayBuffer,
+        section.meshData.indices.buffer as ArrayBuffer,
+        section.meshData.colors.buffer as ArrayBuffer,
+        section.meshData.uvs.buffer as ArrayBuffer,
+      );
+    }
+    workerScope.postMessage(response, transfer);
   } catch (error: unknown) {
     workerScope.postMessage(
       {
