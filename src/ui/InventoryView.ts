@@ -38,12 +38,14 @@ function createEmptyStack(): InventorySlotSnapshot {
 function stackDescription(stack: InventorySlotSnapshot): string {
   if (stack.item === null) return '空槽';
   const definition = getItemDefinition(stack.item);
-  if (definition.kind === 'tool') {
+  if (definition.maximumDurability !== null) {
     return `${definition.label}，耐久 ${String(stack.durability ?? 0)}/${String(
-      definition.maximumDurability ?? 1,
+      definition.maximumDurability,
     )}`;
   }
-  return `${definition.label} × ${String(stack.count)}`;
+  return definition.maximumStack > 1
+    ? `${definition.label} × ${String(stack.count)}`
+    : definition.label;
 }
 
 function itemIconMarkup(item: ItemType | null): string {
@@ -81,28 +83,33 @@ function setItemPresentation(
     durabilityElement?.querySelector<HTMLElement>('span') ?? null;
   const definition =
     stack.item === null ? null : getItemDefinition(stack.item);
+  const durable = definition?.maximumDurability !== null && definition !== null;
   button.classList.toggle('is-empty', definition === null);
   button.classList.toggle('is-tool', definition?.kind === 'tool');
+  button.classList.toggle('is-durable', durable);
   button.setAttribute('aria-label', stackDescription(stack));
+  button.title = stackDescription(stack);
   if (itemElement !== null) {
     itemElement.className = `inventory-item item-${definition?.cssClass ?? 'empty'}`;
   }
   if (countElement !== null) {
     countElement.textContent =
-      definition !== null && definition.kind !== 'tool'
+      definition !== null && definition.maximumStack > 1
         ? String(stack.count)
         : '';
   }
   if (durabilityElement !== null) {
-    durabilityElement.hidden = definition?.kind !== 'tool';
+    durabilityElement.hidden = !durable;
   }
   if (
     durabilityFill !== null &&
-    definition?.kind === 'tool' &&
-    stack.durability !== null
+    durable &&
+    stack.durability !== null &&
+    definition?.maximumDurability !== null &&
+    definition !== null
   ) {
     durabilityFill.style.scale = `${String(
-      stack.durability / (definition.maximumDurability ?? 1),
+      stack.durability / definition.maximumDurability,
     )} 1`;
   }
 }
@@ -110,7 +117,11 @@ function setItemPresentation(
 function createSlotButton(
   index: number,
   stack: InventorySlotSnapshot,
-  onInteract: (index: number, secondary: boolean) => void,
+  onInteract: (
+    index: number,
+    secondary: boolean,
+    quickMove: boolean,
+  ) => void,
   className = 'inventory-slot',
 ): HTMLButtonElement {
   const button = document.createElement('button');
@@ -131,7 +142,7 @@ function createSlotButton(
     }
     event.preventDefault();
     event.stopPropagation();
-    onInteract(index, event.button === 2);
+    onInteract(index, event.button === 2, event.shiftKey);
   });
   setItemPresentation(button, stack);
   return button;
@@ -142,11 +153,15 @@ function stationTitle(station: CraftingStation): string {
     ? '工作台 · 3×3 合成'
     : station === 'furnace'
       ? '熔炉 · 冶炼'
-      : '背包 · 2×2 随身合成';
+      : '物品栏';
 }
 
 function percentage(value: number): string {
   return `${String(Math.round(Math.min(Math.max(value, 0), 1) * 100))}%`;
+}
+
+function inventoryIndices(start: number, count: number): number[] {
+  return Array.from({ length: count }, (_, offset) => start + offset);
 }
 
 export class InventoryView {
@@ -158,6 +173,7 @@ export class InventoryView {
   readonly #storage: HTMLElement;
   readonly #hotbar: HTMLElement;
   readonly #recipes: HTMLElement;
+  readonly #craftingMachine: HTMLElement;
   readonly #cursor: HTMLElement;
   readonly #crafting = new CraftingGrid(2);
   #cursorStack: InventorySlotSnapshot | null = null;
@@ -180,6 +196,17 @@ export class InventoryView {
     this.#hotbar = this.#requireChild('[data-inventory-hotbar]');
     this.#recipes = this.#requireChild('[data-crafting-recipes]');
     this.#cursor = this.#requireChild('[data-inventory-cursor]');
+
+    const layout = this.#requireChild('.inventory-layout');
+    const craftingMachine = document.createElement('section');
+    craftingMachine.className = 'mc-crafting-zone';
+    craftingMachine.dataset.craftingMachine = '';
+    craftingMachine.setAttribute('aria-label', '合成区域');
+    const equipment = layout.querySelector<HTMLElement>('.player-equipment-panel');
+    if (equipment !== null) equipment.after(craftingMachine);
+    else layout.prepend(craftingMachine);
+    this.#craftingMachine = craftingMachine;
+
     this.#root.addEventListener('contextmenu', (event) =>
       event.preventDefault(),
     );
@@ -213,10 +240,10 @@ export class InventoryView {
     document.body.classList.add('inventory-open');
     this.#message.textContent =
       station === 'crafting-table'
-        ? '3×3 合成：单击做一次，按住输出连续制作，Shift+点击快速做满。'
+        ? '左键拿整组 · 右键拿半组/放一个 · Shift+点击快速移动 · 3×3 合成'
         : station === 'furnace'
           ? '上格粗铁、下格煤炭、右格取铁锭。'
-          : '2×2 合成：单击做一次，按住输出连续制作，Shift+点击快速做满。';
+          : '左键拿整组 · 右键拿半组/放一个 · Shift+点击在背包与快捷栏间快速移动';
     this.render();
   }
 
@@ -303,12 +330,18 @@ export class InventoryView {
     this.#storage.replaceChildren();
     this.#hotbar.replaceChildren();
     this.#recipes.replaceChildren();
+    this.#craftingMachine.remove();
   }
 
   readonly #interactInventorySlot = (
     index: number,
     secondary: boolean,
+    quickMove: boolean,
   ): void => {
+    if (quickMove && this.#cursorStack === null) {
+      this.#quickMoveInventorySlot(index);
+      return;
+    }
     this.#cursorStack = this.#inventory.interactSlot(
       index,
       this.#cursorStack,
@@ -320,7 +353,21 @@ export class InventoryView {
   readonly #interactCraftingSlot = (
     index: number,
     secondary: boolean,
+    quickMove: boolean,
   ): void => {
+    if (quickMove && this.#cursorStack === null) {
+      const stack = this.#crafting.interactSlot(index, null, false);
+      if (stack === null) return;
+      const remaining = this.#inventory.addStack(stack);
+      if (remaining !== null) {
+        this.#crafting.interactSlot(index, remaining, false);
+      }
+      this.#message.textContent =
+        remaining === null ? '已快速收回合成格物品。' : '背包空间不足。';
+      this.#callbacks.onChanged();
+      this.render();
+      return;
+    }
     this.#cursorStack = this.#crafting.interactSlot(
       index,
       this.#cursorStack,
@@ -340,6 +387,52 @@ export class InventoryView {
     }
   };
 
+  #quickMoveInventorySlot(index: number): void {
+    const snapshot = this.#inventory.snapshot;
+    const source = snapshot.slots[index];
+    if (source?.item === null || source === undefined) return;
+
+    const definition = getItemDefinition(source.item);
+    const targets =
+      index < STORAGE_SLOT_COUNT
+        ? inventoryIndices(HOTBAR_START_INDEX, HOTBAR_SLOT_COUNT)
+        : inventoryIndices(0, STORAGE_SLOT_COUNT);
+    const mergeTargets =
+      definition.maximumStack > 1
+        ? targets.filter((targetIndex) => {
+            const target = snapshot.slots[targetIndex];
+            return (
+              target?.item === source.item && target.count < definition.maximumStack
+            );
+          })
+        : [];
+    const emptyTargets = targets.filter(
+      (targetIndex) => snapshot.slots[targetIndex]?.item === null,
+    );
+    if (mergeTargets.length === 0 && emptyTargets.length === 0) {
+      this.#message.textContent = '另一栏没有可快速移动的空间。';
+      return;
+    }
+
+    let moving = this.#inventory.interactSlot(index, null, false);
+    if (moving === null) return;
+    const originalCount = moving.count;
+    for (const targetIndex of [...mergeTargets, ...emptyTargets]) {
+      moving = this.#inventory.interactSlot(targetIndex, moving, false);
+      if (moving === null) break;
+    }
+    const movedCount = originalCount - (moving?.count ?? 0);
+    if (moving !== null) {
+      this.#inventory.interactSlot(index, moving, false);
+    }
+    this.#message.textContent =
+      movedCount > 0
+        ? `已快速移动 ${getItemLabel(source.item)} ×${String(movedCount)}。`
+        : '另一栏没有可快速移动的空间。';
+    this.#callbacks.onChanged();
+    this.render();
+  }
+
   #afterStackInteraction(): void {
     this.#stopCraftingRepeat();
     this.#message.textContent =
@@ -351,24 +444,25 @@ export class InventoryView {
   }
 
   #renderCraftingOrFurnace(): void {
+    this.#craftingMachine.replaceChildren();
+    this.#recipes.replaceChildren();
     if (this.#station === 'furnace') {
       this.#renderFurnace();
       return;
     }
-    this.#recipes.replaceChildren();
     const recipes = getVisibleRecipes(this.#station);
     const match = this.#crafting.getMatch(recipes);
 
     const manual = document.createElement('section');
-    manual.className = 'manual-crafting';
+    manual.className = 'manual-crafting mc-manual-crafting';
     manual.innerHTML = [
-      '<header><div><strong>手动合成</strong><small>格子中的堆叠可以连续制作</small></div></header>',
+      '<header><div><strong>合成</strong><small>像原版生存背包一样直接使用这里的格子</small></div></header>',
       '<div class="manual-crafting-machine">',
       `<div class="crafting-input-grid crafting-grid-${String(this.#crafting.size)}" data-crafting-grid aria-label="${String(this.#crafting.size)}乘${String(this.#crafting.size)}合成格"></div>`,
       '<span class="crafting-output-arrow" aria-hidden="true">→</span>',
       '<button type="button" class="inventory-slot crafting-output-slot" data-crafting-output aria-label="合成输出"></button>',
       '</div>',
-      '<p class="crafting-hint">单击制作一次；按住输出槽连续制作；Shift+点击一次做到当前输出堆叠上限。</p>',
+      '<p class="crafting-hint">Shift+点击输出快速做满；Shift+点击输入格快速收回。</p>',
     ].join('');
     const inputGrid = manual.querySelector<HTMLElement>('[data-crafting-grid]');
     const craftingSnapshot = this.#crafting.snapshot;
@@ -411,11 +505,8 @@ export class InventoryView {
         this.#startCraftingOutput(event.shiftKey);
       });
     }
-    this.#recipes.append(manual);
+    this.#craftingMachine.append(manual);
 
-    const book = document.createElement('section');
-    book.className = 'recipe-book-section';
-    book.innerHTML = '<header><strong>配方书</strong><small>空合成格时会尽量铺入全部可制作材料</small></header>';
     const list = document.createElement('div');
     list.className = 'recipe-list';
     for (const recipe of recipes) {
@@ -442,8 +533,7 @@ export class InventoryView {
       button.addEventListener('click', () => this.#fillRecipe(recipe));
       list.append(button);
     }
-    book.append(list);
-    this.#recipes.append(book);
+    this.#recipes.append(list);
   }
 
   #fillRecipe(recipe: CraftingRecipe): void {
@@ -486,13 +576,14 @@ export class InventoryView {
 
   #renderFurnace(): void {
     this.#stopCraftingRepeat();
+    this.#craftingMachine.replaceChildren();
     this.#recipes.replaceChildren();
     const state = this.#callbacks.getFurnaceState?.() ?? null;
     if (state === null) {
       const unavailable = document.createElement('p');
       unavailable.className = 'furnace-unavailable';
       unavailable.textContent = '当前熔炉状态不可用。';
-      this.#recipes.append(unavailable);
+      this.#craftingMachine.append(unavailable);
       return;
     }
 
@@ -558,7 +649,7 @@ export class InventoryView {
         this.render();
       });
     }
-    this.#recipes.append(panel);
+    this.#craftingMachine.append(panel);
   }
 
   #returnCursorToInventory(): boolean {
@@ -595,9 +686,9 @@ export class InventoryView {
     this.#cursor.hidden = false;
     this.#cursor.innerHTML = [
       `<span class="inventory-item item-${definition.cssClass}"></span>`,
-      definition.kind === 'tool'
-        ? ''
-        : `<strong>${String(this.#cursorStack.count)}</strong>`,
+      definition.maximumStack > 1
+        ? `<strong>${String(this.#cursorStack.count)}</strong>`
+        : '',
     ].join('');
   }
 
