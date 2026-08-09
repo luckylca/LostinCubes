@@ -1,4 +1,28 @@
 const HIDE_LOADING_KEY = 'lost-in-cubes:hide-runtime-loading';
+const BLOCKED_WHILE_PAUSED = new Set([
+  'KeyE',
+  'KeyV',
+  'F5',
+  'KeyW',
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyQ',
+  'Space',
+  'ShiftLeft',
+  'ShiftRight',
+  'ControlLeft',
+  'ControlRight',
+  'Digit1',
+  'Digit2',
+  'Digit3',
+  'Digit4',
+  'Digit5',
+  'Digit6',
+  'Digit7',
+  'Digit8',
+  'Digit9',
+]);
 let installed = false;
 let pauseMenuOpen = false;
 let root: HTMLElement | null = null;
@@ -126,8 +150,15 @@ export function installPauseMenuRuntime(): void {
   pointerWasLocked = document.pointerLockElement === canvas();
 
   document.addEventListener('keydown', (event) => {
-    if (!event.isTrusted || event.repeat || event.code !== 'Escape') return;
-    if (inventoryOpen() || playerDead()) return;
+    if (!event.isTrusted || event.repeat) return;
+
+    if (pauseMenuOpen && BLOCKED_WHILE_PAUSED.has(event.code)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    if (event.code !== 'Escape' || inventoryOpen() || playerDead()) return;
     // When pointer lock is active the browser normally unlocks it first; the
     // pointerlockchange handler below opens the menu. This branch covers the
     // fallback/unlocked case without touching InputManager internals.
