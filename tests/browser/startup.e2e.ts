@@ -189,7 +189,10 @@ test('falls back to synchronous terrain when module workers fail', async ({ page
           this.dispatchEvent(new ErrorEvent('error', { cancelable: true, message: 'Error' }));
         });
       }
-      public terminate(): void {}
+
+      public terminate(): void {
+        // The fake worker has no external process to terminate.
+      }
     }
     Object.defineProperty(window, 'Worker', {
       configurable: true,
