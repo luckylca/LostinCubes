@@ -44,14 +44,17 @@ export class ChunkVoxelCache {
     this.#layerSize = this.#sizeX * this.#sizeZ;
     this.#blocks = new Uint8Array(this.#layerSize * CHUNK_HEIGHT);
 
-    for (let worldY = 0; worldY < CHUNK_HEIGHT; worldY += 1) {
-      const layerOffset = worldY * this.#layerSize;
-      for (let localZ = 0; localZ < this.#sizeZ; localZ += 1) {
-        const worldZ = this.#minimumZ + localZ;
-        const rowOffset = layerOffset + localZ * this.#sizeX;
-        for (let localX = 0; localX < this.#sizeX; localX += 1) {
-          const worldX = this.#minimumX + localX;
-          this.#blocks[rowOffset + localX] = source(
+    // Terrain properties such as surface height and biome are column data: they
+    // depend on X/Z, not Y. Visit all Y cells of one column consecutively so a
+    // tiny per-build terrain memo can serve the whole 32-cell column instead of
+    // recomputing expensive 2D noise once per layer.
+    for (let localZ = 0; localZ < this.#sizeZ; localZ += 1) {
+      const worldZ = this.#minimumZ + localZ;
+      for (let localX = 0; localX < this.#sizeX; localX += 1) {
+        const worldX = this.#minimumX + localX;
+        const columnOffset = localX + localZ * this.#sizeX;
+        for (let worldY = 0; worldY < CHUNK_HEIGHT; worldY += 1) {
+          this.#blocks[columnOffset + worldY * this.#layerSize] = source(
             worldX,
             worldY,
             worldZ,

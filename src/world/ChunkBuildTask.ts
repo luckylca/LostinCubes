@@ -12,6 +12,7 @@ import { buildChunkLightField } from './VoxelLightEngine';
 
 const GEOMETRY_CACHE_MARGIN = 1;
 const GEOMETRY_BASE_CACHE_LIMIT = 24;
+const TERRAIN_COLUMN_CACHE_LIMIT = 64;
 const geometryBaseCaches = new Map<string, ChunkVoxelCache>();
 
 interface GeometryBaseCacheResult {
@@ -20,12 +21,77 @@ interface GeometryBaseCacheResult {
   readonly proceduralTerrainSamples: number;
 }
 
+type BiomeSample = ReturnType<TerrainGenerator['sampleBiome']>;
+
+/**
+ * Chunk generation asks sampleBlock() for every Y in a column, while surface
+ * height and biome depend only on X/Z. The base TerrainGenerator intentionally
+ * stays stateless for general world queries; worker builds use this tiny LRU so
+ * repeated Y samples do not rerun the same 2D noise dozens of times.
+ */
+class ChunkTerrainGenerator extends TerrainGenerator {
+  readonly #surfaceHeights = new Map<string, number>();
+  readonly #biomes = new Map<string, BiomeSample>();
+
+  public override sampleSurfaceHeight(worldX: number, worldZ: number): number {
+    const key = createColumnKey(worldX, worldZ);
+    const cached = this.#surfaceHeights.get(key);
+    if (cached !== undefined) {
+      this.#refresh(this.#surfaceHeights, key, cached);
+      return cached;
+    }
+    const created = super.sampleSurfaceHeight(worldX, worldZ);
+    this.#remember(this.#surfaceHeights, key, created);
+    return created;
+  }
+
+  public override sampleBiome(worldX: number, worldZ: number): BiomeSample {
+    const key = createColumnKey(worldX, worldZ);
+    const cached = this.#biomes.get(key);
+    if (cached !== undefined) {
+      this.#refresh(this.#biomes, key, cached);
+      return cached;
+    }
+    const created = super.sampleBiome(worldX, worldZ);
+    this.#remember(this.#biomes, key, created);
+    return created;
+  }
+
+  #refresh<T>(cache: Map<string, T>, key: string, value: T): void {
+    cache.delete(key);
+    cache.set(key, value);
+  }
+
+  #remember<T>(cache: Map<string, T>, key: string, value: T): void {
+    cache.set(key, value);
+    while (cache.size > TERRAIN_COLUMN_CACHE_LIMIT) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
+}
+
+function createColumnKey(worldX: number, worldZ: number): string {
+  return `${String(worldX)},${String(worldZ)}`;
+}
+
 function createModificationKey(
   worldX: number,
   worldY: number,
   worldZ: number,
 ): string {
   return `${String(worldX)},${String(worldY)},${String(worldZ)}`;
+}
+
+function getModification(
+  modifications: ReadonlyMap<string, BlockType>,
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+): BlockType | undefined {
+  if (modifications.size === 0) return undefined;
+  return modifications.get(createModificationKey(worldX, worldY, worldZ));
 }
 
 function createGeometryCacheKey(
@@ -53,7 +119,7 @@ function getGeometryBaseCache(
     };
   }
 
-  const generator = new TerrainGenerator(worldSeed);
+  const generator = new ChunkTerrainGenerator(worldSeed);
   const created = new ChunkVoxelCache(
     chunkX,
     chunkZ,
@@ -121,7 +187,7 @@ export function executeChunkBuild(
       request.chunkX,
       request.chunkZ,
       (worldX, worldY, worldZ) =>
-        modifications.get(createModificationKey(worldX, worldY, worldZ)) ??
+        getModification(modifications, worldX, worldY, worldZ) ??
         base.voxels.sample(worldX, worldY, worldZ),
       GEOMETRY_CACHE_MARGIN,
     );
@@ -135,14 +201,17 @@ export function executeChunkBuild(
       ),
     }));
   } else {
-    const generator = new TerrainGenerator(request.worldSeed);
+    const generator = new ChunkTerrainGenerator(request.worldSeed);
     const sampleProceduralBlock = (
       worldX: number,
       worldY: number,
       worldZ: number,
     ): BlockType => {
-      const modified = modifications.get(
-        createModificationKey(worldX, worldY, worldZ),
+      const modified = getModification(
+        modifications,
+        worldX,
+        worldY,
+        worldZ,
       );
       return modified ?? generator.sampleBlock(worldX, worldY, worldZ);
     };
