@@ -72,8 +72,18 @@ test('uses Minecraft-like inventory layout, quick move, and pause menu', async (
   await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(4);
   await expect(page.locator('[data-crafting-output]')).toBeVisible();
 
-  // Shift-click moves a stack between the 3x9 storage and 1x9 hotbar without
-  // putting it on the cursor first.
+  // The current playtest loadout intentionally fills the hotbar first. Free one
+  // hotbar slot by quick-moving its item into the 3x9 storage, then quick-move
+  // the helmet back into that newly free hotbar slot. This exercises both
+  // directions and also proves quick move never needs the cursor stack.
+  const hotbarSlot = page.locator('[data-inventory-index="28"]');
+  await expect(hotbarSlot).not.toHaveAttribute('aria-label', '空槽');
+  await hotbarSlot.click({ modifiers: ['Shift'] });
+  await expect(page.locator('[data-inventory-index="28"]')).toHaveAttribute(
+    'aria-label',
+    '空槽',
+  );
+
   await page.locator('[data-inventory-index="0"]').click({ modifiers: ['Shift'] });
   await expect(page.locator('[data-inventory-index="0"]')).toHaveAttribute(
     'aria-label',
