@@ -39,7 +39,7 @@ async function seedArmor(page: Page): Promise<void> {
   });
 }
 
-test('restores lightweight inventory presentation and pause menu', async ({
+test('uses Minecraft-like inventory layout, quick move, and pause menu', async ({
   page,
 }) => {
   const runtimeErrors: string[] = [];
@@ -63,9 +63,28 @@ test('restores lightweight inventory presentation and pause menu', async ({
   await expect(page.locator('[data-player-preview]')).toHaveClass(/wearing-legs/);
   await expect(page.locator('[data-player-preview]')).toHaveClass(/wearing-feet/);
 
+  // The 2x2 crafting machine is part of the main E inventory, not hidden behind
+  // the recipe book. This matches the survival inventory interaction hierarchy.
   const recipeDrawer = page.locator('.recipe-drawer');
   await expect(recipeDrawer).toBeVisible();
   await expect(recipeDrawer).not.toHaveAttribute('open', '');
+  await expect(page.locator('[data-crafting-machine]')).toBeVisible();
+  await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(4);
+  await expect(page.locator('[data-crafting-output]')).toBeVisible();
+
+  // Shift-click moves a stack between the 3x9 storage and 1x9 hotbar without
+  // putting it on the cursor first.
+  await page.locator('[data-inventory-index="0"]').click({ modifiers: ['Shift'] });
+  await expect(page.locator('[data-inventory-index="0"]')).toHaveAttribute(
+    'aria-label',
+    '空槽',
+  );
+  await expect(page.locator('[data-inventory-index="28"]')).toHaveAttribute(
+    'aria-label',
+    /铁头盔/,
+  );
+  await expect(page.locator('[data-inventory-cursor]')).toBeHidden();
+
   await recipeDrawer.locator('summary').click();
   await expect(recipeDrawer).toHaveAttribute('open', '');
   await expect(page.locator('.recipe-card')).not.toHaveCount(0);
