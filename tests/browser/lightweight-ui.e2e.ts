@@ -27,10 +27,10 @@ async function seedArmor(page: Page): Promise<void> {
       count: 0,
       durability: null,
     }));
-    slots[0] = { item: 'iron-helmet', count: 1, durability: 165 };
-    slots[1] = { item: 'iron-chestplate', count: 1, durability: 240 };
-    slots[2] = { item: 'iron-leggings', count: 1, durability: 225 };
-    slots[3] = { item: 'iron-boots', count: 1, durability: 195 };
+    slots[0] = { item: 'iron-helmet', count: 1, durability: null };
+    slots[1] = { item: 'iron-chestplate', count: 1, durability: null };
+    slots[2] = { item: 'iron-leggings', count: 1, durability: null };
+    slots[3] = { item: 'iron-boots', count: 1, durability: null };
     slots[27] = { item: 'iron-pickaxe', count: 1, durability: 250 };
     localStorage.setItem(
       'lost-in-cubes:inventory:world-fragment-01',
