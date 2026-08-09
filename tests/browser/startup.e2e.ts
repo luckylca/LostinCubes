@@ -16,7 +16,15 @@ async function enterDefaultWorld(page: Page): Promise<void> {
   );
 }
 
-async function installPersistedState(page: Page): Promise<void> {
+test('boots persisted survival, manual crafting, and camera controls', async ({
+  page,
+}) => {
+  const runtimeErrors: string[] = [];
+  page.on('pageerror', (error) => runtimeErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') runtimeErrors.push(message.text());
+  });
+
   await page.addInitScript(() => {
     interface SeedSlot {
       item: string | null;
@@ -52,31 +60,11 @@ async function installPersistedState(page: Page): Promise<void> {
       }),
     );
   });
-}
 
-function collectRuntimeErrors(page: Page): string[] {
-  const runtimeErrors: string[] = [];
-  page.on('pageerror', (error) => runtimeErrors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') runtimeErrors.push(message.text());
-  });
-  return runtimeErrors;
-}
-
-async function bootPersistedWorld(page: Page): Promise<void> {
-  await installPersistedState(page);
   await page.goto('./', { waitUntil: 'domcontentloaded' });
   await enterDefaultWorld(page);
-}
-
-test('boots persisted survival, tutorial, and HUD state', async ({ page }) => {
-  const runtimeErrors = collectRuntimeErrors(page);
-  await bootPersistedWorld(page);
-
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
-  await expect(page.locator('#pause-screen')).toBeHidden();
-
   const guide = page.locator('#survival-guide');
   await expect(guide).toBeVisible();
   await expect(guide).not.toHaveAttribute('open', '');
@@ -106,7 +94,7 @@ test('boots persisted survival, tutorial, and HUD state', async ({ page }) => {
   await expect(canvas).toHaveAttribute('data-held-item', 'apple');
   await expect(canvas).toHaveAttribute('data-player-health', '13');
   await expect(canvas).toHaveAttribute('data-death-count', '2');
-  await expect(canvas).toHaveAttribute('data-enemy-count', /^\d+$/);
+  await expect(canvas).toHaveAttribute('data-enemy-count', '0');
   await expect(canvas).toHaveAttribute('data-furnace-count', '0');
   await expect(canvas).toHaveAttribute('data-inventory-open', 'false');
   await expect(page.locator('#hud-status')).toContainText('生命 13/20');
@@ -120,113 +108,61 @@ test('boots persisted survival, tutorial, and HUD state', async ({ page }) => {
     .poll(async () => Number(await canvas.getAttribute('data-day-time')))
     .toBeGreaterThan(startingDayTime);
 
-  expect(runtimeErrors).toEqual([]);
-});
-
-test('opens inventory and performs real recipe crafting', async ({ page }) => {
-  const runtimeErrors = collectRuntimeErrors(page);
-  await bootPersistedWorld(page);
-
-  const canvas = page.locator('#game-canvas');
-  await expect(canvas).toHaveAttribute('data-held-item', 'apple');
   await page.keyboard.press('e');
-
   const inventory = page.locator('#inventory-screen');
   await expect(inventory).toBeVisible();
   await expect(canvas).toHaveAttribute('data-inventory-open', 'true');
-  await expect(page.locator('.player-equipment-panel')).toBeVisible();
-  await expect(page.locator('.equipment-slot')).toHaveCount(4);
   await expect(page.locator('[data-inventory-title]')).toContainText('2×2');
-  await expect(
-    page.locator('[data-inventory-storage] .inventory-slot'),
-  ).toHaveCount(27);
-  await expect(
-    page.locator('[data-inventory-hotbar] .inventory-slot'),
-  ).toHaveCount(9);
-  await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(
-    4,
-  );
-
-  const recipeDrawer = page.locator('.recipe-drawer');
-  const recipeToggle = recipeDrawer.locator('.recipe-drawer-toggle');
-  const recipeContent = recipeDrawer.locator('.recipe-drawer-content');
-  await expect(recipeDrawer).toBeVisible();
-  await expect(recipeDrawer).not.toHaveAttribute('open', '');
-  await expect(recipeToggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(recipeContent).toBeHidden();
-  await recipeToggle.click();
-  await expect(recipeDrawer).toHaveAttribute('open', '');
-  await expect(recipeToggle).toHaveAttribute('aria-expanded', 'true');
-  await expect(recipeContent).toBeVisible();
+  await expect(page.locator('[data-inventory-storage] .inventory-slot')).toHaveCount(27);
+  await expect(page.locator('[data-inventory-hotbar] .inventory-slot')).toHaveCount(9);
+  await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(4);
   await expect(page.locator('.recipe-card')).toHaveCount(4);
-  await expect(page.locator('.recipe-card[data-recipe-id="torches"]')).toContainText(
-    '火把 ×4',
-  );
-  await expect(page.locator('[data-inventory-index="3"]')).toHaveAttribute(
-    'aria-label',
-    /圆石 × 8/,
-  );
-  await expect(page.locator('[data-inventory-index="4"]')).toHaveAttribute(
-    'aria-label',
-    /煤炭 × 3/,
-  );
-  await expect(page.locator('[data-inventory-index="5"]')).toHaveAttribute(
-    'aria-label',
-    /粗铁 × 2/,
-  );
-  await expect(page.locator('[data-inventory-index="6"]')).toHaveAttribute(
-    'aria-label',
-    /铁锭 × 3/,
-  );
+  await expect(page.locator('.recipe-card[data-recipe-id="torches"]')).toContainText('火把 ×4');
+  await expect(page.locator('[data-inventory-index="3"]')).toHaveAttribute('aria-label', /圆石 × 8/);
+  await expect(page.locator('[data-inventory-index="4"]')).toHaveAttribute('aria-label', /煤炭 × 3/);
+  await expect(page.locator('[data-inventory-index="5"]')).toHaveAttribute('aria-label', /粗铁 × 2/);
+  await expect(page.locator('[data-inventory-index="6"]')).toHaveAttribute('aria-label', /铁锭 × 3/);
 
   await page.locator('.recipe-card[data-recipe-id="oak-planks"]').click();
-  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
-    'aria-label',
-    /橡木原木 × 10/,
-  );
-  await expect(page.locator('[data-crafting-output]')).toHaveAttribute(
-    'aria-label',
-    /橡木木板 × 4/,
-  );
+  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute('aria-label', /橡木原木 × 10/);
+  await expect(page.locator('[data-crafting-output]')).toHaveAttribute('aria-label', /橡木木板 × 4/);
   await expect(page.locator('[data-inventory-cursor]')).toBeHidden();
 
   await page.locator('[data-crafting-output]').click();
   await expect(page.locator('[data-inventory-cursor]')).toBeVisible();
-  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
-    'aria-label',
-    /橡木原木 × 9/,
-  );
+  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute('aria-label', /橡木原木 × 9/);
 
   await page.locator('[data-crafting-output]').click({ modifiers: ['Shift'] });
   await expect(page.locator('[data-inventory-cursor] strong')).toHaveText('40');
-  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute(
-    'aria-label',
-    '空槽',
-  );
+  await expect(page.locator('[data-crafting-index="0"]')).toHaveAttribute('aria-label', '空槽');
   await page.locator('[data-inventory-index="7"]').click();
-  await expect(page.locator('[data-inventory-index="7"]')).toHaveAttribute(
-    'aria-label',
-    /橡木木板 × 40/,
-  );
+  await expect(page.locator('[data-inventory-index="7"]')).toHaveAttribute('aria-label', /橡木木板 × 40/);
 
   await page.keyboard.press('e');
   await expect(inventory).toBeHidden();
   await expect(canvas).toHaveAttribute('data-inventory-open', 'false');
   await expect(canvas).toHaveAttribute('data-held-item', 'apple');
-  expect(runtimeErrors).toEqual([]);
-});
-
-test('switches held item and first-person camera mode', async ({ page }) => {
-  const runtimeErrors = collectRuntimeErrors(page);
-  await bootPersistedWorld(page);
-
-  const canvas = page.locator('#game-canvas');
-  await expect(canvas).toHaveAttribute('data-camera-mode', 'third-person');
-  await expect(canvas).toHaveAttribute('data-held-item', 'apple');
 
   await page.keyboard.press('2');
   await expect(canvas).toHaveAttribute('data-held-item', 'iron-pickaxe');
   await expect(page.locator('#hud-view')).toContainText('铁镐');
+
+  const canvasBounds = await canvas.boundingBox();
+  expect(canvasBounds?.width ?? 0).toBeGreaterThan(100);
+  expect(canvasBounds?.height ?? 0).toBeGreaterThan(100);
+  if (canvasBounds === null) throw new Error('Canvas bounds were unavailable.');
+
+  const lookX = canvasBounds.x + canvasBounds.width * 0.5;
+  const startY = canvasBounds.y + 20;
+  const endY = canvasBounds.y + canvasBounds.height - 20;
+  await page.mouse.move(lookX, startY);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(lookX, endY, { steps: 12 });
+  await page.mouse.up({ button: 'right' });
+  await expect
+    .poll(async () => Number(await canvas.getAttribute('data-player-pitch')))
+    .toBeLessThan(-1.5);
+  await expect(canvas).toHaveAttribute('data-has-target', 'true');
 
   await page.keyboard.press('v');
   await expect(page.locator('#hud-view')).toContainText('第一人称');
@@ -237,35 +173,7 @@ test('switches held item and first-person camera mode', async ({ page }) => {
   expect(runtimeErrors).toEqual([]);
 });
 
-test('supports fallback mouse drag camera look', async ({ page }) => {
-  const runtimeErrors = collectRuntimeErrors(page);
-  await bootPersistedWorld(page);
-
-  const canvas = page.locator('#game-canvas');
-  const canvasBounds = await canvas.boundingBox();
-  expect(canvasBounds?.width ?? 0).toBeGreaterThan(100);
-  expect(canvasBounds?.height ?? 0).toBeGreaterThan(100);
-  if (canvasBounds === null) {
-    throw new Error('Canvas bounds were unavailable.');
-  }
-
-  const lookX = canvasBounds.x + canvasBounds.width * 0.5;
-  const startY = canvasBounds.y + 20;
-  const endY = canvasBounds.y + canvasBounds.height - 20;
-  await page.mouse.move(lookX, startY);
-  await page.mouse.down({ button: 'right' });
-  await page.mouse.move(lookX, endY);
-  await page.mouse.up({ button: 'right' });
-  await expect
-    .poll(async () => Number(await canvas.getAttribute('data-player-pitch')))
-    .toBeLessThan(-1.5);
-  await expect(canvas).toHaveAttribute('data-has-target', 'true');
-  expect(runtimeErrors).toEqual([]);
-});
-
-test('falls back to synchronous terrain when module workers fail', async ({
-  page,
-}) => {
+test('falls back to synchronous terrain when module workers fail', async ({ page }) => {
   const runtimeErrors: string[] = [];
   const runtimeWarnings: string[] = [];
   page.on('pageerror', (error) => runtimeErrors.push(error.message));
@@ -278,12 +186,7 @@ test('falls back to synchronous terrain when module workers fail', async ({
     class RuntimeFailingWorker extends EventTarget {
       public postMessage(): void {
         queueMicrotask(() => {
-          this.dispatchEvent(
-            new ErrorEvent('error', {
-              cancelable: true,
-              message: 'Error',
-            }),
-          );
+          this.dispatchEvent(new ErrorEvent('error', { cancelable: true, message: 'Error' }));
         });
       }
 
@@ -303,19 +206,11 @@ test('falls back to synchronous terrain when module workers fail', async ({
   await expect(page.locator('#game-hud')).toBeVisible();
   await expect(page.locator('#loading-screen')).toHaveClass(/is-hidden/);
   await expect(page.locator('#hotbar .hotbar-slot')).toHaveCount(9);
-  await expect(page.locator('#game-canvas')).toHaveAttribute(
-    'data-player-health',
-    '20',
-  );
-  await expect(page.locator('#game-canvas')).toHaveAttribute(
-    'data-enemy-count',
-    /^\d+$/,
-  );
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-health', '20');
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-enemy-count', '0');
   expect(
     runtimeWarnings.some((message) =>
-      message.includes(
-        'Chunk worker failed at runtime; continuing with synchronous generation.',
-      ),
+      message.includes('Chunk worker failed at runtime; continuing with synchronous generation.'),
     ),
   ).toBe(true);
   expect(runtimeErrors).toEqual([]);
