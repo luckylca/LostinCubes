@@ -1,13 +1,8 @@
-import type { PlayerInputCommand } from '../game/commands/PlayerInputCommand';
-import { LocalGameSession } from '../game/session/LocalGameSession';
-import { InputManager } from '../input/InputManager';
-
-const QUALITY_KEY = 'lost-in-cubes:render-quality';
 const HIDE_LOADING_KEY = 'lost-in-cubes:hide-runtime-loading';
 let installed = false;
-let resumeRequested = false;
 let pauseMenuOpen = false;
 let root: HTMLElement | null = null;
+let pointerWasLocked = false;
 
 function storageGet(key: string): string | null {
   try {
@@ -21,12 +16,66 @@ function storageSet(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    // Settings remain valid for the current session when storage is blocked.
+    // Keep the setting for this page even when storage is unavailable.
   }
+}
+
+function canvas(): HTMLCanvasElement | null {
+  return document.querySelector<HTMLCanvasElement>('#game-canvas');
+}
+
+function inventoryOpen(): boolean {
+  return canvas()?.dataset.inventoryOpen === 'true';
+}
+
+function playerDead(): boolean {
+  return canvas()?.dataset.playerHealth === '0';
+}
+
+function renderPause(open: boolean): void {
+  pauseMenuOpen = open && !inventoryOpen() && !playerDead();
+  const menu = createMenu();
+  menu.hidden = !pauseMenuOpen;
+  document.body.classList.toggle('pause-menu-open', pauseMenuOpen);
+}
+
+function requestGameplayResume(): void {
+  if (!pauseMenuOpen) return;
+
+  // LocalGameSession already owns pause state through InputManager. We deliberately
+  // do not monkey-patch either class here. A synthetic Escape supplies the normal
+  // pause-toggle pulse when the game was paused while already unlocked; when the
+  // pause came from leaving pointer lock, InputManager's existing resume flag
+  // supplies the pulse after pointer lock is reacquired.
+  document.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: 'Escape',
+      code: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  document.dispatchEvent(
+    new KeyboardEvent('keyup', {
+      key: 'Escape',
+      code: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+
+  renderPause(false);
+  const gameCanvas = canvas();
+  if (gameCanvas === null || typeof gameCanvas.requestPointerLock !== 'function') {
+    return;
+  }
+  const request = gameCanvas.requestPointerLock();
+  void Promise.resolve(request).catch(() => undefined);
 }
 
 function createMenu(): HTMLElement {
   if (root !== null) return root;
+
   const section = document.createElement('section');
   section.id = 'pause-screen';
   section.hidden = true;
@@ -38,32 +87,14 @@ function createMenu(): HTMLElement {
     '<button type="button" class="pause-primary" data-pause-resume>继续游戏</button>',
     '<details class="pause-settings">',
     '<summary>设置</summary>',
-    '<label><span>渲染质量</span><select data-render-quality><option value="high">高 · 原始清晰度</option><option value="balanced" selected>均衡</option><option value="performance">性能优先</option></select></label>',
-    '<label><span>区块等待提示</span><input type="checkbox" data-runtime-loading /></label>',
-    '<small>均衡是默认档位；高画质使用原始内部清晰度，性能优先进一步降低 3D 内部渲染分辨率。UI 清晰度、世界模拟和区块数量不受影响。</small>',
+    '<label><span>显示区块等待提示</span><input type="checkbox" data-runtime-loading /></label>',
+    '<small>0.4.8 暂不恢复动态渲染质量切换，避免重新改动 Babylon Engine 和 RenderLoop。画面设置会在独立性能测试后再加入。</small>',
     '</details>',
     '<button type="button" class="pause-secondary" data-pause-exit>返回世界列表</button>',
-    '<p class="pause-hint">Esc 继续 · E 打开背包</p>',
+    '<p class="pause-hint">Esc 继续 · E 背包</p>',
     '</div>',
   ].join('');
   document.querySelector('#app')?.append(section);
-
-  const quality = section.querySelector<HTMLSelectElement>('[data-render-quality]');
-  const storedQuality = storageGet(QUALITY_KEY);
-  if (
-    quality !== null &&
-    (storedQuality === 'high' ||
-      storedQuality === 'balanced' ||
-      storedQuality === 'performance')
-  ) {
-    quality.value = storedQuality;
-  }
-  quality?.addEventListener('change', () => {
-    storageSet(QUALITY_KEY, quality.value);
-    window.dispatchEvent(
-      new CustomEvent('lostincubes:render-quality', { detail: quality.value }),
-    );
-  });
 
   const loading = section.querySelector<HTMLInputElement>('[data-runtime-loading]');
   const showRuntimeLoading = storageGet(HIDE_LOADING_KEY) !== '1';
@@ -77,15 +108,7 @@ function createMenu(): HTMLElement {
 
   section
     .querySelector<HTMLButtonElement>('[data-pause-resume]')
-    ?.addEventListener('click', () => {
-      if (!pauseMenuOpen) return;
-      resumeRequested = true;
-      const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');
-      if (canvas !== null && typeof canvas.requestPointerLock === 'function') {
-        const request = canvas.requestPointerLock();
-        void Promise.resolve(request).catch(() => undefined);
-      }
-    });
+    ?.addEventListener('click', requestGameplayResume);
   section
     .querySelector<HTMLButtonElement>('[data-pause-exit]')
     ?.addEventListener('click', () => {
@@ -96,53 +119,48 @@ function createMenu(): HTMLElement {
   return section;
 }
 
-function renderPause(open: boolean): void {
-  const menu = createMenu();
-  menu.hidden = !open;
-  document.body.classList.toggle('pause-menu-open', open);
-}
-
 export function installPauseMenuRuntime(): void {
   if (installed) return;
   installed = true;
   createMenu();
+  pointerWasLocked = document.pointerLockElement === canvas();
 
-  // The command pulse is the source of truth for the Esc menu. PlayerState's
-  // `paused` flag intentionally also becomes true for inventory/crafting/furnace
-  // menus, so using that flag alone makes the Esc overlay cover the E inventory.
-  // eslint-disable-next-line @typescript-eslint/unbound-method
-  const originalPoll = InputManager.prototype.poll;
-  InputManager.prototype.poll = function pauseAwarePoll(
-    issuedAtTick: number,
-  ): PlayerInputCommand {
-    const command = originalPoll.call(this, issuedAtTick);
-    const inventoryOpen =
-      document.querySelector<HTMLCanvasElement>('#game-canvas')?.dataset
-        .inventoryOpen === 'true';
-    const withResume = resumeRequested
-      ? { ...command, togglePause: true }
-      : command;
-    resumeRequested = false;
+  document.addEventListener('keydown', (event) => {
+    if (!event.isTrusted || event.repeat || event.code !== 'Escape') return;
+    if (inventoryOpen() || playerDead()) return;
+    // When pointer lock is active the browser normally unlocks it first; the
+    // pointerlockchange handler below opens the menu. This branch covers the
+    // fallback/unlocked case without touching InputManager internals.
+    if (document.pointerLockElement === canvas()) return;
+    queueMicrotask(() => renderPause(!pauseMenuOpen));
+  });
 
-    if (withResume.togglePause && !inventoryOpen) {
-      pauseMenuOpen = !pauseMenuOpen;
-      renderPause(pauseMenuOpen);
+  document.addEventListener('pointerlockchange', () => {
+    const locked = document.pointerLockElement === canvas();
+    if (pointerWasLocked && !locked && !inventoryOpen() && !playerDead()) {
+      renderPause(true);
+    } else if (locked) {
+      renderPause(false);
     }
+    pointerWasLocked = locked;
+  });
 
-    if (!pauseMenuOpen) return withResume;
-    // Do not allow E to open a second full-screen UI behind the pause menu.
-    return { ...withResume, toggleInventory: false };
-  };
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('[data-action="toggle-pause"]') === null) return;
+    if (inventoryOpen() || playerDead()) return;
+    queueMicrotask(() => renderPause(!pauseMenuOpen));
+  });
 
-  // eslint-disable-next-line @typescript-eslint/unbound-method
-  const originalStep = LocalGameSession.prototype.step;
-  LocalGameSession.prototype.step = function pauseAwareStep(
-    stepSeconds: number,
-  ): void {
-    originalStep.call(this, stepSeconds);
-    const shouldShow =
-      pauseMenuOpen && !this.isDead && this.getWorldState().player.paused;
-    if (!shouldShow && this.isDead) pauseMenuOpen = false;
-    renderPause(shouldShow);
-  };
+  const gameCanvas = canvas();
+  if (gameCanvas !== null) {
+    const observer = new MutationObserver(() => {
+      if (inventoryOpen() || playerDead()) renderPause(false);
+    });
+    observer.observe(gameCanvas, {
+      attributes: true,
+      attributeFilter: ['data-inventory-open', 'data-player-health'],
+    });
+  }
 }
