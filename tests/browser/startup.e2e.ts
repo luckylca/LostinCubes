@@ -116,6 +116,13 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   await expect(page.locator('[data-inventory-storage] .inventory-slot')).toHaveCount(27);
   await expect(page.locator('[data-inventory-hotbar] .inventory-slot')).toHaveCount(9);
   await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(4);
+
+  const recipeDrawer = page.locator('.recipe-drawer');
+  await expect(recipeDrawer).toBeVisible();
+  await expect(recipeDrawer).not.toHaveAttribute('open', '');
+  await recipeDrawer.locator('summary').click();
+  await expect(recipeDrawer).toHaveAttribute('open', '');
+
   await expect(page.locator('.recipe-card')).toHaveCount(4);
   await expect(page.locator('.recipe-card[data-recipe-id="torches"]')).toContainText('火把 ×4');
   await expect(page.locator('[data-inventory-index="3"]')).toHaveAttribute('aria-label', /圆石 × 8/);
