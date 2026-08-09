@@ -9,7 +9,6 @@ import {
   ClassicEntityManager,
   type PlayerAttackResult,
 } from './ClassicEntityManager';
-import { CreatureVisualRuntime } from './CreatureVisualRuntime';
 
 installBlockRegistryBlastAlias();
 
@@ -45,7 +44,6 @@ function browserStorage(): Storage | null {
 export class NightStalkerManager {
   readonly #scene: Scene;
   readonly #entities: ClassicEntityManager;
-  readonly #visuals: CreatureVisualRuntime;
   readonly #onMonsterAmbient: (() => void) | undefined;
   #combatCooldown = 0;
   #ambientElapsed = 0;
@@ -53,7 +51,10 @@ export class NightStalkerManager {
   public constructor(scene: Scene, world: VoxelWorldData, callbacks: NightStalkerCallbacks) {
     this.#scene = scene;
     this.#onMonsterAmbient = callbacks.onMonsterAmbient;
-    this.#visuals = new CreatureVisualRuntime(scene);
+    // Stability rollback: use ClassicEntityManager's own lightweight source
+    // meshes directly. The v0.4.3 CreatureVisualRuntime created/merged/cloned a
+    // second presentation layer for every creature and is deliberately disabled
+    // until memory/frame-time profiling can prove it safe.
     this.#entities = new ClassicEntityManager(scene, world, world.persistenceId, browserStorage(), {
       onPlayerDamage: (amount, source) => callbacks.onPlayerDamage(amount, source),
       onDrop: callbacks.onDrop,
@@ -109,10 +110,27 @@ export class NightStalkerManager {
     return true;
   }
 
-  public primeTnt(x: number, y: number, z: number): boolean { return this.#entities.primeTnt({ x, y, z }); }
-  public save(): void { this.#entities.save(); }
-  public get activeCount(): number { return this.#entities.activeCount; }
-  public get hostileCount(): number { return this.#entities.hostileCount; }
-  public get passiveCount(): number { return this.#entities.passiveCount; }
-  public dispose(): void { this.#visuals.dispose(); this.#entities.dispose(); }
+  public primeTnt(x: number, y: number, z: number): boolean {
+    return this.#entities.primeTnt({ x, y, z });
+  }
+
+  public save(): void {
+    this.#entities.save();
+  }
+
+  public get activeCount(): number {
+    return this.#entities.activeCount;
+  }
+
+  public get hostileCount(): number {
+    return this.#entities.hostileCount;
+  }
+
+  public get passiveCount(): number {
+    return this.#entities.passiveCount;
+  }
+
+  public dispose(): void {
+    this.#entities.dispose();
+  }
 }
