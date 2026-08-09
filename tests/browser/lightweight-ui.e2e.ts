@@ -76,6 +76,11 @@ test('restores lightweight inventory presentation and pause menu', async ({
   await page.keyboard.press('Escape');
   const pause = page.locator('#pause-screen');
   await expect(pause).toBeVisible();
+
+  const pauseSettings = pause.locator('.pause-settings');
+  await expect(pauseSettings).not.toHaveAttribute('open', '');
+  await pauseSettings.locator('summary').click();
+  await expect(pauseSettings).toHaveAttribute('open', '');
   await expect(pause.locator('[data-runtime-loading]')).toBeVisible();
   await expect(pause.locator('[data-render-quality]')).toHaveCount(0);
 
