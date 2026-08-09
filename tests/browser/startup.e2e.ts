@@ -112,7 +112,7 @@ test('boots persisted survival, manual crafting, and camera controls', async ({
   const inventory = page.locator('#inventory-screen');
   await expect(inventory).toBeVisible();
   await expect(canvas).toHaveAttribute('data-inventory-open', 'true');
-  await expect(page.locator('[data-inventory-title]')).toContainText('2×2');
+  await expect(page.locator('[data-inventory-title]')).toContainText('物品栏');
   await expect(page.locator('[data-inventory-storage] .inventory-slot')).toHaveCount(27);
   await expect(page.locator('[data-inventory-hotbar] .inventory-slot')).toHaveCount(9);
   await expect(page.locator('[data-crafting-grid] .crafting-input-slot')).toHaveCount(4);
