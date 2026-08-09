@@ -83,7 +83,8 @@ function setItemPresentation(
     durabilityElement?.querySelector<HTMLElement>('span') ?? null;
   const definition =
     stack.item === null ? null : getItemDefinition(stack.item);
-  const durable = definition?.maximumDurability !== null && definition !== null;
+  const maximumDurability = definition?.maximumDurability ?? null;
+  const durable = maximumDurability !== null;
   button.classList.toggle('is-empty', definition === null);
   button.classList.toggle('is-tool', definition?.kind === 'tool');
   button.classList.toggle('is-durable', durable);
@@ -103,13 +104,11 @@ function setItemPresentation(
   }
   if (
     durabilityFill !== null &&
-    durable &&
-    stack.durability !== null &&
-    definition?.maximumDurability !== null &&
-    definition !== null
+    maximumDurability !== null &&
+    stack.durability !== null
   ) {
     durabilityFill.style.scale = `${String(
-      stack.durability / definition.maximumDurability,
+      stack.durability / maximumDurability,
     )} 1`;
   }
 }
