@@ -65,6 +65,8 @@ export interface VoxelWorldStats {
 
 const MAXIMUM_URGENT_MESH_UPLOADS_PER_FRAME = 2;
 const MAXIMUM_BACKGROUND_MESH_UPLOADS_PER_FRAME = 1;
+const MAXIMUM_BACKGROUND_FULL_BUILD_BACKLOG = 6;
+const BACKGROUND_RELIGHT_BATCH_SIZE = 2;
 const RECENT_CHUNK_CACHE_LIMIT = 12;
 const BLOCK_EDIT_PRIORITY = -10_000;
 const CRITICAL_CHUNK_PRIORITY = -100_000;
@@ -247,9 +249,12 @@ export class VoxelWorldRenderer {
       this.#updateDesiredKeys(centerChunkX, centerChunkZ);
       this.#cancelUndesiredWork();
       this.#unloadDistantChunks();
-      this.#scheduleMissingChunks();
     }
 
+    // Keep only a small rolling window of ordinary full-build work alive. This
+    // avoids maintaining a 10+ item backlog of chunks that may become obsolete
+    // before the player reaches them, while still replenishing work every frame.
+    this.#scheduleMissingChunks();
     return this.getStats();
   }
 
@@ -470,14 +475,37 @@ export class VoxelWorldRenderer {
 
   #flushDeferredRelighting(): void {
     if (this.#disposed || this.#deferredRelightKeys.size === 0) return;
-    if (this.#urgentKeys.size > 0 || this.#editWorkers.queuedCount > 0) {
+
+    for (const key of [...this.#deferredRelightKeys]) {
+      if (!this.#desiredKeys.has(key)) this.#deferredRelightKeys.delete(key);
+    }
+    if (this.#deferredRelightKeys.size === 0) return;
+
+    const fullBuildBacklog = this.#workers.queuedCount + this.#completed.length;
+    if (
+      this.#urgentKeys.size > 0 ||
+      this.#editWorkers.queuedCount > 0 ||
+      fullBuildBacklog >= MAXIMUM_BACKGROUND_FULL_BUILD_BACKLOG
+    ) {
       this.#scheduleRelightFlush(BUSY_RELIGHT_RETRY_MILLISECONDS);
       return;
     }
 
-    const keys = [...this.#deferredRelightKeys];
-    this.#deferredRelightKeys.clear();
+    const keys = [...this.#deferredRelightKeys].sort((left, right) => {
+      const [leftX, leftZ] = this.#parseChunkKey(left);
+      const [rightX, rightZ] = this.#parseChunkKey(right);
+      return this.#getPriority(leftX, leftZ) - this.#getPriority(rightX, rightZ);
+    });
+    let scheduled = 0;
     for (const key of keys) {
+      if (scheduled >= BACKGROUND_RELIGHT_BATCH_SIZE) break;
+      if (
+        this.#workers.queuedCount + this.#completed.length >=
+        MAXIMUM_BACKGROUND_FULL_BUILD_BACKLOG
+      ) {
+        break;
+      }
+      this.#deferredRelightKeys.delete(key);
       const [chunkX, chunkZ] = this.#parseChunkKey(key);
       const distancePriority = Math.max(this.#getPriority(chunkX, chunkZ), 0);
       this.#invalidateChunk(
@@ -485,6 +513,11 @@ export class VoxelWorldRenderer {
         chunkZ,
         BACKGROUND_RELIGHT_PRIORITY + distancePriority,
       );
+      scheduled += 1;
+    }
+
+    if (this.#deferredRelightKeys.size > 0) {
+      this.#scheduleRelightFlush(BUSY_RELIGHT_RETRY_MILLISECONDS);
     }
   }
 
@@ -562,6 +595,9 @@ export class VoxelWorldRenderer {
     for (const key of [...this.#editDirtySections.keys()]) {
       if (!this.#desiredKeys.has(key)) this.#editDirtySections.delete(key);
     }
+    for (const key of [...this.#deferredRelightKeys]) {
+      if (!this.#desiredKeys.has(key)) this.#deferredRelightKeys.delete(key);
+    }
     for (let index = this.#completed.length - 1; index >= 0; index -= 1) {
       const completed = this.#completed[index];
       if (completed !== undefined && !this.#desiredKeys.has(completed.key)) {
@@ -615,20 +651,28 @@ export class VoxelWorldRenderer {
   }
 
   #scheduleMissingChunks(): void {
-    const coordinates: (readonly [number, number, number])[] = [];
+    const coordinates: (readonly [number, number, number, boolean])[] = [];
     for (const key of this.#desiredKeys) {
       if (this.#chunks.has(key) || this.#restoreRecentChunk(key)) continue;
       const [chunkX, chunkZ] = this.#parseChunkKey(key);
-      const priority = this.#criticalKeys.has(key)
+      const critical = this.#criticalKeys.has(key);
+      const priority = critical
         ? CRITICAL_CHUNK_PRIORITY +
           Math.abs(chunkX - (this.#centerChunkX ?? chunkX)) +
           Math.abs(chunkZ - (this.#centerChunkZ ?? chunkZ))
         : this.#getPriority(chunkX, chunkZ);
-      coordinates.push([chunkX, chunkZ, priority]);
+      coordinates.push([chunkX, chunkZ, priority, critical]);
     }
     coordinates.sort((left, right) => left[2] - right[2]);
 
-    for (const [chunkX, chunkZ, priority] of coordinates) {
+    for (const [chunkX, chunkZ, priority, critical] of coordinates) {
+      if (
+        !critical &&
+        this.#workers.queuedCount + this.#completed.length >=
+          MAXIMUM_BACKGROUND_FULL_BUILD_BACKLOG
+      ) {
+        break;
+      }
       this.#scheduleChunk(chunkX, chunkZ, priority);
     }
   }
